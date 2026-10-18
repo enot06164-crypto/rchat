@@ -115,16 +115,39 @@ pub fn chat_line(chat: &ChatRecord) -> String {
 }
 
 pub fn device_line(device: &DeviceRecord) -> String {
-    format!(
-        "{} — {} ({}){}",
-        device.device_id,
-        device.name,
-        device.platform,
-        match device.revoked_at_ms {
-            Some(revoked) => format!(" [отозвано {}]", timestamp(revoked)),
-            None => String::new(),
-        }
-    )
+    let mut line = format!(
+        "{} — {} ({})",
+        device.device_id, device.name, device.platform
+    );
+    if let Some(fingerprint) = key_fingerprint(device) {
+        line.push_str(&format!(" [ключ: {fingerprint}]"));
+    }
+    if let Some(revoked) = device.revoked_at_ms {
+        line.push_str(&format!(" [отозвано {}]", timestamp(revoked)));
+    }
+    line
+}
+
+/// Отпечаток identity-ключей устройства: SHA-256 от `ed25519 || curve25519`,
+/// первые 16 байт четырьмя группами hex.
+///
+/// Сравнение отпечатков по независимому каналу подтверждает идентичность
+/// устройства собеседника (см. `docs/threat-model.md`).
+pub fn key_fingerprint(device: &DeviceRecord) -> Option<String> {
+    use sha2::Digest as _;
+
+    if device.ed25519.is_empty() || device.curve25519.is_empty() {
+        return None;
+    }
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&device.ed25519);
+    hasher.update(&device.curve25519);
+    let digest = hasher.finalize();
+    let groups: Vec<String> = digest[..16]
+        .chunks(4)
+        .map(|chunk| chunk.iter().map(|byte| format!("{byte:02x}")).collect())
+        .collect();
+    Some(groups.join(" "))
 }
 
 pub fn receipt_line(receipt: &ReceiptRecord) -> String {

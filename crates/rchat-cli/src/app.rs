@@ -11,6 +11,7 @@ use rchat_core::config::ClientConfig;
 use rchat_core::events::{EventError, UiEvent};
 use rchat_core::traits::{secret_keys, SecretStore, Storage};
 use rchat_core::types::{ChatRecord, MessageStatus, SyncProgress};
+use rchat_crypto_provider::VodozemacCryptoProvider;
 use rchat_transport_ws::{TlsTrust, WsTransportConfig, WsTransportFactory};
 use zeroize::Zeroizing;
 
@@ -48,12 +49,17 @@ pub async fn run(cli: Cli) -> Result<()> {
         tls: tls.clone(),
         ..Default::default()
     })?;
-    // E2E-провайдер ещё не подключён: ядро принимает только согласованную
-    // пару «e2e_enabled» + «crypto provider», поэтому режим выключен.
+    // E2E включён всегда: провайдер Olm использует штатные pickle-формы
+    // vodozemac, ключ шифрования pickle — в хранилище секретов. Чаты без E2E
+    // создаются только явно (chat-create без --e2e).
+    let crypto = Arc::new(VodozemacCryptoProvider::new(
+        storage.clone(),
+        secrets.clone(),
+    ));
     let config = ClientConfig {
         device_name: resolve_device_name(&cli),
         client_name: "rchat-cli".to_string(),
-        e2e_enabled: false,
+        e2e_enabled: true,
         ..Default::default()
     };
     let client = ClientBuilder::new(
@@ -62,6 +68,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         storage.clone(),
         secrets.clone(),
     )
+    .crypto_provider(crypto)
     .build()?;
 
     let ctx = Context {
@@ -119,8 +126,26 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
             print_session(ctx);
             Ok(())
         }
-        Command::Devices => {
-            let devices = ctx.client.devices().await?;
+        Command::Devices { chat } => {
+            let devices = match chat {
+                Some(reference) => {
+                    // Устройства всех участников чата: так можно сверить
+                    // отпечаток собеседника по независимому каналу.
+                    let chat = resolve_chat(ctx, &reference).await?;
+                    let members = ctx.storage.chat_members(&chat.chat_id).await?;
+                    let user_ids: Vec<String> = members
+                        .iter()
+                        .map(|member| member.user_id.clone())
+                        .collect();
+                    let _ = ctx.client.refresh_devices(&user_ids).await;
+                    let mut devices = Vec::new();
+                    for member in &members {
+                        devices.extend(ctx.storage.list_devices_of(&member.user_id).await?);
+                    }
+                    devices
+                }
+                None => ctx.client.devices().await?,
+            };
             if devices.is_empty() {
                 println!("Устройств нет.");
             }
@@ -145,13 +170,9 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
             Ok(())
         }
         Command::ChatCreate { peer, e2e } => {
-            if e2e {
-                return Err(
-                    "E2E-чаты станут доступны после подключения провайдера криптографии (следующий этап)".into(),
-                );
-            }
-            let chat = ctx.client.create_direct_chat(&peer, false).await?;
-            println!("Создан личный чат с {peer}: {}", chat.chat_id);
+            let chat = ctx.client.create_direct_chat(&peer, e2e).await?;
+            let mode = if e2e { "E2E (Olm)" } else { "без E2E (dev)" };
+            println!("Создан личный чат с {peer} [{mode}]: {}", chat.chat_id);
             println!("{}", format::chat_line(&chat));
             Ok(())
         }

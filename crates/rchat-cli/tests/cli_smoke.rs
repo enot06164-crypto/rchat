@@ -203,6 +203,150 @@ async fn register_chat_send_sync_history() {
     assert!(stdout.contains(&chat_id), "stdout: {stdout}");
 }
 
+/// Создаёт E2E-чат alice → bob и возвращает его идентификатор.
+async fn create_e2e_chat(alice_dir: &Path, port: u16, peer: &str) -> String {
+    let (code, stdout, stderr) = cli(alice_dir, port, &["chat-create", peer, "--e2e"], None).await;
+    assert_ok(code, &stdout, &stderr, "chat-create --e2e");
+    assert!(stdout.contains("E2E"), "stdout: {stdout}");
+    stdout
+        .lines()
+        .next()
+        .expect("первая строка вывода")
+        .rsplit(": ")
+        .next()
+        .expect("chat_id")
+        .trim()
+        .to_string()
+}
+
+/// Путь серверной БД тестового сервера на временном каталоге.
+fn server_db_path(server: &TestServer) -> std::path::PathBuf {
+    server
+        ._dir
+        .as_ref()
+        .expect("сервер с временной БД")
+        .path()
+        .join("server.sqlite3")
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// Проверяет, что в серверной БД нет открытого текста E2E-сообщений,
+/// а шифротексты получателей на месте.
+fn assert_server_has_no_plaintext(db: &Path, needle: &str, min_recipients: usize) {
+    let conn =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open server db");
+
+    let mut stmt = conn
+        .prepare("SELECT plaintext_dev FROM messages")
+        .expect("prepare messages");
+    let rows = stmt
+        .query_map([], |row| row.get::<_, Option<String>>(0))
+        .expect("query messages");
+    for row in rows {
+        if let Some(text) = row.expect("row") {
+            assert!(
+                !text.contains(needle),
+                "messages.plaintext_dev содержит открытый текст"
+            );
+        }
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT ciphertext FROM message_recipients")
+        .expect("prepare recipients");
+    let rows = stmt
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))
+        .expect("query recipients");
+    let mut recipients = 0usize;
+    for row in rows {
+        let value = row.expect("row");
+        recipients += 1;
+        assert!(!value.is_empty(), "шифротекст получателя пуст");
+        assert!(
+            !contains_bytes(&value, needle.as_bytes()),
+            "ciphertext содержит открытый текст"
+        );
+    }
+    assert!(
+        recipients >= min_recipients,
+        "ожидалось минимум {min_recipients} шифротекстов, найдено {recipients}"
+    );
+
+    let mut stmt = conn
+        .prepare("SELECT payload FROM sync_events")
+        .expect("prepare events");
+    let rows = stmt
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))
+        .expect("query events");
+    for row in rows {
+        let value = row.expect("row");
+        assert!(
+            !contains_bytes(&value, needle.as_bytes()),
+            "sync_events.payload содержит открытый текст"
+        );
+    }
+}
+
+/// Сквозной E2E-сценарий через настоящий бинарник CLI: E2E-чат, отправка,
+/// синхронизация, расшифровка вторым клиентом и проверка, что серверная БД
+/// не содержит открытый текст.
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_chat_send_sync_history() {
+    let server = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+
+    let stdout = register(&alice_dir, server.port, "alice", "secret-alice").await;
+    assert!(stdout.contains("Зарегистрирован"), "stdout: {stdout}");
+    register(&bob_dir, server.port, "bob", "secret-bob").await;
+
+    let chat_id = create_e2e_chat(&alice_dir, server.port, "bob").await;
+    assert!(!chat_id.is_empty());
+
+    // Отправка под E2E: на сервер уходит только шифротекст.
+    let secret = "очень секретный текст 13579";
+    let (code, stdout, stderr) =
+        cli(&alice_dir, server.port, &["send", &chat_id, secret], None).await;
+    assert_ok(code, &stdout, &stderr, "send e2e");
+    assert!(stdout.contains("Отправлено."), "stdout: {stdout}");
+
+    let db = server_db_path(&server);
+    assert_server_has_no_plaintext(&db, secret, 1);
+
+    // Получатель синхронизируется и расшифровывает.
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync bob");
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["history", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "history bob");
+    assert!(stdout.contains(secret), "stdout: {stdout}");
+
+    // Ответ: сессия уже установлена, тоже E2E.
+    let reply = "ответ 24680";
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["send", &chat_id, reply], None).await;
+    assert_ok(code, &stdout, &stderr, "send reply");
+    assert_server_has_no_plaintext(&db, reply, 2);
+
+    let (code, stdout, stderr) = cli(&alice_dir, server.port, &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync alice");
+    let (code, stdout, stderr) = cli(&alice_dir, server.port, &["history", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "history alice");
+    assert!(stdout.contains(secret), "stdout: {stdout}");
+    assert!(stdout.contains(reply), "stdout: {stdout}");
+
+    // Отпечатки устройств участников доступны для проверки.
+    let (code, stdout, stderr) =
+        cli(&alice_dir, server.port, &["devices", "--chat", "bob"], None).await;
+    assert_ok(code, &stdout, &stderr, "devices --chat");
+    assert!(stdout.contains("ключ:"), "stdout: {stdout}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn offline_message_is_flushed_after_reconnect() {
     let root = tempfile::tempdir().expect("tempdir");

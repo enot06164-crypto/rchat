@@ -496,8 +496,9 @@ impl Client {
         Ok(records)
     }
 
-    /// Отзывает устройство аккаунта. Текущее устройство отозвать нельзя
-    /// (сервер вернёт ошибку); для него используйте `logout`.
+    /// Отзывает устройство аккаунта. Собственное устройство отозвать можно:
+    /// сервер отключит его соединения и аннулирует авторизацию (для выхода
+    /// из аккаунта используйте `logout`).
     pub async fn revoke_device(&self, device_id: &str) -> Result<(), CoreError> {
         let resp = self
             .request(proto::request::Method::RevokeDevice(
@@ -550,6 +551,15 @@ impl Client {
             .await?
             .ok_or(CoreError::NotAuthenticated)?;
         let device_id = self.inner.device_id()?;
+
+        // Перед шифрованием обновляем кэш устройств участников: набор мог
+        // измениться (новое устройство или отзыв). Без сети продолжаем с
+        // кэшем — отправка при наличии установленных сессий возможна офлайн.
+        if chat.e2e_mode == proto::E2eMode::OlmV1 {
+            let members = self.inner.storage.chat_members(chat_id).await?;
+            let user_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+            let _ = self.refresh_devices(&user_ids).await;
+        }
 
         let local_id = convert::new_local_message_id()?;
         let client = self.clone();

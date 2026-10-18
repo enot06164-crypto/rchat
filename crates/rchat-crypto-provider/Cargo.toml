@@ -7,3 +7,9 @@ license.workspace = true
 
 [dependencies]
 rchat-core.workspace = true
+rchat-proto.workspace = true
+async-trait.workspace = true
+getrandom.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+vodozemac.workspace = true
+zeroize.workspace = true

@@ -712,6 +712,18 @@ fn upsert_chat_sql(
                 ],
             )
             .map_err(|e| map_sql("upsert_chat member", e))?;
+            // Кеш профилей: из состава чата виден логин собеседника, а он
+            // нужен для разрешения «логин → чат» без полного snapshot.
+            if !member.username.is_empty() {
+                conn.execute(
+                    "INSERT INTO users(user_id, username, display_name) VALUES(?1, ?2, ?3)
+                     ON CONFLICT(user_id) DO UPDATE SET
+                         username = excluded.username,
+                         display_name = excluded.display_name",
+                    rusqlite::params![member.user_id, member.username, member.display_name],
+                )
+                .map_err(|e| map_sql("upsert_chat member user", e))?;
+            }
         }
     }
     Ok(())

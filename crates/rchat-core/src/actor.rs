@@ -1241,6 +1241,18 @@ impl Ctx<'_> {
             .await?
             .ok_or(CoreError::NotAuthenticated)?;
 
+        // Пересборка E2E-запроса требует актуального кэша устройств
+        // участников: набор мог измениться (новое устройство, отзыв).
+        // Обновление best-effort: если оно не удалось, compose решит сам,
+        // а сервер при неполном покрытии вернёт E2eKeysMissing.
+        if chat.e2e_mode == proto::E2eMode::OlmV1 {
+            let members = self.inner.storage.chat_members(&chat.chat_id).await?;
+            let user_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+            if let Err(error) = self.refresh_devices_batch(&user_ids).await {
+                warn!(error = %error, "device refresh before outbox rebuild failed");
+            }
+        }
+
         let inner = Arc::clone(self.inner);
         let this: &mut Self = self;
         let fetch = move |ids: Vec<String>| async move { this.fetch_bundles(&ids).await };
@@ -1316,35 +1328,58 @@ impl Ctx<'_> {
         Ok(())
     }
 
-    async fn flush_device_refresh(&mut self) -> Result<(), CoreError> {
-        let user_ids: Vec<String> = self.st.device_refresh.iter().cloned().collect();
-        for user_id in user_ids {
-            let method = request::Method::GetDevices(proto::GetDevicesRequest {
-                user_ids: vec![user_id.clone()],
-                include_own: true,
-            });
-            match self.request(method).await {
-                Ok(response::Result::GetDevices(result)) => {
-                    for device in &result.devices {
-                        let record = convert::device_from_proto(device)?;
-                        if !record.user_id.is_empty() {
-                            self.inner.storage.upsert_device(&record).await?;
-                        }
-                    }
-                    self.st.device_refresh.remove(&user_id);
+    /// Запрашивает устройства указанных пользователей одним запросом и
+    /// обновляет локальный кэш. Сервер молча пропускает чужих пользователей
+    /// без общего чата, поэтому батч безопасен.
+    async fn refresh_devices_batch(&mut self, user_ids: &[String]) -> Result<(), CoreError> {
+        if user_ids.is_empty() {
+            return Ok(());
+        }
+        // Сервер ограничивает число пользователей в запросе — идём чанками.
+        let chunk_size = rchat_proto::limits::MAX_USER_IDS_PER_REQUEST.max(1);
+        for chunk in user_ids.chunks(chunk_size) {
+            let result = match self
+                .request(request::Method::GetDevices(proto::GetDevicesRequest {
+                    user_ids: chunk.to_vec(),
+                    include_own: true,
+                }))
+                .await?
+            {
+                response::Result::GetDevices(result) => result,
+                response::Result::Error(error) => return Err(rejected_from(&error)),
+                other => {
+                    return Err(CoreError::Protocol(format!(
+                        "unexpected devices response: {other:?}"
+                    )))
                 }
-                Ok(other) => {
-                    warn!("unexpected devices response: {other:?}");
-                    self.st.device_refresh.remove(&user_id);
-                }
-                Err(error) if is_transport_error(&error) => return Err(error),
-                Err(error) => {
-                    warn!(error = %error, "device refresh failed");
-                    self.st.device_refresh.remove(&user_id);
+            };
+            for device in &result.devices {
+                let record = convert::device_from_proto(device)?;
+                if !record.user_id.is_empty() {
+                    self.inner.storage.upsert_device(&record).await?;
                 }
             }
         }
         Ok(())
+    }
+
+    async fn flush_device_refresh(&mut self) -> Result<(), CoreError> {
+        let user_ids: Vec<String> = self.st.device_refresh.iter().cloned().collect();
+        if user_ids.is_empty() {
+            return Ok(());
+        }
+        match self.refresh_devices_batch(&user_ids).await {
+            Ok(()) => {
+                self.st.device_refresh.clear();
+                Ok(())
+            }
+            Err(error) if is_transport_error(&error) => Err(error),
+            Err(error) => {
+                warn!(error = %error, "device refresh failed");
+                self.st.device_refresh.clear();
+                Ok(())
+            }
+        }
     }
 
     // --- команды ---
