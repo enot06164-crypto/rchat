@@ -155,6 +155,16 @@ impl Server {
         method: request::Method,
     ) -> Result<response::Result, ServerError> {
         use request::Method as M;
+        // Сессия может истечь, пока соединение живо: права снимаются сразу,
+        // следующий запрос получает ту же ошибку, что и при Resume.
+        let session_expired = state
+            .auth
+            .as_ref()
+            .is_some_and(|auth| auth.session.expires_at_ms <= rchat_proto::now_ms());
+        if session_expired {
+            state.auth = None;
+            return Err(ServerError::session_expired());
+        }
         let result = match method {
             M::Register(request) => self.handle_register(state, request).await?,
             M::Login(request) => self.handle_login(state, request).await?,
