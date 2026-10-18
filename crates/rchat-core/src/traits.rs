@@ -226,6 +226,25 @@ pub struct KeyUpload {
     pub fallback_key: Option<OneTimeKey>,
 }
 
+/// Результат шифрования сообщения групповой (Megolm) сессией.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupEncryption {
+    /// Идентификатор megolm-сессии (base64) для поля `group_session_id`.
+    pub session_id: String,
+    /// Megolm-ciphertext для поля `group_ciphertext`.
+    pub ciphertext: Vec<u8>,
+    /// Ключ сессии для рассылки устройствам (если запрошен в [`CryptoProvider::group_encrypt`]).
+    /// Формат непрозрачен для ядра: передаётся обратно в [`CryptoProvider::encrypt_group_key`].
+    pub session_key: Option<Vec<u8>>,
+}
+
+/// Итог приёма ключа групповой сессии.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupKeyInfo {
+    pub chat_id: String,
+    pub session_id: String,
+}
+
 /// Контракт E2E-провайдера. Описывает операции уровня протокола
 /// (установление сессии, шифрование, расшифрование), а не низкоуровневые
 /// примитивы. Реализация сама отвечает за формат и защиту своего состояния.
@@ -260,6 +279,44 @@ pub trait CryptoProvider: Send + Sync {
         sender: &PeerDevice,
         message: &EncryptedMessage,
     ) -> Result<Vec<u8>, CryptoError>;
+    /// Шифрует сообщение групповой (Megolm) сессией чата, создавая исходящую
+    /// сессию при необходимости. При `share_key = true` возвращает ключ
+    /// сессии, соответствующий этому (первому в ратчете) ciphertext-у, —
+    /// для рассылки устройствам через [`CryptoProvider::encrypt_group_key`].
+    async fn group_encrypt(
+        &self,
+        chat_id: &str,
+        plaintext: &[u8],
+        share_key: bool,
+    ) -> Result<GroupEncryption, CryptoError>;
+    /// Шифрует ключ групповой сессии Olm-конвертами для целевых устройств
+    /// (payload_kind = GROUP_KEY на уровне протокола).
+    async fn encrypt_group_key(
+        &self,
+        chat_id: &str,
+        session_key: &[u8],
+        targets: &[PeerDevice],
+    ) -> Result<Vec<EncryptedMessage>, CryptoError>;
+    /// Принимает Olm-конверт с ключом групповой сессии: расшифровывает,
+    /// проверяет привязку к ожидаемому чату и импортирует входящую сессию.
+    /// Повторная доставка того же ключа безопасна (идемпотентно).
+    async fn apply_group_key(
+        &self,
+        sender: &PeerDevice,
+        message: &EncryptedMessage,
+        expected_chat_id: &str,
+    ) -> Result<GroupKeyInfo, CryptoError>;
+    /// Расшифровывает megolm-ciphertext входящей сессией чата.
+    async fn decrypt_group(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, CryptoError>;
+    /// Удаляет исходящую групповую сессию чата (ротация после исключения
+    /// участника или отзыва устройства). Следующий `group_encrypt` создаст
+    /// новую; входящие сессии не затрагиваются.
+    async fn rotate_group_session(&self, chat_id: &str) -> Result<(), CryptoError>;
     /// Удаляет сессию (отзыв устройства).
     async fn remove_session(&self, device_id: &str) -> Result<(), CryptoError>;
     /// Полностью удаляет локальное криптографическое состояние.

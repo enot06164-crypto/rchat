@@ -18,11 +18,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rchat_core::error::CryptoError;
 use rchat_core::traits::{
-    secret_keys, CryptoProvider, CryptoStateStore, EncryptedMessage, KeyUpload, OneTimeKey,
-    PeerDevice, SecretStore,
+    secret_keys, CryptoProvider, CryptoStateStore, EncryptedMessage, GroupEncryption, GroupKeyInfo,
+    KeyUpload, OneTimeKey, PeerDevice, SecretStore,
 };
 use rchat_proto::proto::OlmMessageType;
 use tokio::sync::{Mutex, MutexGuard};
+use vodozemac::megolm::{
+    GroupSession, GroupSessionPickle, InboundGroupSession, InboundGroupSessionPickle,
+    MegolmMessage, SessionConfig as MegolmSessionConfig, SessionKey,
+};
 use vodozemac::olm::{
     Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionCreationError, SessionPickle,
 };
@@ -33,10 +37,19 @@ use zeroize::Zeroizing;
 const ACCOUNT_STATE_KEY: &str = "olm_account";
 /// Префикс ключей сессий: `olm_session:<device_id>`.
 const SESSION_STATE_PREFIX: &str = "olm_session:";
+/// Префикс ключей исходящих megolm-сессий: `megolm_out:<chat_id>`.
+const GROUP_OUT_STATE_PREFIX: &str = "megolm_out:";
+/// Префикс ключей входящих megolm-сессий: `megolm_in:<session_id>`.
+const GROUP_IN_STATE_PREFIX: &str = "megolm_in:";
 /// Длина ключа шифрования pickle (требование vodozemac).
 const PICKLE_KEY_LEN: usize = 32;
+/// Магия внутреннего payload ключа групповой сессии (никогда не покидает
+/// Olm-конверт в открытом виде).
+const GROUP_KEY_PAYLOAD_MAGIC: &[u8; 4] = b"RMGK";
+/// Версия формата payload ключа групповой сессии.
+const GROUP_KEY_PAYLOAD_VERSION: u8 = 1;
 
-/// E2E-провайдер Olm.
+/// E2E-провайдер Olm + Megolm.
 pub struct VodozemacCryptoProvider {
     store: Arc<dyn CryptoStateStore>,
     secrets: Arc<dyn SecretStore>,
@@ -50,6 +63,17 @@ struct Loaded {
     pickle_key: Zeroizing<[u8; PICKLE_KEY_LEN]>,
     /// Установленные сессии по `device_id` собеседника.
     sessions: HashMap<String, Session>,
+    /// Исходящие megolm-сессии по `chat_id`.
+    group_out: HashMap<String, GroupSession>,
+    /// Входящие megolm-сессии по `session_id`.
+    group_in: HashMap<String, LoadedInbound>,
+}
+
+/// Входящая megolm-сессия с чатом, к которому она привязана: сессия одного
+/// чата не может расшифровывать сообщения другого.
+struct LoadedInbound {
+    chat_id: String,
+    session: InboundGroupSession,
 }
 
 impl VodozemacCryptoProvider {
@@ -89,6 +113,8 @@ impl VodozemacCryptoProvider {
                 account,
                 pickle_key,
                 sessions: HashMap::new(),
+                group_out: HashMap::new(),
+                group_in: HashMap::new(),
             });
         }
         Ok(guard)
@@ -314,6 +340,144 @@ impl CryptoProvider for VodozemacCryptoProvider {
         Ok(())
     }
 
+    async fn group_encrypt(
+        &self,
+        chat_id: &str,
+        plaintext: &[u8],
+        share_key: bool,
+    ) -> Result<GroupEncryption, CryptoError> {
+        let mut guard = self.loaded().await?;
+        let loaded = guard.as_mut().expect("loaded above");
+        let mut session = match loaded.group_out.remove(chat_id) {
+            Some(session) => session,
+            None => match load_group_out(self.store.as_ref(), loaded, chat_id).await? {
+                Some(session) => session,
+                None => GroupSession::new(MegolmSessionConfig::default()),
+            },
+        };
+        // Ключ берём до encrypt: он должен соответствовать ратчету, с
+        // которого начинается именно это сообщение.
+        let session_key = share_key.then(|| session.session_key().to_bytes());
+        let session_id = session.session_id();
+        let message = session.encrypt(plaintext);
+        loaded.group_out.insert(chat_id.to_string(), session);
+        save_group_out(self.store.as_ref(), loaded, chat_id).await?;
+        Ok(GroupEncryption {
+            session_id,
+            ciphertext: message.to_bytes(),
+            session_key,
+        })
+    }
+
+    async fn encrypt_group_key(
+        &self,
+        chat_id: &str,
+        session_key: &[u8],
+        targets: &[PeerDevice],
+    ) -> Result<Vec<EncryptedMessage>, CryptoError> {
+        let payload = build_group_key_payload(chat_id, session_key)?;
+        self.encrypt_for(targets, &payload).await
+    }
+
+    async fn apply_group_key(
+        &self,
+        sender: &PeerDevice,
+        message: &EncryptedMessage,
+        expected_chat_id: &str,
+    ) -> Result<GroupKeyInfo, CryptoError> {
+        // Сначала Olm: содержимое конверта — внутренний payload провайдера.
+        let payload = self.decrypt_from(sender, message).await?;
+        let (chat_id, session_key) = parse_group_key_payload(&payload)
+            .map_err(|reason| CryptoError::DecryptFailed(sender.device_id.clone(), reason))?;
+        if chat_id != expected_chat_id {
+            return Err(CryptoError::DecryptFailed(
+                sender.device_id.clone(),
+                "group key belongs to another chat".into(),
+            ));
+        }
+        let inbound = InboundGroupSession::new(&session_key, MegolmSessionConfig::default());
+        let session_id = inbound.session_id();
+
+        let mut guard = self.loaded().await?;
+        let loaded = guard.as_mut().expect("loaded above");
+        // Повторная доставка ключа (или уже импортированный ранее) ничего
+        // не меняет: ратчет не откатывается назад.
+        if loaded.group_in.contains_key(&session_id)
+            || load_group_in(self.store.as_ref(), loaded, &session_id)
+                .await?
+                .is_some()
+        {
+            return Ok(GroupKeyInfo {
+                chat_id,
+                session_id,
+            });
+        }
+        loaded.group_in.insert(
+            session_id.clone(),
+            LoadedInbound {
+                chat_id: chat_id.clone(),
+                session: inbound,
+            },
+        );
+        save_group_in(self.store.as_ref(), loaded, &session_id).await?;
+        Ok(GroupKeyInfo {
+            chat_id,
+            session_id,
+        })
+    }
+
+    async fn decrypt_group(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
+        let message = MegolmMessage::from_bytes(ciphertext).map_err(|e| {
+            CryptoError::DecryptFailed(session_id.to_string(), format!("decode megolm: {e}"))
+        })?;
+        let mut guard = self.loaded().await?;
+        let loaded = guard.as_mut().expect("loaded above");
+        if !loaded.group_in.contains_key(session_id) {
+            if let Some(inbound) = load_group_in(self.store.as_ref(), loaded, session_id).await? {
+                loaded.group_in.insert(session_id.to_string(), inbound);
+            }
+        }
+        let plaintext = {
+            let inbound = loaded.group_in.get_mut(session_id).ok_or_else(|| {
+                CryptoError::DecryptFailed(
+                    session_id.to_string(),
+                    "no inbound group session".into(),
+                )
+            })?;
+            if inbound.chat_id != chat_id {
+                return Err(CryptoError::DecryptFailed(
+                    session_id.to_string(),
+                    "group session belongs to another chat".into(),
+                ));
+            }
+            inbound
+                .session
+                .decrypt(&message)
+                .map_err(|e| CryptoError::DecryptFailed(session_id.to_string(), e.to_string()))?
+                .plaintext
+        };
+        // Ратчет входящей сессии продвинулся: фиксируем до подтверждения
+        // применения сообщения.
+        save_group_in(self.store.as_ref(), loaded, session_id).await?;
+        Ok(plaintext)
+    }
+
+    async fn rotate_group_session(&self, chat_id: &str) -> Result<(), CryptoError> {
+        let mut guard = self.loaded().await?;
+        let loaded = guard.as_mut().expect("loaded above");
+        loaded.group_out.remove(chat_id);
+        self.store
+            .crypto_delete(&group_out_state_key(chat_id))
+            .await
+            .map_err(state_error)?;
+        Ok(())
+    }
+
     async fn wipe(&self) -> Result<(), CryptoError> {
         let mut guard = self.loaded().await?;
         *guard = None;
@@ -324,6 +488,14 @@ impl CryptoProvider for VodozemacCryptoProvider {
             .map_err(state_error)?;
         self.store
             .crypto_delete_prefix(SESSION_STATE_PREFIX)
+            .await
+            .map_err(state_error)?;
+        self.store
+            .crypto_delete_prefix(GROUP_OUT_STATE_PREFIX)
+            .await
+            .map_err(state_error)?;
+        self.store
+            .crypto_delete_prefix(GROUP_IN_STATE_PREFIX)
             .await
             .map_err(state_error)?;
         match self.secrets.delete(secret_keys::CRYPTO_PICKLE_KEY) {
@@ -460,6 +632,154 @@ async fn load_session(
     let pickle = SessionPickle::from_encrypted(&text, &loaded.pickle_key)
         .map_err(|e| CryptoError::State(format!("session pickle: {e}")))?;
     Ok(Some(Session::from(pickle)))
+}
+
+/// Ключ состояния исходящей megolm-сессии чата.
+fn group_out_state_key(chat_id: &str) -> String {
+    format!("{GROUP_OUT_STATE_PREFIX}{chat_id}")
+}
+
+/// Ключ состояния входящей megolm-сессии.
+fn group_in_state_key(session_id: &str) -> String {
+    format!("{GROUP_IN_STATE_PREFIX}{session_id}")
+}
+
+/// Внутренний payload ключа групповой сессии:
+/// `MAGIC(4) | version(1) | chat_len(u16 BE) | chat_id | key_len(u16 BE) | key`.
+fn build_group_key_payload(chat_id: &str, session_key: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    let chat = chat_id.as_bytes();
+    let chat_len = u16::try_from(chat.len())
+        .map_err(|_| CryptoError::Internal("chat id too long for group key payload".into()))?;
+    let key_len = u16::try_from(session_key.len())
+        .map_err(|_| CryptoError::Internal("session key too long for group key payload".into()))?;
+    let mut payload = Vec::with_capacity(
+        GROUP_KEY_PAYLOAD_MAGIC.len() + 1 + 2 + chat.len() + 2 + session_key.len(),
+    );
+    payload.extend_from_slice(GROUP_KEY_PAYLOAD_MAGIC);
+    payload.push(GROUP_KEY_PAYLOAD_VERSION);
+    payload.extend_from_slice(&chat_len.to_be_bytes());
+    payload.extend_from_slice(chat);
+    payload.extend_from_slice(&key_len.to_be_bytes());
+    payload.extend_from_slice(session_key);
+    Ok(payload)
+}
+
+/// Разбирает payload ключа групповой сессии. Ошибка — строка-причина:
+/// payload приходит от недоверенной стороны.
+fn parse_group_key_payload(payload: &[u8]) -> Result<(String, SessionKey), String> {
+    let invalid = || "invalid group key payload".to_string();
+    let header = GROUP_KEY_PAYLOAD_MAGIC.len() + 1;
+    if payload.len() < header + 2
+        || &payload[..GROUP_KEY_PAYLOAD_MAGIC.len()] != GROUP_KEY_PAYLOAD_MAGIC
+    {
+        return Err(invalid());
+    }
+    if payload[GROUP_KEY_PAYLOAD_MAGIC.len()] != GROUP_KEY_PAYLOAD_VERSION {
+        return Err("unsupported group key payload version".into());
+    }
+    let mut cursor = header;
+    let chat_len = read_u16(payload, &mut cursor).ok_or_else(invalid)? as usize;
+    let chat = payload.get(cursor..cursor + chat_len).ok_or_else(invalid)?;
+    let chat_id = String::from_utf8(chat.to_vec()).map_err(|_| invalid())?;
+    if chat_id.is_empty() {
+        return Err(invalid());
+    }
+    cursor += chat_len;
+    let key_len = read_u16(payload, &mut cursor).ok_or_else(invalid)? as usize;
+    let key = payload.get(cursor..cursor + key_len).ok_or_else(invalid)?;
+    let session_key = SessionKey::from_bytes(key).map_err(|e| format!("session key: {e}"))?;
+    Ok((chat_id, session_key))
+}
+
+fn read_u16(bytes: &[u8], cursor: &mut usize) -> Option<u16> {
+    let end = *cursor + 2;
+    let slice = bytes.get(*cursor..end)?;
+    *cursor = end;
+    Some(u16::from_be_bytes([slice[0], slice[1]]))
+}
+
+/// Штатный pickle исходящей megolm-сессии, зашифрованный ключом SecretStore.
+async fn save_group_out(
+    store: &dyn CryptoStateStore,
+    loaded: &Loaded,
+    chat_id: &str,
+) -> Result<(), CryptoError> {
+    let Some(session) = loaded.group_out.get(chat_id) else {
+        return Ok(());
+    };
+    let pickle = session.pickle().encrypt(&loaded.pickle_key);
+    store
+        .crypto_save(&group_out_state_key(chat_id), pickle.as_bytes())
+        .await
+        .map_err(state_error)
+}
+
+/// Загружает исходящую megolm-сессию чата из хранилища, если она есть.
+async fn load_group_out(
+    store: &dyn CryptoStateStore,
+    loaded: &Loaded,
+    chat_id: &str,
+) -> Result<Option<GroupSession>, CryptoError> {
+    let Some(bytes) = store
+        .crypto_load(&group_out_state_key(chat_id))
+        .await
+        .map_err(state_error)?
+    else {
+        return Ok(None);
+    };
+    let text = String::from_utf8(bytes)
+        .map_err(|_| CryptoError::State("group session pickle is not utf-8".into()))?;
+    let pickle = GroupSessionPickle::from_encrypted(&text, &loaded.pickle_key)
+        .map_err(|e| CryptoError::State(format!("group session pickle: {e}")))?;
+    Ok(Some(GroupSession::from_pickle(pickle)))
+}
+
+/// Входящая сессия хранится как `chat_id \n pickle`: сам pickle не помнит,
+/// к какому чату относится ключ, а привязка обязательна.
+async fn save_group_in(
+    store: &dyn CryptoStateStore,
+    loaded: &Loaded,
+    session_id: &str,
+) -> Result<(), CryptoError> {
+    let Some(inbound) = loaded.group_in.get(session_id) else {
+        return Ok(());
+    };
+    let pickle = inbound.session.pickle().encrypt(&loaded.pickle_key);
+    let mut value = inbound.chat_id.clone().into_bytes();
+    value.push(b'\n');
+    value.extend_from_slice(pickle.as_bytes());
+    store
+        .crypto_save(&group_in_state_key(session_id), &value)
+        .await
+        .map_err(state_error)
+}
+
+/// Загружает входящую megolm-сессию из хранилища (вместе с привязкой к чату).
+async fn load_group_in(
+    store: &dyn CryptoStateStore,
+    loaded: &Loaded,
+    session_id: &str,
+) -> Result<Option<LoadedInbound>, CryptoError> {
+    let Some(bytes) = store
+        .crypto_load(&group_in_state_key(session_id))
+        .await
+        .map_err(state_error)?
+    else {
+        return Ok(None);
+    };
+    let split = bytes.iter().position(|b| *b == b'\n').ok_or_else(|| {
+        CryptoError::State("inbound group session pickle has no chat binding".into())
+    })?;
+    let chat_id = String::from_utf8(bytes[..split].to_vec())
+        .map_err(|_| CryptoError::State("inbound group chat id is not utf-8".into()))?;
+    let text = String::from_utf8(bytes[split + 1..].to_vec())
+        .map_err(|_| CryptoError::State("inbound group session pickle is not utf-8".into()))?;
+    let pickle = InboundGroupSessionPickle::from_encrypted(&text, &loaded.pickle_key)
+        .map_err(|e| CryptoError::State(format!("inbound group session pickle: {e}")))?;
+    Ok(Some(LoadedInbound {
+        chat_id,
+        session: InboundGroupSession::from_pickle(pickle),
+    }))
 }
 
 /// Расшифровывает сообщение существующей сессией устройства и сохраняет
@@ -799,5 +1119,316 @@ mod tests {
         assert_ne!(ed25519, peer_before.ed25519);
         assert_ne!(curve25519, peer_before.curve25519);
         assert!(!provider.has_session("b1").await.expect("session"));
+    }
+
+    // --- Megolm: групповые E2E-сессии ---
+
+    /// Полный цикл: общий megolm-ciphertext + доставка ключа Olm-конвертом.
+    #[tokio::test]
+    async fn group_round_trip_with_key_share() {
+        let alice = provider();
+        let bob = provider();
+        let (alice_peer, _) = peer(&alice, "a1").await;
+        let (mut bob_peer, bob_keys) = peer(&bob, "b1").await;
+
+        let encryption = alice
+            .group_encrypt("c1", "привет группе".as_bytes(), true)
+            .await
+            .expect("group encrypt");
+        let session_key = encryption.session_key.clone().expect("ключ для рассылки");
+
+        // Доставка ключа: Olm-конверт для устройства bob.
+        bob_peer.one_time_key = Some(bob_keys.one_time_keys[0].clone());
+        let envelopes = alice
+            .encrypt_group_key("c1", &session_key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("encrypt key");
+        assert_eq!(envelopes.len(), 1);
+        assert_eq!(envelopes[0].olm_type, OlmMessageType::Prekey);
+
+        let info = bob
+            .apply_group_key(&alice_peer, &envelopes[0], "c1")
+            .await
+            .expect("import key");
+        assert_eq!(info.chat_id, "c1");
+        assert_eq!(info.session_id, encryption.session_id);
+
+        let plaintext = bob
+            .decrypt_group("c1", &info.session_id, &encryption.ciphertext)
+            .await
+            .expect("decrypt group");
+        assert_eq!(plaintext, "привет группе".as_bytes());
+
+        // Повторная доставка того же ключа (новым Olm-сообщением) безопасна:
+        // сессия уже есть, ratchet не откатывается. Пока bob не ответил,
+        // olm-сессия остаётся в «prekey»-состоянии — при повторной доставке
+        // prekey-сообщения ключ израсходован, и провайдер идёт по ветке
+        // существующей сессии.
+        let second_envelope = alice
+            .encrypt_group_key("c1", &session_key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("encrypt key again");
+        let again = bob
+            .apply_group_key(&alice_peer, &second_envelope[0], "c1")
+            .await
+            .expect("re-import");
+        assert_eq!(again.session_id, encryption.session_id);
+    }
+
+    #[tokio::test]
+    async fn group_key_is_bound_to_its_chat() {
+        let alice = provider();
+        let bob = provider();
+        let (alice_peer, _) = peer(&alice, "a1").await;
+        let (mut bob_peer, bob_keys) = peer(&bob, "b1").await;
+        bob_peer.one_time_key = Some(bob_keys.one_time_keys[0].clone());
+
+        let encryption = alice
+            .group_encrypt("c1", b"x", true)
+            .await
+            .expect("encrypt");
+        let key = encryption.session_key.clone().expect("key");
+        let envelopes = alice
+            .encrypt_group_key("c1", &key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("envelope");
+
+        // Ключ отклоняется для другого чата и не импортируется.
+        let error = bob
+            .apply_group_key(&alice_peer, &envelopes[0], "c2")
+            .await
+            .expect_err("чужой чат");
+        assert!(matches!(error, CryptoError::DecryptFailed(_, _)));
+        let error = bob
+            .decrypt_group("c1", &encryption.session_id, &encryption.ciphertext)
+            .await
+            .expect_err("сессия не должна импортироваться");
+        assert!(matches!(error, CryptoError::DecryptFailed(_, _)));
+
+        // Корректный импорт отдельным конвертом.
+        let envelopes = alice
+            .encrypt_group_key("c1", &key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("envelope retry");
+        bob.apply_group_key(&alice_peer, &envelopes[0], "c1")
+            .await
+            .expect("import");
+
+        // Сессией чата c1 нельзя расшифровать сообщение «в чате» c2.
+        let error = bob
+            .decrypt_group("c2", &encryption.session_id, &encryption.ciphertext)
+            .await
+            .expect_err("другой чат");
+        assert!(matches!(error, CryptoError::DecryptFailed(_, _)));
+    }
+
+    #[tokio::test]
+    async fn group_key_shared_later_does_not_decrypt_earlier_messages() {
+        let alice = provider();
+        let bob = provider();
+        let (alice_peer, _) = peer(&alice, "a1").await;
+        let (mut bob_peer, bob_keys) = peer(&bob, "b1").await;
+        bob_peer.one_time_key = Some(bob_keys.one_time_keys[0].clone());
+
+        let first = alice.group_encrypt("c1", b"m1", false).await.expect("m1");
+        assert!(first.session_key.is_none());
+        let second = alice.group_encrypt("c1", b"m2", true).await.expect("m2");
+        assert_eq!(first.session_id, second.session_id);
+        let key = second.session_key.clone().expect("key");
+
+        let envelopes = alice
+            .encrypt_group_key("c1", &key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("envelope");
+        let info = bob
+            .apply_group_key(&alice_peer, &envelopes[0], "c1")
+            .await
+            .expect("import");
+
+        // Ключ выдан с индекса второго сообщения: первое недоступно.
+        let error = bob
+            .decrypt_group("c1", &info.session_id, &first.ciphertext)
+            .await
+            .expect_err("раннее сообщение");
+        assert!(matches!(error, CryptoError::DecryptFailed(_, _)));
+        let plaintext = bob
+            .decrypt_group("c1", &info.session_id, &second.ciphertext)
+            .await
+            .expect("m2");
+        assert_eq!(plaintext, b"m2".to_vec());
+    }
+
+    #[tokio::test]
+    async fn group_rotation_creates_new_session_and_keeps_history() {
+        let alice = provider();
+        let bob = provider();
+        let (alice_peer, _) = peer(&alice, "a1").await;
+        let (mut bob_peer, bob_keys) = peer(&bob, "b1").await;
+        bob_peer.one_time_key = Some(bob_keys.one_time_keys[0].clone());
+
+        let before = alice
+            .group_encrypt("c1", "до ротации".as_bytes(), true)
+            .await
+            .expect("before");
+        let key = before.session_key.clone().expect("key");
+        let envelopes = alice
+            .encrypt_group_key("c1", &key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("envelope");
+        let info_before = bob
+            .apply_group_key(&alice_peer, &envelopes[0], "c1")
+            .await
+            .expect("import before");
+
+        // Ротация: следующая исходящая сессия другая.
+        alice.rotate_group_session("c1").await.expect("rotate");
+        let after = alice
+            .group_encrypt("c1", "после ротации".as_bytes(), true)
+            .await
+            .expect("after");
+        assert_ne!(after.session_id, before.session_id);
+        let key = after.session_key.clone().expect("key");
+        let envelopes = alice
+            .encrypt_group_key("c1", &key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("envelope after");
+        let info_after = bob
+            .apply_group_key(&alice_peer, &envelopes[0], "c1")
+            .await
+            .expect("import after");
+        assert_eq!(info_after.session_id, after.session_id);
+
+        // История остаётся читаемой: старая сессия не удалена у получателя.
+        let plaintext = bob
+            .decrypt_group("c1", &info_before.session_id, &before.ciphertext)
+            .await
+            .expect("old");
+        assert_eq!(plaintext, "до ротации".as_bytes());
+        let plaintext = bob
+            .decrypt_group("c1", &info_after.session_id, &after.ciphertext)
+            .await
+            .expect("new");
+        assert_eq!(plaintext, "после ротации".as_bytes());
+        // Новой сессией старое сообщение не расшифровывается.
+        assert!(bob
+            .decrypt_group("c1", &info_after.session_id, &before.ciphertext)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn group_state_survives_restart() {
+        let alice_store = Arc::new(MemStore::default());
+        let alice_secrets = Arc::new(MemSecrets::default());
+        let bob_store = Arc::new(MemStore::default());
+        let bob_secrets = Arc::new(MemSecrets::default());
+        let alice = provider_with(alice_store.clone(), alice_secrets.clone());
+        let bob = provider_with(bob_store.clone(), bob_secrets.clone());
+        let (alice_peer, _) = peer(&alice, "a1").await;
+        let (mut bob_peer, bob_keys) = peer(&bob, "b1").await;
+        bob_peer.one_time_key = Some(bob_keys.one_time_keys[0].clone());
+
+        let first = alice.group_encrypt("c1", b"m1", true).await.expect("m1");
+        let key = first.session_key.clone().expect("key");
+        let envelopes = alice
+            .encrypt_group_key("c1", &key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("envelope");
+        let info = bob
+            .apply_group_key(&alice_peer, &envelopes[0], "c1")
+            .await
+            .expect("import");
+        assert_eq!(
+            bob.decrypt_group("c1", &info.session_id, &first.ciphertext)
+                .await
+                .expect("m1"),
+            b"m1".to_vec()
+        );
+
+        // «Перезапуск» обеих сторон: те же хранилища, новые экземпляры.
+        let alice = provider_with(alice_store, alice_secrets);
+        let bob = provider_with(bob_store, bob_secrets);
+        let second = alice.group_encrypt("c1", b"m2", true).await.expect("m2");
+        // Исходящая сессия сохранилась: тот же идентификатор.
+        assert_eq!(second.session_id, first.session_id);
+        // Входящая сессия bob тоже сохранилась.
+        assert_eq!(
+            bob.decrypt_group("c1", &info.session_id, &second.ciphertext)
+                .await
+                .expect("m2 после перезапуска"),
+            b"m2".to_vec()
+        );
+    }
+
+    #[tokio::test]
+    async fn group_wipe_removes_group_state() {
+        let alice_store = Arc::new(MemStore::default());
+        let alice_secrets = Arc::new(MemSecrets::default());
+        let alice = provider_with(alice_store.clone(), alice_secrets.clone());
+        let (mut alice_peer, alice_keys) = peer(&alice, "a1").await;
+        let bob = provider();
+        let (bob_peer, _) = peer(&bob, "b1").await;
+
+        // У alice: исходящая сессия c1 и входящая (ключ от bob для c2).
+        let outgoing = alice.group_encrypt("c1", b"m1", true).await.expect("out");
+        alice_peer.one_time_key = Some(alice_keys.one_time_keys[0].clone());
+        let bob_encryption = bob.group_encrypt("c2", b"m2", true).await.expect("bob out");
+        let key = bob_encryption.session_key.clone().expect("key");
+        let envelopes = bob
+            .encrypt_group_key("c2", &key, std::slice::from_ref(&alice_peer))
+            .await
+            .expect("envelope");
+        alice
+            .apply_group_key(&bob_peer, &envelopes[0], "c2")
+            .await
+            .expect("import");
+        {
+            let values = alice_store.values.lock().expect("poisoned");
+            assert!(values.keys().any(|k| k.starts_with("megolm_out:")));
+            assert!(values.keys().any(|k| k.starts_with("megolm_in:")));
+        }
+
+        alice.wipe().await.expect("wipe");
+        assert!(!alice_store
+            .values
+            .lock()
+            .expect("poisoned")
+            .keys()
+            .any(|k| k.starts_with("megolm")));
+
+        // После очистки создаётся новая исходящая сессия.
+        let fresh = alice
+            .group_encrypt("c1", b"m3", false)
+            .await
+            .expect("fresh");
+        assert_ne!(fresh.session_id, outgoing.session_id);
+    }
+
+    #[tokio::test]
+    async fn group_key_payload_rejects_malformed_input() {
+        let provider = provider();
+        let encryption = provider
+            .group_encrypt("c1", b"x", true)
+            .await
+            .expect("encrypt");
+        let key = encryption.session_key.expect("key");
+        let payload = build_group_key_payload("c1", &key).expect("build");
+        assert_eq!(parse_group_key_payload(&payload).expect("parse").0, "c1");
+
+        assert!(parse_group_key_payload(&[]).is_err());
+        assert!(parse_group_key_payload(&payload[..payload.len() - 1]).is_err());
+        let mut bad_magic = payload.clone();
+        bad_magic[0] = b'X';
+        assert!(parse_group_key_payload(&bad_magic).is_err());
+        let mut bad_version = payload.clone();
+        bad_version[4] = 99;
+        assert!(parse_group_key_payload(&bad_version).is_err());
+        let mut bad_key = payload.clone();
+        let last = bad_key.len() - 1;
+        bad_key[last] ^= 0xFF;
+        assert!(parse_group_key_payload(&bad_key).is_err());
+        // Пустой chat_id — невалидный payload.
+        let empty_chat = build_group_key_payload("", &key).expect("build");
+        assert!(parse_group_key_payload(&empty_chat).is_err());
     }
 }

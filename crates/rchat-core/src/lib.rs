@@ -22,8 +22,9 @@ pub use config::ClientConfig;
 pub use error::{CoreError, CryptoError, SecretStoreError, StorageError, TransportError};
 pub use events::{EventError, EventSubscription, UiEvent};
 pub use traits::{
-    secret_keys, ClientStore, CryptoProvider, CryptoStateStore, EncryptedMessage, KeyUpload,
-    OneTimeKey, PeerDevice, SecretStore, Storage, Transport, TransportFactory,
+    secret_keys, ClientStore, CryptoProvider, CryptoStateStore, EncryptedMessage, GroupEncryption,
+    GroupKeyInfo, KeyUpload, OneTimeKey, PeerDevice, SecretStore, Storage, Transport,
+    TransportFactory,
 };
 pub use types::{
     ChatRecord, ConnectionState, DeviceRecord, LocalAccount, MemberRecord, MessageRecord,
