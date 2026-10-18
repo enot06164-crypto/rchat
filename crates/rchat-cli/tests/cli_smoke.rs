@@ -347,6 +347,98 @@ async fn e2e_chat_send_sync_history() {
     assert!(stdout.contains("ключ:"), "stdout: {stdout}");
 }
 
+/// Этап 7 через настоящий бинарник: правка, удаление, отметка прочтения и
+/// receipts. Bob «офлайн» в момент правки и удаления — события догружаются
+/// его следующим запуском (каждый запуск CLI — отдельный процесс и sync).
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_delete_read_and_receipts_flow() {
+    let server = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+
+    register(&alice_dir, server.port, "alice", "secret-alice").await;
+    register(&bob_dir, server.port, "bob", "secret-bob").await;
+    let chat_id = create_chat(&alice_dir, server.port, "bob").await;
+
+    // Два сообщения: server_id 1 и 2 (свежая БД сервера).
+    for text in ["первое сообщение", "второе сообщение"] {
+        let (code, stdout, stderr) =
+            cli(&alice_dir, server.port, &["send", &chat_id, text], None).await;
+        assert_ok(code, &stdout, &stderr, "send");
+    }
+
+    // Bob синхронизируется и прочитывает оба.
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync bob");
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["history", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "history bob");
+    assert!(stdout.contains("первое сообщение"), "stdout: {stdout}");
+    assert!(stdout.contains("второе сообщение"), "stdout: {stdout}");
+
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["read", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "read bob");
+    assert!(stdout.contains("до #2"), "stdout: {stdout}");
+
+    // Автор видит подтверждение прочтения.
+    let (code, stdout, stderr) = cli(&alice_dir, server.port, &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync alice");
+    let (code, stdout, stderr) = cli(&alice_dir, server.port, &["receipts", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "receipts alice");
+    assert!(stdout.contains("прочитано до #2"), "stdout: {stdout}");
+
+    // Bob «уходит в офлайн». Alice правит первое и удаляет второе.
+    let (code, stdout, stderr) = cli(
+        &alice_dir,
+        server.port,
+        &["edit", &chat_id, "1", "первое+"],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "edit alice");
+    assert!(stdout.contains("изменено"), "stdout: {stdout}");
+    let (code, stdout, stderr) =
+        cli(&alice_dir, server.port, &["delete", &chat_id, "2"], None).await;
+    assert_ok(code, &stdout, &stderr, "delete alice");
+    assert!(stdout.contains("удалено для всех"), "stdout: {stdout}");
+
+    // История автора сразу видит правку и tombstone.
+    let (code, stdout, stderr) = cli(&alice_dir, server.port, &["history", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "history alice");
+    assert!(stdout.contains("первое+"), "stdout: {stdout}");
+    assert!(stdout.contains("(изменено"), "stdout: {stdout}");
+    assert!(stdout.contains("(удалено)"), "stdout: {stdout}");
+    assert!(!stdout.contains("второе сообщение"), "stdout: {stdout}");
+
+    // Bob догружает события после «отключения»: правка и удаление видны.
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync bob after offline");
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["history", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "history bob after offline");
+    assert!(stdout.contains("первое+"), "stdout: {stdout}");
+    assert!(stdout.contains("(изменено"), "stdout: {stdout}");
+    assert!(stdout.contains("(удалено)"), "stdout: {stdout}");
+    assert!(!stdout.contains("второе сообщение"), "stdout: {stdout}");
+
+    // Чужое сообщение править и удалять нельзя.
+    let (code, stdout, stderr) = cli(
+        &bob_dir,
+        server.port,
+        &["edit", &chat_id, "1", "взлом"],
+        None,
+    )
+    .await;
+    assert_ne!(
+        code, 0,
+        "правка чужого сообщения должна падать\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    let (code, stdout, stderr) = cli(&bob_dir, server.port, &["delete", &chat_id, "1"], None).await;
+    assert_ne!(
+        code, 0,
+        "удаление чужого сообщения должно падать\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn offline_message_is_flushed_after_reconnect() {
     let root = tempfile::tempdir().expect("tempdir");

@@ -226,8 +226,17 @@ pub struct MessageUpdate {
     pub edited_at_ms: u64,
     pub deleted_at_ms: u64,
     pub content_kind: Option<String>,
-    /// Новые ciphertext-ы для устройств; `None` — оставить существующие
-    /// (например, при удалении).
+    /// Новое значение `plaintext_dev` (только dev-чаты); `None` — не менять.
+    pub plaintext_dev: Option<String>,
+    /// Удаление для всех: содержимое стирается (`plaintext_dev` → NULL,
+    /// recipients заменяются, для удаления — пустым списком).
+    pub clear_plaintext: bool,
+    /// Новый `sender_device_id` (правка с другого устройства автора);
+    /// `None` — не менять.
+    pub sender_device_id: Option<String>,
+    /// Новый identity-ключ устройства-редактора; `None` — не менять.
+    pub sender_curve25519: Option<Vec<u8>>,
+    /// Новые ciphertext-ы для устройств; `None` — оставить существующие.
     pub recipients: Option<Vec<RecipientRecord>>,
     pub events: Vec<NewSyncEvent>,
     /// Пользователь, от имени которого выполняется изменение.

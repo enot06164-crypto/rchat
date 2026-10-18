@@ -310,6 +310,98 @@ async fn websocket_plaintext_end_to_end() {
     .expect("smoke test timed out");
 }
 
+/// Читает следующий presence-push (прочие кадры пропускает).
+async fn read_presence(ws: &mut Ws) -> proto::PresenceEvent {
+    loop {
+        let envelope = read_envelope(ws).await;
+        if let Some(envelope::Body::Push(push)) = envelope.body {
+            if let Some(proto::push::Event::Transient(transient)) = push.event {
+                if let Some(proto::transient_event::Event::Presence(event)) = transient.event {
+                    return event;
+                }
+            }
+        }
+    }
+}
+
+/// Presence в реальном WebSocket: online при подключении, offline при
+/// разрыве и срез состояния для нового соединения (иначе клиент не узнал бы,
+/// кто был в сети до его подключения).
+#[tokio::test]
+async fn websocket_presence_online_offline_and_snapshot() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let port = free_port();
+        let addr = format!("127.0.0.1:{port}");
+        let _server = spawn_server(&addr, &dir.path().join("server.sqlite3"));
+        wait_ready(&addr).await;
+
+        let mut alice = connect(&addr).await;
+        let mut bob = connect(&addr).await;
+        let alice_id = match request(&mut alice, 1, register("alice", "password-1", "a1")).await {
+            R::Register(response) => response.user_id,
+            other => panic!("register alice failed: {other:?}"),
+        };
+        let bob_id = match request(&mut bob, 1, register("bob", "password-2", "b1")).await {
+            R::Register(response) => response.user_id,
+            other => panic!("register bob failed: {other:?}"),
+        };
+
+        // Общий чат делает их собеседниками: только им шлётся presence.
+        match request(
+            &mut alice,
+            2,
+            Method::CreateDirectChat(proto::CreateDirectChatRequest {
+                peer_username: "bob".to_string(),
+                e2e_mode: proto::E2eMode::NoneDev as i32,
+            }),
+        )
+        .await
+        {
+            R::CreateDirectChat(_) => {}
+            other => panic!("create chat failed: {other:?}"),
+        }
+
+        // Bob уходит офлайн — alice получает событие.
+        let _ = bob.close(None).await;
+        drop(bob);
+        let offline = read_presence(&mut alice).await;
+        assert_eq!(offline.user_id, bob_id);
+        assert!(!offline.online);
+
+        // Bob возвращается: alice видит online, а bob получает срез —
+        // alice была в сети ещё до его подключения.
+        let mut bob = connect(&addr).await;
+        match request(
+            &mut bob,
+            2,
+            Method::Login(proto::LoginRequest {
+                username: "bob".to_string(),
+                password: "password-2".to_string(),
+                device: Some(device("b1")),
+                one_time_keys: Vec::new(),
+                fallback_key: None,
+            }),
+        )
+        .await
+        {
+            R::Login(_) => {}
+            other => panic!("login bob failed: {other:?}"),
+        }
+        let online = read_presence(&mut alice).await;
+        assert_eq!(online.user_id, bob_id);
+        assert!(online.online);
+        let snapshot = read_presence(&mut bob).await;
+        assert_eq!(snapshot.user_id, alice_id);
+        assert!(snapshot.online);
+
+        let _ = alice.close(None).await;
+        let _ = bob.close(None).await;
+    })
+    .await
+    .expect("presence test timed out");
+}
+
 #[test]
 fn plaintext_refused_outside_loopback() {
     let output = Command::new(server_bin())

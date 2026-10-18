@@ -21,7 +21,7 @@ use crate::events::{EventSubscription, UiEvent};
 use crate::traits::{secret_keys, ClientStore, CryptoProvider, SecretStore, TransportFactory};
 use crate::types::{
     ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus, OutboxRecord,
-    OutboxState, SyncProgress,
+    OutboxState, ReceiptRecord, SyncApply, SyncProgress,
 };
 
 /// Активная сессия на этом устройстве.
@@ -620,6 +620,144 @@ impl Client {
         Ok(local_id)
     }
 
+    /// Редактирует текст собственного сообщения (только автор; права
+    /// окончательно проверяет сервер). Для E2E-чата новый текст шифруется для
+    /// всех активных устройств участников, поэтому правка требует сети.
+    /// Открытый текст E2E-чата на сервер не попадает. Возвращает обновлённую
+    /// локальную запись.
+    pub async fn edit_text(
+        &self,
+        chat_id: &str,
+        server_id: u64,
+        text: &str,
+    ) -> Result<MessageRecord, CoreError> {
+        if server_id == 0 {
+            return Err(CoreError::InvalidInput("server_id is required".into()));
+        }
+        if text.is_empty() {
+            return Err(CoreError::InvalidInput("empty message".into()));
+        }
+        rchat_proto::validate::chat_id(chat_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        self.start().await?;
+        let chat = self
+            .inner
+            .storage
+            .get_chat(chat_id)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("chat {chat_id}")))?;
+        let account = self
+            .inner
+            .storage
+            .load_account()
+            .await?
+            .ok_or(CoreError::NotAuthenticated)?;
+
+        // Как и при отправке: обновляем кэш устройств участников, иначе правка
+        // может не дойти до нового устройства собеседника.
+        if chat.e2e_mode == proto::E2eMode::OlmV1 {
+            let members = self.inner.storage.chat_members(chat_id).await?;
+            let user_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+            let _ = self.refresh_devices(&user_ids).await;
+        }
+
+        let client = self.clone();
+        let fetch = move |ids: Vec<String>| async move { client.fetch_bundles(&ids).await };
+        let request =
+            crate::send::compose_edit_request(&self.inner, fetch, &chat, &account, server_id, text)
+                .await?;
+        let response = self
+            .request(proto::request::Method::EditMessage(request))
+            .await?;
+        let view = match response {
+            proto::response::Result::EditMessage(response) => response
+                .message
+                .ok_or_else(|| CoreError::Protocol("edit response without message".into()))?,
+            other => return Err(unexpected(other)),
+        };
+        let edited_at_ms = if view.edited_at_ms != 0 {
+            view.edited_at_ms
+        } else {
+            rchat_proto::now_ms()
+        };
+        // Локально знаем точный текст: не дожидаемся события синхронизации.
+        self.apply_local(&[SyncApply::EditMessage {
+            server_id,
+            content_kind: view.content_kind,
+            body: Some(text.to_string()),
+            edited_at_ms,
+        }])
+        .await?;
+        let record = self.load_message_record(server_id).await?;
+        self.inner.emit(UiEvent::MessageUpdated(record.clone()));
+        Ok(record)
+    }
+
+    /// Удаляет собственное сообщение для всех участников (tombstone; политика
+    /// MVP — без «удалить только для себя»). Сервер стирает ciphertext-ы и
+    /// dev-plaintext, остальные устройства получают событие из журнала.
+    /// Возвращает обновлённую локальную запись.
+    pub async fn delete_message(
+        &self,
+        chat_id: &str,
+        server_id: u64,
+    ) -> Result<MessageRecord, CoreError> {
+        if server_id == 0 {
+            return Err(CoreError::InvalidInput("server_id is required".into()));
+        }
+        rchat_proto::validate::chat_id(chat_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        self.start().await?;
+        // Если запись известна локально, она обязана принадлежать этому чату.
+        if let Some(message) = self.inner.storage.get_message_by_server(server_id).await? {
+            if message.chat_id != chat_id {
+                return Err(CoreError::InvalidInput(format!(
+                    "message {server_id} belongs to another chat"
+                )));
+            }
+        }
+        let response = self
+            .request(proto::request::Method::DeleteMessage(
+                proto::DeleteMessageRequest { server_id },
+            ))
+            .await?;
+        let view = match response {
+            proto::response::Result::DeleteMessage(response) => response
+                .message
+                .ok_or_else(|| CoreError::Protocol("delete response without message".into()))?,
+            other => return Err(unexpected(other)),
+        };
+        let deleted_at_ms = if view.deleted_at_ms != 0 {
+            view.deleted_at_ms
+        } else {
+            rchat_proto::now_ms()
+        };
+        self.apply_local(&[SyncApply::DeleteMessage {
+            server_id,
+            deleted_at_ms,
+        }])
+        .await?;
+        let record = self.load_message_record(server_id).await?;
+        self.inner.emit(UiEvent::MessageUpdated(record.clone()));
+        Ok(record)
+    }
+
+    /// Сохраняет мутацию от имени собственной операции, не трогая курсор
+    /// синхронизации (событие с сервера придёт позже и идемпотентно повторит её).
+    async fn apply_local(&self, ops: &[SyncApply]) -> Result<(), CoreError> {
+        let cursor = self.inner.storage.get_sync_cursor().await?;
+        self.inner.storage.apply_sync_batch(ops, cursor).await?;
+        Ok(())
+    }
+
+    async fn load_message_record(&self, server_id: u64) -> Result<MessageRecord, CoreError> {
+        self.inner
+            .storage
+            .get_message_by_server(server_id)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("message {server_id}")))
+    }
+
     /// Загружает историю с сервера, сохраняет локально (идемпотентно) и
     /// возвращает записи. Для E2E текст расшифровывается внутри актора.
     pub async fn fetch_history(
@@ -669,6 +807,12 @@ impl Client {
             proto::response::Result::MarkReceipt(_) => Ok(()),
             other => Err(unexpected(other)),
         }
+    }
+
+    /// Последние известные подтверждения доставки/прочтения по чату
+    /// (локальный кеш, наполняется событиями журнала и своими действиями).
+    pub async fn receipts(&self, chat_id: &str) -> Result<Vec<ReceiptRecord>, CoreError> {
+        Ok(self.inner.storage.get_receipts(chat_id).await?)
     }
 
     /// Явный запуск синхронизации (диагностика/тесты).

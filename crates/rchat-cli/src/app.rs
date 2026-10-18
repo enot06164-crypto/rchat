@@ -197,6 +197,14 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
             from_server,
             before,
         } => history(ctx, &chat, limit, from_server, before).await,
+        Command::Edit {
+            chat,
+            server_id,
+            text,
+        } => edit(ctx, &chat, server_id, text.join(" ")).await,
+        Command::Delete { chat, server_id } => delete(ctx, &chat, server_id).await,
+        Command::Read { chat, up_to } => read(ctx, &chat, up_to).await,
+        Command::Receipts { chat } => receipts(ctx, &chat).await,
         Command::Sync => {
             let progress = ctx.client.sync_now().await?;
             print_sync(progress);
@@ -328,6 +336,64 @@ async fn history(
     // Хранилище отдаёт новые первыми; в терминале читаем историю сверху вниз.
     for message in messages.iter().rev() {
         println!("{}", format::message_line(message));
+    }
+    Ok(())
+}
+
+/// Правка собственного сообщения. Для E2E-чата сервер получает только новый
+/// шифротекст; локальный текст обновляется сразу.
+async fn edit(ctx: &Context, chat_ref: &str, server_id: u64, text: String) -> Result<()> {
+    if text.trim().is_empty() {
+        return Err("пустое сообщение".into());
+    }
+    let chat = resolve_chat(ctx, chat_ref).await?;
+    let message = ctx
+        .client
+        .edit_text(&chat.chat_id, server_id, &text)
+        .await?;
+    println!("Сообщение #{server_id} изменено.");
+    println!("{}", format::message_line(&message));
+    Ok(())
+}
+
+/// Удаление собственного сообщения для всех (tombstone; сервер стирает
+/// содержимое).
+async fn delete(ctx: &Context, chat_ref: &str, server_id: u64) -> Result<()> {
+    let chat = resolve_chat(ctx, chat_ref).await?;
+    let message = ctx.client.delete_message(&chat.chat_id, server_id).await?;
+    println!("Сообщение #{server_id} удалено для всех.");
+    println!("{}", format::message_line(&message));
+    Ok(())
+}
+
+/// Отметка прочтения: `delivered` устройства отправляет ядро автоматически
+/// при применении входящих; здесь пользователь подтверждает прочтение.
+async fn read(ctx: &Context, chat_ref: &str, up_to: Option<u64>) -> Result<()> {
+    let chat = resolve_chat(ctx, chat_ref).await?;
+    let up_to = match up_to {
+        Some(value) => value,
+        None => chat.last_server_id,
+    };
+    if up_to == 0 {
+        println!("В чате пока нет сообщений.");
+        return Ok(());
+    }
+    ctx.client.mark_read(&chat.chat_id, up_to).await?;
+    println!("Отмечено прочитанным: до #{up_to}.");
+    Ok(())
+}
+
+/// Показывает, кто из участников до какого сообщения дочитал (локальный кеш;
+/// обновляется событиями журнала — в том числе у устройств, бывших офлайн).
+async fn receipts(ctx: &Context, chat_ref: &str) -> Result<()> {
+    let chat = resolve_chat(ctx, chat_ref).await?;
+    let receipts = ctx.client.receipts(&chat.chat_id).await?;
+    if receipts.is_empty() {
+        println!("Подтверждений нет.");
+        return Ok(());
+    }
+    for receipt in &receipts {
+        println!("{}", format::receipt_line(receipt));
     }
     Ok(())
 }

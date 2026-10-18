@@ -332,6 +332,10 @@ async fn message_edit_delete_and_events() {
         edited_at_ms: 3_000,
         deleted_at_ms: 0,
         content_kind: Some("text".to_string()),
+        plaintext_dev: Some("правка".to_string()),
+        clear_plaintext: false,
+        sender_device_id: Some("d2".to_string()),
+        sender_curve25519: Some(vec![9; 32]),
         recipients: Some(vec![RecipientRecord {
             server_id: 1,
             device_id: "d9".to_string(),
@@ -345,6 +349,9 @@ async fn message_edit_delete_and_events() {
     };
     let (updated, seqs) = repo.update_message(1, &update).await.unwrap();
     assert_eq!(updated.edited_at_ms, 3_000);
+    assert_eq!(updated.plaintext_dev.as_deref(), Some("правка"));
+    assert_eq!(updated.sender_device_id, "d2");
+    assert_eq!(updated.sender_curve25519, vec![9; 32]);
     assert_eq!(seqs, vec![("d1".to_string(), 2)]);
     let recipient = repo.message_recipient(1, "d9").await.unwrap().unwrap();
     assert_eq!(recipient.ciphertext, vec![7]);
@@ -360,12 +367,19 @@ async fn message_edit_delete_and_events() {
         edited_at_ms: 0,
         deleted_at_ms: 4_000,
         content_kind: None,
-        recipients: None,
+        plaintext_dev: None,
+        clear_plaintext: true,
+        sender_device_id: None,
+        sender_curve25519: None,
+        recipients: Some(Vec::new()),
         events: vec![event("d1", b"delete")],
         editor_user_id: "u1".to_string(),
     };
     let (deleted, _) = repo.update_message(1, &delete).await.unwrap();
     assert_eq!(deleted.deleted_at_ms, 4_000);
+    // Удаление стирает содержимое: ни plaintext, ни ciphertext-ов.
+    assert!(deleted.plaintext_dev.is_none());
+    assert!(repo.message_recipient(1, "d9").await.unwrap().is_none());
     // Редактировать удалённое нельзя.
     assert!(repo.update_message(1, &update).await.is_err());
 }

@@ -112,7 +112,12 @@ pub fn message_view(
         } else {
             String::new()
         },
-        sender_curve25519: message.sender_curve25519.clone(),
+        // Ключ устройства, создавшего ciphertext: при правке с другого
+        // устройства аккаунта он отличается от исходного отправителя.
+        sender_curve25519: recipient
+            .map(|r| r.sender_curve25519.clone())
+            .filter(|key| !key.is_empty())
+            .unwrap_or_else(|| message.sender_curve25519.clone()),
         olm_type: recipient.map(|r| r.olm_type).unwrap_or(message.olm_type),
     }
 }

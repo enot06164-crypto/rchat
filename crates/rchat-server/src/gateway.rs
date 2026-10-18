@@ -190,6 +190,7 @@ pub async fn run_connection(server: Arc<Server>, mut conn: Box<dyn ServerConn>, 
                 push_rx = Some(rx);
                 registered = Some(key.clone());
                 server.broadcast_presence(&key.0, true, Some(&key.1)).await;
+                server.send_presence_snapshot(&key.0, &key.1).await;
             }
         } else if conn_state.just_logged_out {
             if let Some((user, device)) = registered.take() {

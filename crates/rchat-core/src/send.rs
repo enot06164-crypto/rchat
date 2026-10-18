@@ -11,19 +11,25 @@ use crate::error::CoreError;
 use crate::traits::PeerDevice;
 use crate::types::{ChatRecord, DeviceRecord, LocalAccount};
 
-/// Компонует `SendMessageRequest` для чата. Для E2E-чата вызывает
-/// `fetch_bundles` только если есть устройства без установленной сессии (что
-/// позволяет отправлять офлайн при наличии сессий). Открытый текст в E2E-чате
-/// никогда не попадает в запрос.
-pub(crate) async fn compose_send_request<F, Fut>(
+/// Содержимое исходящего сообщения: ciphertext-ы по устройствам (E2E) либо
+/// `plaintext_dev` для явно dev-чата. Открытый текст E2E-чата сюда не попадает.
+pub(crate) struct ComposedContent {
+    pub content_kind: String,
+    pub recipients: Vec<proto::RecipientPayload>,
+    pub plaintext_dev: String,
+}
+
+/// Компонует содержимое сообщения для чата (используют отправка, правка и
+/// пересборка outbox). Для E2E-чата вызывает `fetch_bundles` только если есть
+/// устройства без установленной сессии: при наличии сессий сборка возможна
+/// офлайн. Открытый текст в E2E-чате никогда не попадает в результат.
+pub(crate) async fn compose_content<F, Fut>(
     inner: &Arc<Inner>,
-    local_id: &str,
     fetch_bundles: F,
     chat: &ChatRecord,
     account: &LocalAccount,
     text: &str,
-    reply_to: Option<u64>,
-) -> Result<proto::SendMessageRequest, CoreError>
+) -> Result<ComposedContent, CoreError>
 where
     F: FnOnce(Vec<String>) -> Fut,
     Fut: std::future::Future<Output = Result<Vec<PeerDevice>, CoreError>>,
@@ -160,15 +166,67 @@ where
         }
     }
 
+    Ok(ComposedContent {
+        content_kind: "text".to_string(),
+        recipients,
+        plaintext_dev,
+    })
+}
+
+/// Компонует `SendMessageRequest` для чата.
+pub(crate) async fn compose_send_request<F, Fut>(
+    inner: &Arc<Inner>,
+    local_id: &str,
+    fetch_bundles: F,
+    chat: &ChatRecord,
+    account: &LocalAccount,
+    text: &str,
+    reply_to: Option<u64>,
+) -> Result<proto::SendMessageRequest, CoreError>
+where
+    F: FnOnce(Vec<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<PeerDevice>, CoreError>>,
+{
+    let content = compose_content(inner, fetch_bundles, chat, account, text).await?;
     let request = proto::SendMessageRequest {
         chat_id: chat.chat_id.clone(),
         client_message_id: local_id.to_string(),
-        content_kind: "text".to_string(),
+        content_kind: content.content_kind,
         reply_to_server_id: reply_to.unwrap_or(0),
-        recipients,
-        plaintext_dev,
+        recipients: content.recipients,
+        plaintext_dev: content.plaintext_dev,
     };
+    check_request_size(inner, &request)?;
+    Ok(request)
+}
 
+/// Компонует `EditMessageRequest` (правка текста автором): то же шифрование,
+/// что и при отправке, но без `client_message_id`.
+pub(crate) async fn compose_edit_request<F, Fut>(
+    inner: &Arc<Inner>,
+    fetch_bundles: F,
+    chat: &ChatRecord,
+    account: &LocalAccount,
+    server_id: u64,
+    text: &str,
+) -> Result<proto::EditMessageRequest, CoreError>
+where
+    F: FnOnce(Vec<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<PeerDevice>, CoreError>>,
+{
+    let content = compose_content(inner, fetch_bundles, chat, account, text).await?;
+    let request = proto::EditMessageRequest {
+        server_id,
+        content_kind: content.content_kind,
+        recipients: content.recipients,
+        plaintext_dev: content.plaintext_dev,
+    };
+    check_request_size(inner, &request)?;
+    Ok(request)
+}
+
+/// Проверяет, что закодированный запрос укладывается в лимит сервера.
+fn check_request_size<M: prost::Message>(inner: &Inner, request: &M) -> Result<(), CoreError> {
     let max_message_bytes = inner
         .server_hello
         .read()
@@ -178,15 +236,11 @@ where
         .filter(|v| *v > 0)
         .unwrap_or(rchat_proto::limits::MAX_MESSAGE_BYTES_DEFAULT)
         as usize;
-    let mut request_bytes = Vec::new();
-    prost::Message::encode(&request, &mut request_bytes)
-        .map_err(|e| CoreError::Internal(format!("encode: {e}")))?;
-    if request_bytes.len() > max_message_bytes {
+    let size = prost::Message::encoded_len(request);
+    if size > max_message_bytes {
         return Err(CoreError::InvalidInput(format!(
-            "message too large: {} > {} bytes",
-            request_bytes.len(),
-            max_message_bytes
+            "message too large: {size} > {max_message_bytes} bytes"
         )));
     }
-    Ok(request)
+    Ok(())
 }

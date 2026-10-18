@@ -819,6 +819,19 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                 ],
             )
             .map_err(|e| map_sql("sync insert_message", e))?;
+            // `last_server_id` чата — последнее известное локально сообщение
+            // (нужно, например, для отметки прочтения «до последнего»).
+            if let Some(server_id) = message.server_id {
+                tx.execute(
+                    "UPDATE chats SET last_server_id = MAX(last_server_id, ?2)
+                     WHERE chat_id = ?1",
+                    rusqlite::params![
+                        message.chat_id,
+                        to_sql_u64("insert message chat", server_id)?
+                    ],
+                )
+                .map_err(|e| map_sql("sync insert_message chat", e))?;
+            }
             Ok(())
         }
         SyncApply::EditMessage {
@@ -847,9 +860,11 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
             server_id,
             deleted_at_ms,
         } => {
+            // Политика «удалить для всех»: содержимое стирается и в локальном
+            // кеше, а не только помечается удалённым.
             tx.execute(
                 "UPDATE messages
-                 SET deleted_at_ms = ?2
+                 SET deleted_at_ms = ?2, body = NULL
                  WHERE server_id = ?1 AND (deleted_at_ms IS NULL OR deleted_at_ms > ?2)",
                 rusqlite::params![
                     to_sql_u64("sync delete server_id", *server_id)?,

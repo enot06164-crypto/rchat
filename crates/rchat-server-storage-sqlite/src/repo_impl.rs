@@ -780,16 +780,34 @@ impl Repo for SqliteRepo {
                 .clone()
                 .unwrap_or_else(|| current.content_kind.clone());
             tx.execute(
-                "UPDATE messages SET edited_at_ms = ?2, deleted_at_ms = ?3, content_kind = ?4
+                "UPDATE messages SET edited_at_ms = ?2, deleted_at_ms = ?3, content_kind = ?4,
+                     sender_device_id = COALESCE(?5, sender_device_id),
+                     sender_curve25519 = COALESCE(?6, sender_curve25519)
                  WHERE server_id = ?1",
                 params![
                     server_id as i64,
                     edited_at as i64,
                     deleted_at as i64,
-                    content_kind
+                    content_kind,
+                    update.sender_device_id,
+                    update.sender_curve25519
                 ],
             )
             .map_err(|e| RepoError::internal(format!("update message: {e}")))?;
+            // Политика удаления «для всех»: содержимое не остаётся на сервере.
+            if update.clear_plaintext {
+                tx.execute(
+                    "UPDATE messages SET plaintext_dev = NULL WHERE server_id = ?1",
+                    params![server_id as i64],
+                )
+                .map_err(|e| RepoError::internal(format!("clear plaintext: {e}")))?;
+            } else if let Some(text) = &update.plaintext_dev {
+                tx.execute(
+                    "UPDATE messages SET plaintext_dev = ?2 WHERE server_id = ?1",
+                    params![server_id as i64, text],
+                )
+                .map_err(|e| RepoError::internal(format!("update plaintext: {e}")))?;
+            }
             if let Some(recipients) = &update.recipients {
                 tx.execute(
                     "DELETE FROM message_recipients WHERE server_id = ?1",

@@ -1160,10 +1160,21 @@ impl Server {
             &request.plaintext_dev,
         )?;
 
+        // Если у устройства-редактора есть E2E-ключи, сообщение после правки
+        // атрибутируется ему (ciphertext-ы создал именно он).
+        let sender_curve25519 = if auth.device.curve25519.is_empty() {
+            None
+        } else {
+            Some(auth.device.curve25519.clone())
+        };
         let updated_preview = MessageRecord {
             content_kind: content.content_kind.clone(),
             edited_at_ms: now,
             plaintext_dev: content.plaintext.clone(),
+            // Правка могла прийти с другого устройства автора: события несут
+            // фактического отправителя новых ciphertext-ов.
+            sender_device_id: auth.device.device_id.clone(),
+            sender_curve25519: auth.device.curve25519.clone(),
             ..message.clone()
         };
         let mut events = Vec::with_capacity(devices.len());
@@ -1186,6 +1197,10 @@ impl Server {
             edited_at_ms: now,
             deleted_at_ms: 0,
             content_kind: Some(content.content_kind.clone()),
+            plaintext_dev: content.plaintext.clone(),
+            clear_plaintext: false,
+            sender_device_id: Some(auth.device.device_id.clone()),
+            sender_curve25519: sender_curve25519.clone(),
             recipients: Some(content.recipients.clone()),
             events,
             editor_user_id: auth.user.user_id.clone(),
@@ -1241,8 +1256,11 @@ impl Server {
             ));
         }
         let now = rchat_proto::now_ms();
+        // Событие-надгробие не должно нести содержимое: plaintext сбрасывается
+        // до сборки payload (иначе dev-чат утёк бы текстом в журнал).
         let deleted_preview = MessageRecord {
             deleted_at_ms: now,
+            plaintext_dev: None,
             ..message.clone()
         };
         let mut events = Vec::with_capacity(devices.len());
@@ -1260,7 +1278,13 @@ impl Server {
             edited_at_ms: 0,
             deleted_at_ms: now,
             content_kind: None,
-            recipients: None,
+            plaintext_dev: None,
+            // Удаление для всех: ciphertext-ы и plaintext стираются, чтобы
+            // содержимое нельзя было получить ни через историю, ни из БД.
+            clear_plaintext: true,
+            sender_device_id: None,
+            sender_curve25519: None,
+            recipients: Some(Vec::new()),
             events,
             editor_user_id: auth.user.user_id.clone(),
         };
@@ -1459,6 +1483,33 @@ impl Server {
             }
             self.connections
                 .deliver_device(&device.user_id, &device.device_id, frame.clone());
+        }
+    }
+
+    /// Отправляет только что подключившемуся устройству текущий срез
+    /// присутствия собеседников: broadcast_presence доносит лишь изменения,
+    /// а без среза клиент не узнал бы, кто был online до его подключения.
+    /// Срез — best-effort (как и всё presence), не журналируется.
+    pub async fn send_presence_snapshot(&self, user_id: &str, device_id: &str) {
+        let peers = match self.peers_of(user_id).await {
+            Ok(peers) => peers,
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to compute peers for presence snapshot");
+                return;
+            }
+        };
+        let now = rchat_proto::now_ms();
+        for peer in peers {
+            let online = self.connections.is_online(&peer);
+            match rchat_proto::encode_message(&p::push_presence(&peer, online, now)) {
+                Ok(frame) => {
+                    self.connections.deliver_device(user_id, device_id, frame);
+                }
+                Err(error) => {
+                    tracing::error!(error = %error, "failed to encode presence snapshot");
+                    return;
+                }
+            }
         }
     }
 
