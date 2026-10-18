@@ -1,0 +1,104 @@
+// Схема протокола rchat, версия 1.
+//
+// Правила эволюции схемы (см. docs/protocol.md):
+//  - номера полей и значения enum не переиспользуются;
+//  - удалённые номера резервируются через `reserved`;
+//  - новые поля добавляются с новыми номерами;
+//  - неизвестные поля игнорируются декодером (protobuf);
+//  - неизвестные значения enum сохраняются как raw int и обрабатываются
+//    вызывающим кодом безопасно;
+//  - неизвестная ветвь oneof при декодировании становится `None`, что трактуется
+//    вызывающим кодом как неподдерживаемая операция/событие.
+
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+// Общие лимиты и константы объявляются в коде крейта rchat-proto.
+// Здесь только типы данных.
+
+// ---------------------------------------------------------------------------
+// Ключи и устройства
+// ---------------------------------------------------------------------------
+
+// Публичные ключи устройства. Формат ключей определяется выбранным E2E-протоколом
+// (olm.v1): ed25519 — ключ подписи, curve25519 — ключ Диффи-Хеллмана. Оба 32 байта.
+message DeviceKeys {
+  bytes ed25519 = 1;
+  bytes curve25519 = 2;
+}
+
+// Публичный одноразовый (или резервный) prekey curve25519.
+message PreKey {
+  uint32 key_id = 1;
+  bytes public_key = 2;
+}
+
+message DeviceInfo {
+  string device_id = 1;
+  string name = 2;
+  string platform = 3;
+  DeviceKeys keys = 4;
+  // 0 — устройство без E2E-ключей (не может участвовать в E2E-чатах);
+  // 1 — olm.v1.
+  uint32 e2e_version = 5;
+  uint64 created_at_ms = 6;
+  uint64 last_seen_at_ms = 7;
+  uint64 revoked_at_ms = 8;
+  // Владелец устройства. Заполняется сервером в ответах ListDevices/GetDevices;
+  // в других контекстах может быть пустым (выводится из контекста).
+  string user_id = 9;
+}
+
+// Пакет для установления сессии: публичные ключи устройства и один
+// выделенный prekey (одноразовый, либо резервный, если одноразовых нет).
+message DeviceBundle {
+  string user_id = 1;
+  string device_id = 2;
+  DeviceKeys keys = 3;
+  PreKey one_time_key = 4;
+  // true, если one_time_key — резервный ключ, а не одноразовый.
+  bool fallback = 5;
+}
+
+message UserInfo {
+  string user_id = 1;
+  string username = 2;
+  string display_name = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Ошибки протокола
+// ---------------------------------------------------------------------------
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_INVALID_REQUEST = 1;
+  ERROR_CODE_UNSUPPORTED_METHOD = 2;
+  ERROR_CODE_PROTOCOL_VERSION_MISMATCH = 3;
+  ERROR_CODE_INVALID_CREDENTIALS = 4;
+  ERROR_CODE_USERNAME_TAKEN = 5;
+  ERROR_CODE_USERNAME_INVALID = 6;
+  ERROR_CODE_UNAUTHENTICATED = 7;
+  ERROR_CODE_SESSION_EXPIRED = 8;
+  ERROR_CODE_SESSION_REVOKED = 9;
+  ERROR_CODE_FORBIDDEN = 10;
+  ERROR_CODE_NOT_FOUND = 11;
+  ERROR_CODE_CONFLICT = 12;
+  ERROR_CODE_DEVICE_CONFLICT = 13;
+  ERROR_CODE_RATE_LIMITED = 14;
+  ERROR_CODE_PAYLOAD_TOO_LARGE = 15;
+  ERROR_CODE_E2E_REQUIRED = 16;
+  ERROR_CODE_E2E_KEYS_MISSING = 17;
+  ERROR_CODE_UNSUPPORTED_CAPABILITY = 18;
+  ERROR_CODE_INTERNAL = 19;
+  ERROR_CODE_RESYNC_REQUIRED = 20;
+  ERROR_CODE_LIMIT_EXCEEDED = 21;
+}
+
+message Error {
+  ErrorCode code = 1;
+  // Человекочитаемое сообщение. Не содержит внутренних деталей, SQL, стеков.
+  string message = 2;
+  bool retryable = 3;
+}

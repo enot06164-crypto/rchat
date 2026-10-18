@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+import "rchat/v1/common.proto";
+
+// Регистрация создаёт пользователя и первое устройство одной транзакцией.
+// Устройство может не иметь E2E-ключей (e2e_version = 0) — такое устройство
+// не сможет участвовать в E2E-чатах.
+message RegisterRequest {
+  string username = 1;
+  string display_name = 2;
+  string password = 3;
+  DeviceInfo device = 4;
+  repeated PreKey one_time_keys = 5;
+  PreKey fallback_key = 6;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+  string session_token = 2;
+  uint64 session_expires_at_ms = 3;
+  DeviceInfo device = 4;
+}
+
+// Вход. Если устройства с таким device_id у пользователя ещё нет — оно
+// создаётся. Если есть — набор ключей должен совпадать, иначе конфликт.
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+  DeviceInfo device = 3;
+  repeated PreKey one_time_keys = 4;
+  PreKey fallback_key = 5;
+}
+
+message LoginResponse {
+  string user_id = 1;
+  string session_token = 2;
+  uint64 session_expires_at_ms = 3;
+  DeviceInfo device = 4;
+  // Все устройства пользователя (кроме отозванных).
+  repeated DeviceInfo devices = 5;
+}
+
+// Восстановление сохранённой сессии по непрозрачному токену.
+message ResumeRequest {
+  string session_token = 1;
+}
+
+message ResumeResponse {
+  UserInfo user = 1;
+  DeviceInfo device = 2;
+  uint64 session_expires_at_ms = 3;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  UserInfo user = 1;
+  DeviceInfo device = 2;
+}
+
+// Дополнение пула одноразовых prekey и/или обновление резервного ключа.
+message UploadKeysRequest {
+  repeated PreKey one_time_keys = 1;
+  PreKey fallback_key = 2;
+  uint32 e2e_version = 3;
+}
+
+message UploadKeysResponse {
+  uint32 stored_one_time_keys = 1;
+}
+
+// Получение пакетов ключей для установления сессии. Одноразовый prekey
+// выделяется сервером каждому запрошенному устройству (at most once).
+message GetDeviceBundlesRequest {
+  repeated string device_ids = 1;
+}
+
+message GetDeviceBundlesResponse {
+  repeated DeviceBundle bundles = 1;
+}
+
+// Список устройств указанных пользователей (без выделения prekey).
+message GetDevicesRequest {
+  repeated string user_ids = 1;
+  bool include_own = 2;
+}
+
+message GetDevicesResponse {
+  repeated DeviceInfo devices = 1;
+}
+
+message ListDevicesRequest {}
+
+message ListDevicesResponse {
+  repeated DeviceInfo devices = 1;
+}
+
+message RevokeDeviceRequest {
+  string device_id = 1;
+}
+
+message RevokeDeviceResponse {}

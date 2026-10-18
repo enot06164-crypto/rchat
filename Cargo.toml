@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rchat-proto",
+    "crates/rchat-core",
+    "crates/rchat-server",
+    "crates/rchat-cli",
+    "crates/rchat-client-storage-sqlite",
+    "crates/rchat-server-storage-sqlite",
+    "crates/rchat-transport-ws",
+    "crates/rchat-crypto-provider",
+    "crates/rchat-testkit",
+    "crates/rchat-e2e-tests",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://example.invalid/rchat"
+
+[workspace.dependencies]
+# Публикация лицензий/версий — единая точка. Крейты подключают только нужное.
+rchat-proto = { path = "crates/rchat-proto" }
+rchat-core = { path = "crates/rchat-core" }
+rchat-server = { path = "crates/rchat-server" }
+rchat-client-storage-sqlite = { path = "crates/rchat-client-storage-sqlite" }
+rchat-server-storage-sqlite = { path = "crates/rchat-server-storage-sqlite" }
+rchat-transport-ws = { path = "crates/rchat-transport-ws" }
+rchat-crypto-provider = { path = "crates/rchat-crypto-provider" }
+rchat-testkit = { path = "crates/rchat-testkit" }
+
+async-trait = "0.1.92"
+argon2 = { version = "0.6.0", features = ["std"] }
+base64 = "0.23.1"
+chacha20poly1305 = { version = "0.11.0", features = ["std"] }
+clap = { version = "4.6.7", features = ["derive"] }
+directories = "6.0.0"
+futures-util = "0.3.34"
+getrandom = "0.4.3"
+prost = "0.14.4"
+prost-build = "0.14.4"
+rcgen = "0.14.10"
+rpassword = "7.5.4"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.11.1"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["formatting"] }
+tokio = "1.53.3"
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = "0.30.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+zeroize = "1.9.1"

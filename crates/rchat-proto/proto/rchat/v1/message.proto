@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+import "rchat/v1/chat.proto";
+
+// Тип сообщения olm (из библиотеки-провайдера): первый prekey-пакет создаёт
+// входящую сессию у получателя, последующие — обычные.
+enum OlmMessageType {
+  OLM_MESSAGE_TYPE_NORMAL = 0;
+  OLM_MESSAGE_TYPE_PREKEY = 1;
+}
+
+// Зашифрованная копия сообщения для одного конкретного устройства получателя.
+message RecipientPayload {
+  string device_id = 1;
+  bytes ciphertext = 2;
+  // 1 = olm.v1.
+  uint32 e2e_version = 3;
+  OlmMessageType olm_type = 4;
+  // curve25519 identity key отправителя (для создания входящей сессии).
+  bytes sender_curve25519 = 5;
+}
+
+// Сообщение, как его видит запрашивающее устройство.
+message Message {
+  uint64 server_id = 1;
+  string chat_id = 2;
+  string sender_user_id = 3;
+  string sender_device_id = 4;
+  string client_message_id = 5;
+  // "text" на первом этапе.
+  string content_kind = 6;
+  uint64 reply_to_server_id = 7;
+  uint64 created_at_ms = 8;
+  uint64 edited_at_ms = 9;
+  uint64 deleted_at_ms = 10;
+  // Ciphertext для запрашивающего устройства. Пусто, если для этого устройства
+  // копии нет (например, устройство зарегистрировано позже отправки).
+  bytes ciphertext = 11;
+  uint32 e2e_version = 12;
+  // Открытый текст. Присутствует только в чатах E2E_MODE_NONE_DEV.
+  string plaintext_dev = 13;
+  // curve25519 identity key отправителя на момент отправки: нужен получателю
+  // для создания входящей сессии. Сверяется с кешем устройства.
+  bytes sender_curve25519 = 14;
+  OlmMessageType olm_type = 15;
+}
+
+message SendMessageRequest {
+  string chat_id = 1;
+  // Клиентский ключ идемпотентности (локальный ID сообщения).
+  // Повтор с тем же ключом возвращает результат первой отправки.
+  string client_message_id = 2;
+  string content_kind = 3;
+  uint64 reply_to_server_id = 4;
+  // Копии для всех устройств всех участников чата (кроме устройства
+  // отправителя). Для E2E-чата обязаны покрывать все неотозванные
+  // E2E-устройства участников.
+  repeated RecipientPayload recipients = 5;
+  // Только для чатов E2E_MODE_NONE_DEV; в E2E-чате отклоняется.
+  string plaintext_dev = 6;
+}
+
+message SendMessageResponse {
+  Message message = 1;
+}
+
+message GetHistoryRequest {
+  string chat_id = 1;
+  // 0 — с последних сообщений; иначе строго старее указанного server_id.
+  uint64 before_server_id = 2;
+  uint32 limit = 3;
+}
+
+message GetHistoryResponse {
+  // Сообщения в порядке убывания server_id (новые первыми).
+  repeated Message messages = 1;
+  bool has_more = 2;
+}
+
+message EditMessageRequest {
+  uint64 server_id = 1;
+  string content_kind = 2;
+  repeated RecipientPayload recipients = 3;
+  string plaintext_dev = 4;
+}
+
+message EditMessageResponse {
+  Message message = 1;
+}
+
+// Удаление для всех участников (tombstone). Политика зафиксирована:
+// удаление «только для себя» в MVP не поддерживается.
+message DeleteMessageRequest {
+  uint64 server_id = 1;
+}
+
+message DeleteMessageResponse {
+  Message message = 1;
+}
+
+// Подтверждение: delivered (read=false) — устройство применило сообщения
+// до up_to_server_id; read=true — пользователь прочитал.
+message MarkReceiptRequest {
+  string chat_id = 1;
+  uint64 up_to_server_id = 2;
+  bool read = 3;
+}
+
+message MarkReceiptResponse {}

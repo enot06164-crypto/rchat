@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+import "rchat/v1/common.proto";
+import "rchat/v1/chat.proto";
+import "rchat/v1/message.proto";
+
+// ---------------------------------------------------------------------------
+// Журнал событий синхронизации.
+//
+// Журнал ведётся отдельно для каждого устройства. seq — монотонный
+// идентификатор, назначаемый сервером. kind_hint повторяет номер поля
+// полезной нагрузки (см. SyncEvent) и служит для безопасной диагностики
+// неизвестных событий: клиент видит kind_hint даже тогда, когда ветвь oneof
+// ему неизвестна, пропускает событие и продвигает курсор.
+// ---------------------------------------------------------------------------
+
+enum SyncEventKind {
+  SYNC_EVENT_KIND_UNSPECIFIED = 0;
+  SYNC_EVENT_KIND_CHAT_CREATED = 10;
+  SYNC_EVENT_KIND_MESSAGE = 11;
+  SYNC_EVENT_KIND_MESSAGE_EDITED = 12;
+  SYNC_EVENT_KIND_MESSAGE_DELETED = 13;
+  SYNC_EVENT_KIND_RECEIPT = 14;
+  SYNC_EVENT_KIND_DEVICE_CHANGED = 15;
+}
+
+message ChatCreatedEvent {
+  Chat chat = 1;
+}
+
+message MessageEvent {
+  Message message = 1;
+}
+
+message MessageEditedEvent {
+  Message message = 1;
+}
+
+message MessageDeletedEvent {
+  Message message = 1;
+}
+
+// Уведомление о прогрессе доставки/прочтения со стороны пользователя user_id.
+message ReceiptEvent {
+  string chat_id = 1;
+  string user_id = 2;
+  uint64 up_to_server_id = 3;
+  bool read = 4;
+}
+
+enum DeviceChangeKind {
+  DEVICE_CHANGE_KIND_UNSPECIFIED = 0;
+  DEVICE_CHANGE_KIND_ADDED = 1;
+  DEVICE_CHANGE_KIND_REVOKED = 2;
+}
+
+message DeviceChangedEvent {
+  string user_id = 1;
+  string device_id = 2;
+  DeviceChangeKind change = 3;
+  uint64 changed_at_ms = 4;
+}
+
+message SyncEvent {
+  uint64 seq = 1;
+  uint32 kind_hint = 2;
+  oneof payload {
+    ChatCreatedEvent chat_created = 10;
+    MessageEvent message = 11;
+    MessageEditedEvent message_edited = 12;
+    MessageDeletedEvent message_deleted = 13;
+    ReceiptEvent receipt = 14;
+    DeviceChangedEvent device_changed = 15;
+  }
+}
+
+// Событие, не попадающее в журнал (best-effort доставка через активное соединение).
+message PresenceEvent {
+  string user_id = 1;
+  bool online = 2;
+  uint64 updated_at_ms = 3;
+}
+
+message TransientEvent {
+  oneof event {
+    PresenceEvent presence = 1;
+  }
+}
+
+message Push {
+  oneof event {
+    SyncEvent sync_event = 1;
+    TransientEvent transient = 2;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Догрузка по курсору.
+// ---------------------------------------------------------------------------
+
+message SyncRequest {
+  // Последний надёжно применённый seq. Сервер вернёт события строго после него.
+  uint64 after_seq = 1;
+  // 0 — значение по умолчанию сервера (см. max_sync_page в ServerHello).
+  uint32 limit = 2;
+}
+
+message SyncEventsResponse {
+  uint64 from_seq = 1;
+  // Непрерывная последовательность событий после from_seq.
+  repeated SyncEvent events = 2;
+  // Текущий максимальный seq журнала этого устройства. Клиент может считать,
+  // что состояние на этот момент восстановлено.
+  uint64 up_to_seq = 3;
+  // true — часть событий после курсора больше не хранится; клиенту нужно
+  // получить snapshot и продолжить с up_to_seq.
+  bool resync_required = 4;
+}
+
+message SnapshotRequest {}
+
+message SnapshotResponse {
+  uint64 up_to_seq = 1;
+  repeated Chat chats = 2;
+  // Устройства самого пользователя (включая текущее).
+  repeated DeviceInfo devices = 3;
+  // Пользователи, встречающиеся в чатах.
+  repeated UserInfo users = 4;
+  uint64 sync_retention_seconds = 5;
+}

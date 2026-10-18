@@ -1,0 +1,13 @@
+[package]
+name = "rchat-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rchat-core.workspace = true
+
+[[bin]]
+name = "rchat-cli"
+path = "src/main.rs"

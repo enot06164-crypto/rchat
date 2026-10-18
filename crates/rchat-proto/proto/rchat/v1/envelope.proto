@@ -1,0 +1,120 @@
+// Внешняя оболочка кадров, handshake, запросы и ответы.
+//
+// Правило распределения номеров полей в Request/Response:
+//   1..=9   — аутентификация, сессии, устройства, ключи;
+//   10..=19 — чаты и сообщения;
+//   20..=29 — синхронизация;
+//   30..=39 — прочие операции;
+//   100     — общая ошибка ответа;
+//   >=200   — зарезервировано.
+
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+import "rchat/v1/common.proto";
+import "rchat/v1/auth.proto";
+import "rchat/v1/chat.proto";
+import "rchat/v1/message.proto";
+import "rchat/v1/sync.proto";
+
+message Envelope {
+  // Идентификатор запроса для сопоставления ответа. Для push/hello может быть 0.
+  uint64 request_id = 1;
+  oneof body {
+    ClientHello client_hello = 2;
+    ServerHello server_hello = 3;
+    Request request = 4;
+    Response response = 5;
+    Push push = 6;
+    // Ошибка уровня соединения (не привязанная к конкретному запросу).
+    Error error = 7;
+  }
+}
+
+message ClientHello {
+  uint32 min_major = 1;
+  uint32 max_major = 2;
+  uint32 min_minor = 3;
+  uint32 max_minor = 4;
+  // Возможности, которые поддерживает клиент.
+  repeated string capabilities = 5;
+  // Возможности, без которых клиент не может работать.
+  repeated string required_capabilities = 6;
+  // Максимальный размер кадра, который готов принять клиент.
+  uint32 max_frame_bytes = 7;
+  string client_name = 8;
+  string client_version = 9;
+}
+
+message ServerHello {
+  // Согласованная (единая) версия: major совпадает, minor — минимум из двух.
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  repeated string capabilities = 3;
+  uint32 max_frame_bytes = 4;
+  uint32 max_message_bytes = 5;
+  uint32 max_sync_page = 6;
+  uint32 max_history_page = 7;
+  uint64 sync_retention_seconds = 8;
+  // Идентификатор E2E-протокола, например "olm.v1"; пусто, если E2E выключен.
+  string e2e_protocol = 9;
+  string server_name = 10;
+  string server_version = 11;
+}
+
+message Request {
+  oneof method {
+    RegisterRequest register = 1;
+    LoginRequest login = 2;
+    ResumeRequest resume = 3;
+    LogoutRequest logout = 4;
+    GetMeRequest get_me = 5;
+    UploadKeysRequest upload_keys = 6;
+    GetDeviceBundlesRequest get_device_bundles = 7;
+    GetDevicesRequest get_devices = 8;
+    ListDevicesRequest list_devices = 9;
+
+    CreateDirectChatRequest create_direct_chat = 10;
+    ListChatsRequest list_chats = 11;
+    SendMessageRequest send_message = 12;
+    GetHistoryRequest get_history = 13;
+    EditMessageRequest edit_message = 14;
+    DeleteMessageRequest delete_message = 15;
+    MarkReceiptRequest mark_receipt = 16;
+
+    SyncRequest sync = 20;
+    SnapshotRequest get_snapshot = 21;
+
+    RevokeDeviceRequest revoke_device = 30;
+  }
+}
+
+message Response {
+  oneof result {
+    RegisterResponse register = 1;
+    LoginResponse login = 2;
+    ResumeResponse resume = 3;
+    LogoutResponse logout = 4;
+    GetMeResponse get_me = 5;
+    UploadKeysResponse upload_keys = 6;
+    GetDeviceBundlesResponse get_device_bundles = 7;
+    GetDevicesResponse get_devices = 8;
+    ListDevicesResponse list_devices = 9;
+
+    CreateDirectChatResponse create_direct_chat = 10;
+    ListChatsResponse list_chats = 11;
+    SendMessageResponse send_message = 12;
+    GetHistoryResponse get_history = 13;
+    EditMessageResponse edit_message = 14;
+    DeleteMessageResponse delete_message = 15;
+    MarkReceiptResponse mark_receipt = 16;
+
+    SyncEventsResponse sync = 20;
+    SnapshotResponse get_snapshot = 21;
+
+    RevokeDeviceResponse revoke_device = 30;
+
+    Error error = 100;
+  }
+}

@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+import "rchat/v1/common.proto";
+
+enum ChatKind {
+  CHAT_KIND_UNSPECIFIED = 0;
+  CHAT_KIND_DIRECT = 1;
+}
+
+// Режим конфиденциальности чата. Фиксируется при создании и не меняется
+// автоматически: переход E2E -> plaintext запрещён.
+enum E2eMode {
+  E2E_MODE_UNSPECIFIED = 0;
+  // Явный режим разработки без E2E. Сервер и клиент могут видеть содержимое.
+  // Может использоваться только по явному указанию пользователя/тестов.
+  E2E_MODE_NONE_DEV = 1;
+  // Сквозное шифрование olm.v1.
+  E2E_MODE_OLM_V1 = 2;
+}
+
+message ChatMember {
+  string user_id = 1;
+  string username = 2;
+  string display_name = 3;
+  uint64 joined_at_ms = 4;
+}
+
+message Chat {
+  string chat_id = 1;
+  ChatKind kind = 2;
+  E2eMode e2e_mode = 3;
+  repeated ChatMember members = 4;
+  uint64 created_at_ms = 5;
+  uint64 updated_at_ms = 6;
+  // Последний server_id сообщения в чате (0, если сообщений нет).
+  uint64 last_server_id = 7;
+}
+
+message CreateDirectChatRequest {
+  string peer_username = 1;
+  // Режим требуется указать явно; E2E_MODE_UNSPECIFIED отклоняется.
+  E2eMode e2e_mode = 2;
+}
+
+message CreateDirectChatResponse {
+  Chat chat = 1;
+}
+
+message ListChatsRequest {}
+
+message ListChatsResponse {
+  repeated Chat chats = 1;
+}
