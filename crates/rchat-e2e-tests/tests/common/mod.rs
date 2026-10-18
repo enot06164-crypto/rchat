@@ -1,6 +1,6 @@
-//! Общий харнесс сквозных E2E-тестов: реальный сервер (SQLite + WebSocket),
-//! реальные клиенты (ядро + SQLite + шифрованное хранилище секретов +
-//! провайдер Olm).
+//! Общий харнесс сквозных E2E-тестов: реальный сервер (SQLite + WebSocket)
+//! из `rchat-testkit`, реальные клиенты (ядро + SQLite + шифрованное
+//! хранилище секретов + провайдер Olm).
 //!
 //! Подключается тестовыми файлами как `mod common;`. Часть помощников может
 //! не использоваться отдельным файлом — для общей тестовой библиотеки это
@@ -8,7 +8,7 @@
 
 #![allow(dead_code)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,77 +19,23 @@ use rchat_core::error::CoreError;
 use rchat_core::traits::Storage;
 use rchat_core::types::{MessageRecord, MessageStatus, ReceiptRecord};
 use rchat_crypto_provider::VodozemacCryptoProvider;
-use rchat_server::config::Argon2Params;
-use rchat_server::{Argon2idHasher, Server, ServerConfig};
-use rchat_server_storage_sqlite::net::{handle_client, ws_config};
-use rchat_server_storage_sqlite::SqliteRepo;
+use rchat_testkit::TestServer;
 use rchat_transport_ws::{WsTransportConfig, WsTransportFactory};
 use rusqlite::Connection;
-use tokio::net::TcpListener;
 
 pub const PASSWORD_ALICE: &str = "pw-alice-1";
 pub const PASSWORD_BOB: &str = "pw-bob-1";
 /// Верхняя граница любого ожидания в тестах.
 pub const TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Тестовый сервер на цикле accept; пока структура жива, порт занят,
-/// а БД открыта.
-pub struct Harness {
-    pub port: u16,
-    dir: tempfile::TempDir,
-    accept: tokio::task::JoinHandle<()>,
-}
-
-impl Harness {
-    pub fn db_path(&self) -> PathBuf {
-        self.dir.path().join("server.sqlite3")
-    }
-
-    pub async fn shutdown(self) {
-        self.accept.abort();
-        let _ = self.accept.await;
-    }
-}
-
-/// Поднимает сервер с собственной временной БД. Dev-plaintext-чаты
-/// запрещены: тесты работают только с E2E. Параметры Argon2 уменьшены,
-/// чтобы тесты не тратили время на KDF.
-pub async fn start_server() -> Harness {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let config = ServerConfig {
-        allow_dev_plaintext_chats: false,
-        argon2: Argon2Params {
-            memory_kib: 64,
-            iterations: 1,
-            parallelism: 1,
-        },
-        ..ServerConfig::default()
-    };
-    let repo = SqliteRepo::open(dir.path().join("server.sqlite3")).expect("repo");
-    let server = Arc::new(
-        Server::start(
-            Arc::new(repo),
-            config.clone(),
-            Arc::new(Argon2idHasher::new(config.argon2).expect("hasher")),
-        )
-        .await
-        .expect("server"),
-    );
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let port = listener.local_addr().expect("addr").port();
-    let ws = ws_config(config.max_frame_bytes);
-    let accept = tokio::spawn(async move {
-        loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                return;
-            };
-            let server = Arc::clone(&server);
-            tokio::spawn(async move {
-                let _ = handle_client(stream, None, server, ws).await;
-            });
-        }
-    });
-    Harness { port, dir, accept }
+/// Поднимает сервер с собственной временной БД через `rchat-testkit`
+/// (настоящий сервисный слой + SQLite, тестовые параметры Argon2).
+/// Dev-plaintext-чаты запрещены: сквозные тесты работают только с E2E.
+pub async fn start_server() -> TestServer {
+    TestServer::start_with(|config| {
+        config.allow_dev_plaintext_chats = false;
+    })
+    .await
 }
 
 /// Клиент со всеми реальными компонентами: SQLite, шифрованный файл

@@ -8,3 +8,15 @@ license.workspace = true
 [dependencies]
 rchat-core.workspace = true
 rchat-proto.workspace = true
+rchat-server.workspace = true
+rchat-server-storage-sqlite.workspace = true
+async-trait.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "sync",
+    "time",
+    "net",
+    "macros",
+] }

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    name: fmt, clippy, тесты, сборка
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Версия закреплена файлом rust-toolchain.toml (stable + rustfmt/clippy).
+      - name: Установка Rust
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable --component rustfmt --component clippy
+          rustup default stable
+
+      - name: Кеш cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Форматирование
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (предупреждения — ошибки)
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Тесты
+        run: cargo test --locked --workspace
+
+      - name: Сборка исполняемых целей
+        run: cargo build --locked --bin rchat-server --bin rchat-cli

@@ -27,15 +27,15 @@ async fn e2e_edit_delete_and_receipts_reach_all_devices() {
     let bob_dir = root.path().join("bob");
 
     // alice1 (автор), alice2 — её второе устройство, bob — получатель.
-    let (alice1, alice1_storage) = build_client(&alice1_dir, harness.port, "alice-dev1");
+    let (alice1, alice1_storage) = build_client(&alice1_dir, harness.port(), "alice-dev1");
     alice1.start().await.expect("start alice1");
     register_user(&alice1, "alice", "Alice", PASSWORD_ALICE).await;
 
-    let (alice2, _alice2_storage) = build_client(&alice2_dir, harness.port, "alice-dev2");
+    let (alice2, _alice2_storage) = build_client(&alice2_dir, harness.port(), "alice-dev2");
     alice2.start().await.expect("start alice2");
     login_user(&alice2, "alice", PASSWORD_ALICE).await;
 
-    let (bob, _bob_storage) = build_client(&bob_dir, harness.port, "bob-dev");
+    let (bob, _bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
     bob.start().await.expect("start bob");
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
@@ -91,12 +91,9 @@ async fn e2e_edit_delete_and_receipts_reach_all_devices() {
 
     // Сервер не видел открытый текст правки; у сообщения ровно два новых
     // шифротекста (alice1 и bob).
-    assert_server_has_no_plaintext(&harness.db_path(), second);
-    assert_eq!(message_recipient_count(&harness.db_path(), server_id), 2);
-    assert_eq!(
-        server_message_plaintext(&harness.db_path(), server_id),
-        None
-    );
+    assert_server_has_no_plaintext(harness.db_path(), second);
+    assert_eq!(message_recipient_count(harness.db_path(), server_id), 2);
+    assert_eq!(server_message_plaintext(harness.db_path(), server_id), None);
 
     // Bob расшифровывает правку: сессия с alice2 создаётся по prekey.
     bob.sync_now().await.expect("sync bob");
@@ -117,13 +114,10 @@ async fn e2e_edit_delete_and_receipts_reach_all_devices() {
 
     // На сервере: ciphertext-ы стёрты, plaintext пуст, открытого текста нет
     // ни в одной таблице.
-    assert_eq!(message_recipient_count(&harness.db_path(), server_id), 0);
-    assert_eq!(
-        server_message_plaintext(&harness.db_path(), server_id),
-        None
-    );
-    assert_server_has_no_plaintext(&harness.db_path(), first);
-    assert_server_has_no_plaintext(&harness.db_path(), second);
+    assert_eq!(message_recipient_count(harness.db_path(), server_id), 0);
+    assert_eq!(server_message_plaintext(harness.db_path(), server_id), None);
+    assert_server_has_no_plaintext(harness.db_path(), first);
+    assert_server_has_no_plaintext(harness.db_path(), second);
 
     // Bob получает tombstone без текста.
     bob.sync_now().await.expect("sync bob");

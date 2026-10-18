@@ -27,13 +27,13 @@ async fn e2e_offline_delivery_server_stores_only_ciphertext() {
     let alice_dir = root.path().join("alice");
     let bob_dir = root.path().join("bob");
 
-    let (alice, alice_storage) = build_client(&alice_dir, harness.port, "alice-dev");
+    let (alice, alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
     alice.start().await.expect("start alice");
     register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
 
     // Bob регистрируется (его ключи уходят серверу) и уходит офлайн.
     {
-        let (bob, _bob_storage) = build_client(&bob_dir, harness.port, "bob-dev");
+        let (bob, _bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
         bob.start().await.expect("start bob");
         register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
         bob.shutdown().await.expect("shutdown bob");
@@ -54,13 +54,13 @@ async fn e2e_offline_delivery_server_stores_only_ciphertext() {
         .expect("send first message");
     wait_sent(&alice_storage, &local_id).await;
 
-    let (messages, recipients) = assert_server_has_no_plaintext(&harness.db_path(), secret);
+    let (messages, recipients) = assert_server_has_no_plaintext(harness.db_path(), secret);
     assert_eq!(messages, 1, "на сервере должно быть одно сообщение");
     assert_eq!(recipients, 1, "шифротекст должен быть для устройства Bob");
 
     // Bob запускается заново с тем же локальным состоянием (аккаунт,
     // prekey-ключи, хранилище) и расшифровывает офлайн-сообщение.
-    let (bob, bob_storage) = build_client(&bob_dir, harness.port, "bob-dev");
+    let (bob, bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
     bob.start().await.expect("start bob again");
     bob.sync_now().await.expect("sync bob");
     let received = wait_for_body(&bob, &chat.chat_id, secret).await;
@@ -74,12 +74,12 @@ async fn e2e_offline_delivery_server_stores_only_ciphertext() {
         .expect("send reply");
     wait_sent(&bob_storage, &reply_id).await;
 
-    let (messages, recipients) = assert_server_has_no_plaintext(&harness.db_path(), reply);
+    let (messages, recipients) = assert_server_has_no_plaintext(harness.db_path(), reply);
     assert_eq!(messages, 2, "на сервере должно быть два сообщения");
     assert_eq!(recipients, 2, "каждому сообщению — свой шифротекст");
 
     // Протокол: первое сообщение prekey (1), ответ — normal (0).
-    assert_eq!(recipient_olm_types(&harness.db_path()), vec![1, 0]);
+    assert_eq!(recipient_olm_types(harness.db_path()), vec![1, 0]);
 
     let (alice_user_id, _, _) = alice.session().expect("alice session");
     let (bob_user_id, _, _) = bob.session().expect("bob session");
@@ -106,14 +106,14 @@ async fn e2e_multi_device_delivers_to_all_devices() {
     let bob_dir = root.path().join("bob");
 
     // Второе устройство Alice: вход в тот же аккаунт с новым устройством.
-    let (alice1, alice1_storage) = build_client(&alice1_dir, harness.port, "alice-dev1");
+    let (alice1, alice1_storage) = build_client(&alice1_dir, harness.port(), "alice-dev1");
     alice1.start().await.expect("start alice1");
     register_user(&alice1, "alice", "Alice", PASSWORD_ALICE).await;
-    let (alice2, _alice2_storage) = build_client(&alice2_dir, harness.port, "alice-dev2");
+    let (alice2, _alice2_storage) = build_client(&alice2_dir, harness.port(), "alice-dev2");
     alice2.start().await.expect("start alice2");
     login_user(&alice2, "alice", PASSWORD_ALICE).await;
 
-    let (bob, bob_storage) = build_client(&bob_dir, harness.port, "bob-dev");
+    let (bob, bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
     bob.start().await.expect("start bob");
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
@@ -132,11 +132,11 @@ async fn e2e_multi_device_delivers_to_all_devices() {
         .expect("send multi-device message");
     wait_sent(&alice1_storage, &local_id).await;
 
-    let (messages, recipients) = assert_server_has_no_plaintext(&harness.db_path(), secret);
+    let (messages, recipients) = assert_server_has_no_plaintext(harness.db_path(), secret);
     assert_eq!(messages, 1);
     assert_eq!(recipients, 2, "шифротекст должен уйти обоим устройствам");
     // Оба получателя получают prekey-сообщение (сессий ещё нет).
-    assert_eq!(recipient_olm_types(&harness.db_path()), vec![1, 1]);
+    assert_eq!(recipient_olm_types(harness.db_path()), vec![1, 1]);
 
     // Bob расшифровывает.
     bob.sync_now().await.expect("sync bob");
@@ -156,10 +156,10 @@ async fn e2e_multi_device_delivers_to_all_devices() {
         .await
         .expect("send reply");
     wait_sent(&bob_storage, &reply_id).await;
-    let (messages, recipients) = assert_server_has_no_plaintext(&harness.db_path(), reply);
+    let (messages, recipients) = assert_server_has_no_plaintext(harness.db_path(), reply);
     assert_eq!(messages, 2);
     assert_eq!(recipients, 4, "ответ должен уйти двум устройствам Alice");
-    assert_eq!(recipient_olm_types(&harness.db_path()), vec![1, 1, 0, 1]);
+    assert_eq!(recipient_olm_types(harness.db_path()), vec![1, 1, 0, 1]);
 
     alice1.sync_now().await.expect("sync alice1");
     let for_alice1 = wait_for_body(&alice1, &chat.chat_id, reply).await;
@@ -181,11 +181,11 @@ async fn e2e_send_without_keys_is_rejected_without_plaintext_fallback() {
     let alice_dir = root.path().join("alice");
     let bob_dir = root.path().join("bob");
 
-    let (alice, _alice_storage) = build_client(&alice_dir, harness.port, "alice-dev");
+    let (alice, _alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
     alice.start().await.expect("start alice");
     register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
 
-    let (bob, bob_storage) = build_client(&bob_dir, harness.port, "bob-dev");
+    let (bob, bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
     bob.start().await.expect("start bob");
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
@@ -223,7 +223,7 @@ async fn e2e_send_without_keys_is_rejected_without_plaintext_fallback() {
 
     // На сервере нет ни сообщений чата, ни открытого текста.
     let (messages, recipients) =
-        assert_server_has_no_plaintext(&harness.db_path(), "текст не должен утечь");
+        assert_server_has_no_plaintext(harness.db_path(), "текст не должен утечь");
     assert_eq!(messages, 0, "сообщение не должно попасть на сервер");
     assert_eq!(recipients, 0, "шифротекста быть не должно");
 

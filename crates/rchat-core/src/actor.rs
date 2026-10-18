@@ -40,6 +40,12 @@ fn is_transport_error(error: &CoreError) -> bool {
     matches!(error, CoreError::Transport(_))
 }
 
+/// Нарушение протокола (включая поток битых кадров): соединение закрывается,
+/// клиент переподключается с чистым потоком вместо бесконечного терпения.
+fn is_protocol_error(error: &CoreError) -> bool {
+    matches!(error, CoreError::Protocol(_))
+}
+
 // ---------------------------------------------------------------------------
 // Точка входа актора
 // ---------------------------------------------------------------------------
@@ -252,7 +258,7 @@ async fn session_loop(
             }
             Wake::Frame(Ok(Some(bytes))) => {
                 if let Err(error) = ctx.handle_frame(bytes).await {
-                    if is_transport_error(&error) {
+                    if is_transport_error(&error) || is_protocol_error(&error) {
                         return Err(SessionError::Retry(error));
                     }
                     warn!(error = %error, "frame handling failed");

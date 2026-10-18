@@ -106,7 +106,10 @@ impl Inner {
     }
 
     pub(crate) fn set_state(&self, state: ConnectionState) {
-        let _ = self.state_tx.send(state);
+        // `send_replace`, а не `send`: смена состояния обязана сохраняться и
+        // при отсутствии подписчиков, иначе клиент, успевший подключиться до
+        // первой подписки, навсегда остаётся для наблюдателей «отключённым».
+        self.state_tx.send_replace(state);
     }
 
     pub(crate) fn state(&self) -> ConnectionState {

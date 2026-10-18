@@ -1216,8 +1216,7 @@ dependencies = [
  "rchat-core",
  "rchat-crypto-provider",
  "rchat-proto",
- "rchat-server",
- "rchat-server-storage-sqlite",
+ "rchat-testkit",
  "rchat-transport-ws",
  "rpassword",
  "rusqlite",
@@ -1280,8 +1279,7 @@ dependencies = [
  "rchat-core",
  "rchat-crypto-provider",
  "rchat-proto",
- "rchat-server",
- "rchat-server-storage-sqlite",
+ "rchat-testkit",
  "rchat-transport-ws",
  "rusqlite",
  "tempfile",
@@ -1336,8 +1334,13 @@ dependencies = [
 name = "rchat-testkit"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "rchat-core",
  "rchat-proto",
+ "rchat-server",
+ "rchat-server-storage-sqlite",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
