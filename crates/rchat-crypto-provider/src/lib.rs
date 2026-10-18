@@ -1175,6 +1175,49 @@ mod tests {
         assert_eq!(again.session_id, encryption.session_id);
     }
 
+    /// Ратчет одной сессии: несколько сообщений подряд расшифровываются
+    /// получателем, которому ключ выдан до первого из них.
+    #[tokio::test]
+    async fn group_session_ratchet_advances() {
+        let alice = provider();
+        let bob = provider();
+        let (alice_peer, _) = peer(&alice, "a1").await;
+        let (mut bob_peer, bob_keys) = peer(&bob, "b1").await;
+        bob_peer.one_time_key = Some(bob_keys.one_time_keys[0].clone());
+
+        let first = alice
+            .group_encrypt("c1", b"one", true)
+            .await
+            .expect("first");
+        let key = first.session_key.clone().expect("key");
+        let envelopes = alice
+            .encrypt_group_key("c1", &key, std::slice::from_ref(&bob_peer))
+            .await
+            .expect("envelope");
+        bob.apply_group_key(&alice_peer, &envelopes[0], "c1")
+            .await
+            .expect("import");
+        assert_eq!(
+            bob.decrypt_group("c1", &first.session_id, &first.ciphertext)
+                .await
+                .expect("decrypt first"),
+            b"one"
+        );
+
+        let second = alice
+            .group_encrypt("c1", b"two", false)
+            .await
+            .expect("second");
+        assert_eq!(second.session_id, first.session_id);
+        assert!(second.session_key.is_none());
+        assert_eq!(
+            bob.decrypt_group("c1", &second.session_id, &second.ciphertext)
+                .await
+                .expect("decrypt second"),
+            b"two"
+        );
+    }
+
     #[tokio::test]
     async fn group_key_is_bound_to_its_chat() {
         let alice = provider();

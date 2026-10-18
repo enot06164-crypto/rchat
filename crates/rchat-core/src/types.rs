@@ -2,7 +2,7 @@
 //! они не содержат секретов в незашифрованном виде и не зависят от конкретных
 //! реализаций хранилищ.
 
-use rchat_proto::proto::{ChatKind, E2eMode};
+use rchat_proto::proto::{ChatKind, ChatMemberRole, E2eMode};
 
 /// Локальный аккаунт (профиль) на этом устройстве.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +31,8 @@ pub struct MemberRecord {
     pub user_id: String,
     pub username: String,
     pub display_name: String,
+    /// Роль в групповом чате; для личных чатов — UNSPECIFIED.
+    pub role: ChatMemberRole,
     pub joined_at_ms: u64,
 }
 

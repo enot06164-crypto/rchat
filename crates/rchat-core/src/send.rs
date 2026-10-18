@@ -7,7 +7,7 @@ use std::sync::Arc;
 use rchat_proto::proto;
 
 use crate::client::Inner;
-use crate::error::CoreError;
+use crate::error::{CoreError, CryptoError};
 use crate::traits::PeerDevice;
 use crate::types::{ChatRecord, DeviceRecord, LocalAccount};
 
@@ -17,6 +17,54 @@ pub(crate) struct ComposedContent {
     pub content_kind: String,
     pub recipients: Vec<proto::RecipientPayload>,
     pub plaintext_dev: String,
+    /// Общий megolm-ciphertext группового сообщения (пусто для личных чатов).
+    pub group_ciphertext: Vec<u8>,
+    /// Идентификатор megolm-сессии (пусто для личных чатов).
+    pub group_session_id: String,
+    /// Устройства, которым в этом запросе выдан ключ групповой сессии:
+    /// фиксируются в хранилище после постановки запроса в outbox, чтобы
+    /// не рассылать ключ повторно и досылать его новым устройствам.
+    pub group_key_shares: Vec<String>,
+}
+
+/// Дозаполняет дескрипторы устройств свежими пакетами ключей с сервера:
+/// сверяет identity key (несовпадение — явная ошибка без fallback) и
+/// подставляет prekey для установления сессии.
+async fn apply_bundles(
+    inner: &Arc<Inner>,
+    targets: &mut [PeerDevice],
+    bundles: &[PeerDevice],
+) -> Result<(), CoreError> {
+    for target in targets.iter_mut() {
+        let Some(bundle) = bundles.iter().find(|b| b.device_id == target.device_id) else {
+            continue;
+        };
+        if !bundle.curve25519.is_empty()
+            && !target.curve25519.is_empty()
+            && bundle.curve25519 != target.curve25519
+        {
+            return Err(CoreError::Crypto(CryptoError::IdentityMismatch(
+                target.device_id.clone(),
+            )));
+        }
+        if !bundle.ed25519.is_empty() {
+            let updated = DeviceRecord {
+                device_id: target.device_id.clone(),
+                user_id: target.user_id.clone(),
+                name: String::new(),
+                platform: String::new(),
+                e2e_version: rchat_proto::E2E_VERSION_OLM_V1,
+                ed25519: bundle.ed25519.clone(),
+                curve25519: bundle.curve25519.clone(),
+                revoked_at_ms: None,
+            };
+            inner.storage.upsert_device(&updated).await?;
+            target.ed25519 = bundle.ed25519.clone();
+            target.curve25519 = bundle.curve25519.clone();
+        }
+        target.one_time_key = bundle.one_time_key.clone();
+    }
+    Ok(())
 }
 
 /// Компонует содержимое сообщения для чата (используют отправка, правка и
@@ -54,6 +102,7 @@ where
                 )));
             }
             let own_device_id = inner.device_id()?;
+            let is_group = chat.kind == proto::ChatKind::Group;
 
             // Сбор активных E2E-устройств всех участников, кроме собственного
             // устройства отправителя.
@@ -68,6 +117,17 @@ where
                     })
                     .collect();
                 if usable.is_empty() {
+                    if is_group {
+                        // В группе «нет устройств у участника» — не ошибка:
+                        // ключ просто некому выдать, он получит его позже
+                        // (при следующем входе/устройстве).
+                        tracing::warn!(
+                            user_id = %member.user_id,
+                            chat_id = %chat.chat_id,
+                            "group member without usable e2e devices"
+                        );
+                        continue;
+                    }
                     return Err(CoreError::E2eUnavailable(format!(
                         "user {} has no usable e2e devices",
                         member.user_id
@@ -86,6 +146,64 @@ where
                     });
                 }
             }
+
+            if is_group {
+                // Группа: один общий megolm-ciphertext; recipients несут
+                // только ключ сессии тем устройствам, кому он ещё не выдан.
+                let encryption = crypto
+                    .group_encrypt(&chat.chat_id, text.as_bytes(), true)
+                    .await?;
+                let already = inner
+                    .storage
+                    .group_key_shares(&chat.chat_id, &encryption.session_id)
+                    .await?;
+                let mut needed: Vec<PeerDevice> = targets
+                    .into_iter()
+                    .filter(|t| !already.contains(&t.device_id))
+                    .collect();
+                let mut group_key_shares: Vec<String> = Vec::new();
+                if !needed.is_empty() {
+                    if let Some(session_key) = encryption.session_key.as_ref() {
+                        // Prekey нужен только тем, с кем ещё нет olm-сессии;
+                        // остальным ключ летит обычным olm-сообщением.
+                        let mut missing_ids: Vec<String> = Vec::new();
+                        for target in &needed {
+                            if !crypto.has_session(&target.device_id).await? {
+                                missing_ids.push(target.device_id.clone());
+                            }
+                        }
+                        if !missing_ids.is_empty() {
+                            let bundles = fetch_bundles(missing_ids).await?;
+                            apply_bundles(inner, &mut needed, &bundles).await?;
+                        }
+                        let envelopes = crypto
+                            .encrypt_group_key(&chat.chat_id, session_key, &needed)
+                            .await?;
+                        for message in &envelopes {
+                            recipients.push(proto::RecipientPayload {
+                                device_id: message.device_id.clone(),
+                                ciphertext: message.ciphertext.clone(),
+                                e2e_version: message.e2e_version,
+                                olm_type: message.olm_type as i32,
+                                sender_curve25519: message.sender_curve25519.clone(),
+                                payload_kind: proto::RecipientPayloadKind::GroupKey as i32,
+                            });
+                            group_key_shares.push(message.device_id.clone());
+                        }
+                    }
+                }
+                return Ok(ComposedContent {
+                    content_kind: "text".to_string(),
+                    recipients,
+                    plaintext_dev,
+                    group_ciphertext: encryption.ciphertext,
+                    group_session_id: encryption.session_id,
+                    group_key_shares,
+                });
+            }
+
+            // Личный E2E-чат: каждый участник обязан иметь пригодные
+            // устройства, копия шифруется персонально каждому.
             if targets.is_empty() {
                 return Err(CoreError::E2eUnavailable(
                     "no recipient devices for e2e message".into(),
@@ -101,38 +219,7 @@ where
             }
             if !missing_ids.is_empty() {
                 let bundles = fetch_bundles(missing_ids).await?;
-                for target in targets.iter_mut() {
-                    let Some(bundle) = bundles.iter().find(|b| b.device_id == target.device_id)
-                    else {
-                        continue;
-                    };
-                    // Проверка идентичности: если ключи изменились, сессия не
-                    // создаётся — требуется осознанное решение пользователя.
-                    if !bundle.curve25519.is_empty()
-                        && !target.curve25519.is_empty()
-                        && bundle.curve25519 != target.curve25519
-                    {
-                        return Err(CoreError::Crypto(
-                            crate::error::CryptoError::IdentityMismatch(target.device_id.clone()),
-                        ));
-                    }
-                    if !bundle.ed25519.is_empty() {
-                        let updated = DeviceRecord {
-                            device_id: target.device_id.clone(),
-                            user_id: target.user_id.clone(),
-                            name: String::new(),
-                            platform: String::new(),
-                            e2e_version: rchat_proto::E2E_VERSION_OLM_V1,
-                            ed25519: bundle.ed25519.clone(),
-                            curve25519: bundle.curve25519.clone(),
-                            revoked_at_ms: None,
-                        };
-                        inner.storage.upsert_device(&updated).await?;
-                        target.ed25519 = bundle.ed25519.clone();
-                        target.curve25519 = bundle.curve25519.clone();
-                    }
-                    target.one_time_key = bundle.one_time_key.clone();
-                }
+                apply_bundles(inner, &mut targets, &bundles).await?;
                 // Устройство без пакета ключей получит ошибку MissingPreKey
                 // внутри encrypt_for — явная ошибка без fallback на plaintext.
             }
@@ -171,10 +258,15 @@ where
         content_kind: "text".to_string(),
         recipients,
         plaintext_dev,
+        group_ciphertext: Vec::new(),
+        group_session_id: String::new(),
+        group_key_shares: Vec::new(),
     })
 }
 
-/// Компонует `SendMessageRequest` для чата.
+/// Компонует `SendMessageRequest` для чата. Возвращает запрос и список
+/// устройств, которым в этом запросе выдан ключ групповой сессии (для
+/// фиксации в хранилище после постановки в outbox).
 pub(crate) async fn compose_send_request<F, Fut>(
     inner: &Arc<Inner>,
     local_id: &str,
@@ -183,7 +275,7 @@ pub(crate) async fn compose_send_request<F, Fut>(
     account: &LocalAccount,
     text: &str,
     reply_to: Option<u64>,
-) -> Result<proto::SendMessageRequest, CoreError>
+) -> Result<(proto::SendMessageRequest, Vec<String>), CoreError>
 where
     F: FnOnce(Vec<String>) -> Fut,
     Fut: std::future::Future<Output = Result<Vec<PeerDevice>, CoreError>>,
@@ -196,11 +288,11 @@ where
         reply_to_server_id: reply_to.unwrap_or(0),
         recipients: content.recipients,
         plaintext_dev: content.plaintext_dev,
-        group_ciphertext: Vec::new(),
-        group_session_id: String::new(),
+        group_ciphertext: content.group_ciphertext,
+        group_session_id: content.group_session_id,
     };
     check_request_size(inner, &request)?;
-    Ok(request)
+    Ok((request, content.group_key_shares))
 }
 
 /// Компонует `EditMessageRequest` (правка текста автором): то же шифрование,
@@ -212,7 +304,7 @@ pub(crate) async fn compose_edit_request<F, Fut>(
     account: &LocalAccount,
     server_id: u64,
     text: &str,
-) -> Result<proto::EditMessageRequest, CoreError>
+) -> Result<(proto::EditMessageRequest, Vec<String>), CoreError>
 where
     F: FnOnce(Vec<String>) -> Fut,
     Fut: std::future::Future<Output = Result<Vec<PeerDevice>, CoreError>>,
@@ -223,11 +315,11 @@ where
         content_kind: content.content_kind,
         recipients: content.recipients,
         plaintext_dev: content.plaintext_dev,
-        group_ciphertext: Vec::new(),
-        group_session_id: String::new(),
+        group_ciphertext: content.group_ciphertext,
+        group_session_id: content.group_session_id,
     };
     check_request_size(inner, &request)?;
-    Ok(request)
+    Ok((request, content.group_key_shares))
 }
 
 /// Проверяет, что закодированный запрос укладывается в лимит сервера.

@@ -37,6 +37,10 @@ pub(crate) fn e2e_mode_to_sql(mode: proto::E2eMode) -> i64 {
     mode as i32 as i64
 }
 
+pub(crate) fn role_to_sql(role: proto::ChatMemberRole) -> i64 {
+    role as i32 as i64
+}
+
 /// Строка `chats` → доменная запись. Позиции колонок фиксированы
 /// константой [`CHAT_COLUMNS`].
 pub(crate) fn chat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatRecord> {
@@ -119,11 +123,14 @@ pub(crate) fn user_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserRec
 }
 
 pub(crate) fn member_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemberRecord> {
+    let role: i64 = row.get(3)?;
     Ok(MemberRecord {
         user_id: row.get(0)?,
         username: row.get(1)?,
         display_name: row.get(2)?,
-        joined_at_ms: from_sql_u64(row.get(3)?),
+        role: proto::ChatMemberRole::try_from(role as i32)
+            .unwrap_or(proto::ChatMemberRole::Unspecified),
+        joined_at_ms: from_sql_u64(row.get(4)?),
     })
 }
 

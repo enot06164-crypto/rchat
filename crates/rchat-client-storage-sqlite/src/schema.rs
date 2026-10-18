@@ -62,9 +62,10 @@ pub(crate) fn schema_version(conn: &Connection) -> Result<u32, StorageError> {
 }
 
 /// Миграции по возрастанию версии.
-pub(crate) const MIGRATIONS: &[(u32, &str)] = &[(
-    1,
-    r#"
+pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
+    (
+        1,
+        r#"
     -- Профиль этого устройства (одна строка).
     CREATE TABLE account (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -170,4 +171,22 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[(
         value BLOB NOT NULL
     );
     "#,
-)];
+    ),
+    (
+        2,
+        r#"
+    -- Групповые чаты: роль участника (0 — direct/неизвестно, 1 — member,
+    -- 2 — owner) и учёт выданных ключей megolm-сессий, чтобы не рассылать
+    -- ключ повторно и досылать его только новым устройствам.
+    ALTER TABLE chat_members ADD COLUMN role INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TABLE group_key_shares (
+        chat_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        shared_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (chat_id, session_id, device_id)
+    );
+    "#,
+    ),
+];

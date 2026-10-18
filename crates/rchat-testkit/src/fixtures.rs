@@ -68,6 +68,7 @@ pub fn member(user_id: &str, username: &str) -> MemberRecord {
         user_id: user_id.to_string(),
         username: username.to_string(),
         display_name: format!("display-{username}"),
+        role: proto::ChatMemberRole::Unspecified,
         joined_at_ms: BASE_MS,
     }
 }

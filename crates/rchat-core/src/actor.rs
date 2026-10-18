@@ -16,7 +16,7 @@ use crate::client::{Command, Inner, LoopState, SessionInfo};
 use crate::convert;
 use crate::error::{rejected_from, CoreError};
 use crate::events::UiEvent;
-use crate::traits::{secret_keys, PeerDevice, Transport};
+use crate::traits::{secret_keys, CryptoProvider, PeerDevice, Transport};
 use crate::types::{
     ConnectionState, LocalAccount, MessageRecord, MessageStatus, OutboxState, ReceiptRecord,
     SyncApply, SyncProgress,
@@ -491,7 +491,13 @@ impl Ctx<'_> {
                 })
             }
             Some(Payload::ChatCreated(inner)) => self.chat_snapshot_apply(inner.chat.as_ref()),
-            Some(Payload::ChatUpdated(inner)) => self.chat_snapshot_apply(inner.chat.as_ref()),
+            Some(Payload::ChatUpdated(inner)) => {
+                let apply = self.chat_snapshot_apply(inner.chat.as_ref())?;
+                if let SyncApply::UpsertChat { chat, members } = &apply {
+                    self.inner.note_group_membership(chat, members).await;
+                }
+                Ok(apply)
+            }
             Some(Payload::Receipt(inner)) => {
                 let delivered = inner.up_to_server_id;
                 let read = if inner.read { inner.up_to_server_id } else { 0 };
@@ -518,6 +524,7 @@ impl Ctx<'_> {
                                 warn!(error = %error, "failed to drop session for revoked device");
                             }
                         }
+                        self.on_user_device_revoked(&inner.user_id).await;
                         Ok(SyncApply::DeviceRevoked {
                             device_id: inner.device_id.clone(),
                             revoked_at_ms: inner.changed_at_ms,
@@ -565,10 +572,54 @@ impl Ctx<'_> {
         })
     }
 
+    /// Отзыв устройства: ротируем групповые сессии чатов, где состоит его
+    /// владелец — отозванное устройство знало ключи этих сессий.
+    async fn on_user_device_revoked(&mut self, user_id: &str) {
+        let chats = match self.inner.storage.list_chats().await {
+            Ok(chats) => chats,
+            Err(error) => {
+                warn!(error = %error, "failed to list chats for group rotation");
+                return;
+            }
+        };
+        for chat in chats {
+            if chat.kind != proto::ChatKind::Group || chat.e2e_mode != proto::E2eMode::OlmV1 {
+                continue;
+            }
+            let members = self
+                .inner
+                .storage
+                .chat_members(&chat.chat_id)
+                .await
+                .unwrap_or_default();
+            if members.iter().any(|m| m.user_id == user_id) {
+                self.inner
+                    .rotate_group_session(&chat.chat_id, "device revoked")
+                    .await;
+            }
+        }
+    }
+
     /// Расшифровывает содержимое сообщения для этого устройства.
     /// Возвращает `None`, если расшифровка невозможна: сообщение остаётся
     /// видимым, но без текста (контролируемая деградация, без обхода проверок).
     async fn decrypt_message(&mut self, message: &proto::Message) -> Option<String> {
+        // Групповое сообщение проверяем до режима E2E: содержимое — общий
+        // megolm-ciphertext, персональная копия (если есть) несёт ключ сессии.
+        // Копии может не быть вовсе — ключ выдан более ранним сообщением.
+        if !message.group_ciphertext.is_empty() || !message.group_session_id.is_empty() {
+            let crypto = match self.inner.crypto.as_ref() {
+                Some(crypto) => crypto.clone(),
+                None => {
+                    warn!(
+                        server_id = message.server_id,
+                        "group message but no crypto provider"
+                    );
+                    return None;
+                }
+            };
+            return self.decrypt_group_message(message, &crypto).await;
+        }
         if message.e2e_version == rchat_proto::E2E_VERSION_NONE {
             return if message.plaintext_dev.is_empty() {
                 None
@@ -589,6 +640,34 @@ impl Ctx<'_> {
         if message.ciphertext.is_empty() {
             return None; // нет копии для этого устройства (например, история с другим устройством)
         }
+        let sender = self.sender_peer_for(message).await?;
+        let encrypted = self.encrypted_copy_for(message);
+        match crypto.decrypt_from(&sender, &encrypted).await {
+            Ok(plaintext) => match String::from_utf8(plaintext) {
+                Ok(text) => Some(text),
+                Err(_) => {
+                    warn!(
+                        server_id = message.server_id,
+                        "decrypted message is not utf-8"
+                    );
+                    None
+                }
+            },
+            Err(error) => {
+                warn!(error = %error, server_id = message.server_id, "decrypt failed");
+                self.inner.emit(UiEvent::E2eDecryptFailed {
+                    chat_id: message.chat_id.clone(),
+                    server_id: message.server_id,
+                    device_id: message.sender_device_id.clone(),
+                });
+                None
+            }
+        }
+    }
+
+    /// Дескриптор устройства-отправителя для расшифрования: при известном
+    /// кеше identity key обязан совпадать с ключом из сообщения.
+    async fn sender_peer_for(&mut self, message: &proto::Message) -> Option<PeerDevice> {
         let cached = self
             .inner
             .storage
@@ -613,7 +692,7 @@ impl Ctx<'_> {
                 return None;
             }
         }
-        let sender = PeerDevice {
+        Some(PeerDevice {
             user_id: message.sender_user_id.clone(),
             device_id: message.sender_device_id.clone(),
             ed25519: cached
@@ -622,8 +701,12 @@ impl Ctx<'_> {
                 .unwrap_or_default(),
             curve25519: message.sender_curve25519.clone(),
             one_time_key: None,
-        };
-        let encrypted = crate::traits::EncryptedMessage {
+        })
+    }
+
+    /// Персональная копия ciphertext-а в терминах криптопровайдера.
+    fn encrypted_copy_for(&mut self, message: &proto::Message) -> crate::traits::EncryptedMessage {
+        crate::traits::EncryptedMessage {
             device_id: self
                 .inner
                 .session_info()
@@ -634,8 +717,72 @@ impl Ctx<'_> {
             olm_type: proto::OlmMessageType::try_from(message.olm_type)
                 .unwrap_or(proto::OlmMessageType::Normal),
             sender_curve25519: message.sender_curve25519.clone(),
-        };
-        match crypto.decrypt_from(&sender, &encrypted).await {
+        }
+    }
+
+    /// Групповое сообщение: сначала (при наличии) импортирует ключ megolm-
+    /// сессии из персональной копии, затем расшифровывает общий ciphertext.
+    async fn decrypt_group_message(
+        &mut self,
+        message: &proto::Message,
+        crypto: &Arc<dyn CryptoProvider>,
+    ) -> Option<String> {
+        let payload_kind = proto::RecipientPayloadKind::try_from(message.recipient_payload_kind)
+            .unwrap_or(proto::RecipientPayloadKind::Message);
+        // Своё собственное устройство-отправитель не имеет входящей сессии
+        // своей исходящей сессии: для него текст уже есть локально, а провал
+        // расшифровки — норма, а не проблема (событие UI не публикуем).
+        let is_own_device = self
+            .inner
+            .session_info()
+            .as_ref()
+            .map(|session| session.device_id == message.sender_device_id)
+            .unwrap_or(false);
+        if payload_kind == proto::RecipientPayloadKind::GroupKey {
+            if message.ciphertext.is_empty() {
+                warn!(
+                    server_id = message.server_id,
+                    "group key copy without ciphertext"
+                );
+            } else {
+                let sender = self.sender_peer_for(message).await?;
+                let encrypted = self.encrypted_copy_for(message);
+                match crypto
+                    .apply_group_key(&sender, &encrypted, &message.chat_id)
+                    .await
+                {
+                    Ok(info) => {
+                        debug!(
+                            session_id = %info.session_id,
+                            chat_id = %info.chat_id,
+                            "group key imported"
+                        );
+                    }
+                    Err(error) => {
+                        warn!(error = %error, server_id = message.server_id, "group key import failed");
+                        if !is_own_device {
+                            self.inner.emit(UiEvent::E2eDecryptFailed {
+                                chat_id: message.chat_id.clone(),
+                                server_id: message.server_id,
+                                device_id: message.sender_device_id.clone(),
+                            });
+                        }
+                        return None;
+                    }
+                }
+            }
+        }
+        if message.group_ciphertext.is_empty() || message.group_session_id.is_empty() {
+            return None;
+        }
+        match crypto
+            .decrypt_group(
+                &message.chat_id,
+                &message.group_session_id,
+                &message.group_ciphertext,
+            )
+            .await
+        {
             Ok(plaintext) => match String::from_utf8(plaintext) {
                 Ok(text) => Some(text),
                 Err(_) => {
@@ -647,12 +794,16 @@ impl Ctx<'_> {
                 }
             },
             Err(error) => {
-                warn!(error = %error, server_id = message.server_id, "decrypt failed");
-                self.inner.emit(UiEvent::E2eDecryptFailed {
-                    chat_id: message.chat_id.clone(),
-                    server_id: message.server_id,
-                    device_id: message.sender_device_id.clone(),
-                });
+                // Ключ сессии мог ещё не дойти (например, история до входа
+                // в чат) или сообщение повреждено: показываем без текста.
+                debug!(error = %error, server_id = message.server_id, "group decrypt failed");
+                if !is_own_device {
+                    self.inner.emit(UiEvent::E2eDecryptFailed {
+                        chat_id: message.chat_id.clone(),
+                        server_id: message.server_id,
+                        device_id: message.sender_device_id.clone(),
+                    });
+                }
                 None
             }
         }
@@ -1204,6 +1355,17 @@ impl Ctx<'_> {
             .storage
             .apply_outbox_failure(&item.local_id, OutboxState::Failed, Some(code), message, 0)
             .await?;
+        // Групповой E2E: часть адресатов могла получить ключ сессии из
+        // недоставленного сообщения — ротируем сессию, чтобы следующие
+        // сообщения не опирались на этот ключ.
+        let chat = self.inner.storage.get_chat(&item.chat_id).await?;
+        if let Some(chat) = chat {
+            if chat.kind == proto::ChatKind::Group && chat.e2e_mode == proto::E2eMode::OlmV1 {
+                self.inner
+                    .rotate_group_session(&item.chat_id, "outbox failed")
+                    .await;
+            }
+        }
         self.emit_outbox(
             &item.local_id,
             OutboxState::Failed,
@@ -1265,7 +1427,7 @@ impl Ctx<'_> {
         let inner = Arc::clone(self.inner);
         let this: &mut Self = self;
         let fetch = move |ids: Vec<String>| async move { this.fetch_bundles(&ids).await };
-        let request = crate::send::compose_send_request(
+        let (request, key_shares) = crate::send::compose_send_request(
             &inner,
             &item.local_id,
             fetch,
@@ -1281,7 +1443,35 @@ impl Ctx<'_> {
         item.request = bytes;
         item.state = OutboxState::Pending;
         self.inner.storage.update_outbox(item).await?;
+        self.record_group_key_shares(&item.chat_id, &request.group_session_id, key_shares)
+            .await;
         Ok(())
+    }
+
+    /// Фиксирует выдачу ключа групповой сессии: следующая отправка не станет
+    /// дублировать ключ этим устройствам. Сбой записи не критичен (выдача
+    /// ключа идемпотентна получателем).
+    async fn record_group_key_shares(
+        &mut self,
+        chat_id: &str,
+        session_id: &str,
+        shares: Vec<String>,
+    ) {
+        if shares.is_empty() {
+            return;
+        }
+        if let Err(error) = self
+            .inner
+            .storage
+            .add_group_key_shares(chat_id, session_id, &shares)
+            .await
+        {
+            warn!(
+                error = %error,
+                chat_id = %chat_id,
+                "failed to record group key shares"
+            );
+        }
     }
 
     async fn fetch_bundles(&mut self, device_ids: &[String]) -> Result<Vec<PeerDevice>, CoreError> {

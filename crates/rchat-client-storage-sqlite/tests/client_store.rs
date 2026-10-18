@@ -40,6 +40,7 @@ fn member(user_id: &str) -> MemberRecord {
         user_id: user_id.to_string(),
         username: user_id.trim_start_matches("u_").to_string(),
         display_name: user_id.to_string(),
+        role: rchat_proto::proto::ChatMemberRole::Member,
         joined_at_ms: 1_000,
     }
 }
@@ -603,4 +604,90 @@ async fn crypto_state_crud_and_prefix_delete() {
         .await
         .expect("delete again");
     assert_eq!(store.crypto_delete_prefix("нет:").await.expect("prefix"), 0);
+}
+
+/// Миграция v2: роли участников и учёт выданных ключей групповых сессий.
+#[tokio::test]
+async fn migration_adds_member_roles_and_group_key_shares() {
+    let store = storage();
+    assert_eq!(
+        store.schema_version().expect("version"),
+        SCHEMA_VERSION,
+        "схема должна подниматься до актуальной версии"
+    );
+
+    let mut group = chat("c_group", 1_000);
+    group.kind = ChatKind::Group;
+    group.e2e_mode = E2eMode::OlmV1;
+    group.title = "Проект".to_string();
+    group.peer_user_id = None;
+    let mut owner = member("u_alice");
+    owner.role = rchat_proto::proto::ChatMemberRole::Owner;
+    store
+        .upsert_chat(&group, &[owner, member("u_bob")])
+        .await
+        .expect("upsert group");
+
+    let members = store.chat_members("c_group").await.expect("members");
+    assert_eq!(members.len(), 2);
+    let owner = members
+        .iter()
+        .find(|m| m.user_id == "u_alice")
+        .expect("owner");
+    assert_eq!(owner.role, rchat_proto::proto::ChatMemberRole::Owner);
+    let bob = members.iter().find(|m| m.user_id == "u_bob").expect("bob");
+    assert_eq!(bob.role, rchat_proto::proto::ChatMemberRole::Member);
+
+    // Учёт выдачи ключей: идемпотентное добавление и очистка по чату.
+    assert!(store
+        .group_key_shares("c_group", "s1")
+        .await
+        .expect("empty")
+        .is_empty());
+    store
+        .add_group_key_shares(
+            "c_group",
+            "s1",
+            &["d_bob".to_string(), "d_carol".to_string()],
+        )
+        .await
+        .expect("add");
+    store
+        .add_group_key_shares("c_group", "s1", &["d_carol".to_string()])
+        .await
+        .expect("add again");
+    let shares = store
+        .group_key_shares("c_group", "s1")
+        .await
+        .expect("shares");
+    assert_eq!(shares, vec!["d_bob".to_string(), "d_carol".to_string()]);
+    // Записи другого чата не затрагиваются.
+    store
+        .add_group_key_shares("c_other", "s1", &["d_x".to_string()])
+        .await
+        .expect("add other");
+    store
+        .clear_group_key_shares("c_group")
+        .await
+        .expect("clear");
+    assert!(store
+        .group_key_shares("c_group", "s1")
+        .await
+        .expect("cleared")
+        .is_empty());
+    assert_eq!(
+        store
+            .group_key_shares("c_other", "s1")
+            .await
+            .expect("other"),
+        vec!["d_x".to_string()]
+    );
+
+    // clear_all стирает и групповые записи.
+    store.clear_all().await.expect("clear all");
+    assert!(store
+        .group_key_shares("c_other", "s1")
+        .await
+        .expect("after clear")
+        .is_empty());
 }

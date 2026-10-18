@@ -81,6 +81,7 @@ impl Storage for ClientSqliteStorage {
                  DELETE FROM devices;
                  DELETE FROM chats;
                  DELETE FROM chat_members;
+                 DELETE FROM group_key_shares;
                  DELETE FROM messages;
                  DELETE FROM outbox;
                  DELETE FROM receipts;
@@ -257,7 +258,7 @@ impl Storage for ClientSqliteStorage {
         self.call(move |conn| {
             let mut statement = conn
                 .prepare(
-                    "SELECT user_id, username, display_name, joined_at_ms
+                    "SELECT user_id, username, display_name, role, joined_at_ms
                      FROM chat_members WHERE chat_id = ?1
                      ORDER BY joined_at_ms, user_id",
                 )
@@ -630,6 +631,75 @@ impl Storage for ClientSqliteStorage {
         })
         .await
     }
+
+    // --- групповые E2E-сессии ---
+
+    async fn group_key_shares(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        let chat_id = chat_id.to_string();
+        let session_id = session_id.to_string();
+        self.call(move |conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT device_id FROM group_key_shares
+                     WHERE chat_id = ?1 AND session_id = ?2
+                     ORDER BY device_id",
+                )
+                .map_err(|e| map_sql("group_key_shares prepare", e))?;
+            let rows = statement
+                .query_map(rusqlite::params![chat_id, session_id], |row| row.get(0))
+                .map_err(|e| map_sql("group_key_shares", e))?;
+            rows.collect::<Result<Vec<String>, _>>()
+                .map_err(|e| map_sql("group_key_shares row", e))
+        })
+        .await
+    }
+
+    async fn add_group_key_shares(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+        device_ids: &[String],
+    ) -> Result<(), StorageError> {
+        let chat_id = chat_id.to_string();
+        let session_id = session_id.to_string();
+        let device_ids = device_ids.to_vec();
+        self.call(move |conn| {
+            let now = to_sql_u64("group_key_shares now", rchat_proto::now_ms())?;
+            let tx = conn
+                .unchecked_transaction()
+                .map_err(|e| map_sql("group_key_shares begin", e))?;
+            for device_id in &device_ids {
+                tx.execute(
+                    "INSERT INTO group_key_shares(chat_id, session_id, device_id, shared_at_ms)
+                     VALUES(?1, ?2, ?3, ?4)
+                     ON CONFLICT(chat_id, session_id, device_id) DO NOTHING",
+                    rusqlite::params![chat_id, session_id, device_id, now],
+                )
+                .map_err(|e| map_sql("group_key_shares insert", e))?;
+            }
+            tx.commit()
+                .map_err(|e| map_sql("group_key_shares commit", e))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn clear_group_key_shares(&self, chat_id: &str) -> Result<(), StorageError> {
+        let chat_id = chat_id.to_string();
+        self.call(move |conn| {
+            conn.execute(
+                "DELETE FROM group_key_shares WHERE chat_id = ?1",
+                rusqlite::params![chat_id],
+            )
+            .map_err(|e| map_sql("clear_group_key_shares", e))?;
+            Ok(())
+        })
+        .await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -697,17 +767,19 @@ fn upsert_chat_sql(
         .map_err(|e| map_sql("upsert_chat members clear", e))?;
         for member in members {
             conn.execute(
-                "INSERT INTO chat_members(chat_id, user_id, username, display_name, joined_at_ms)
-                 VALUES(?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO chat_members(chat_id, user_id, username, display_name, role, joined_at_ms)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(chat_id, user_id) DO UPDATE SET
                      username = excluded.username,
                      display_name = excluded.display_name,
+                     role = excluded.role,
                      joined_at_ms = MIN(chat_members.joined_at_ms, excluded.joined_at_ms)",
                 rusqlite::params![
                     chat.chat_id,
                     member.user_id,
                     member.username,
                     member.display_name,
+                    crate::helpers::role_to_sql(member.role),
                     to_sql_u64("upsert_chat member joined", member.joined_at_ms)?,
                 ],
             )

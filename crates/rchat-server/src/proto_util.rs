@@ -108,7 +108,16 @@ pub fn message_view(
         edited_at_ms: message.edited_at_ms,
         deleted_at_ms: message.deleted_at_ms,
         ciphertext: recipient.map(|r| r.ciphertext.clone()).unwrap_or_default(),
-        e2e_version: recipient.map(|r| r.e2e_version).unwrap_or(0),
+        e2e_version: recipient.map(|r| r.e2e_version).unwrap_or_else(|| {
+            // Групповое E2E-сообщение может прийти устройству без персональной
+            // копии: ключ сессии ему уже выдавали, содержимое — общий
+            // megolm-ciphertext. Режим всё равно E2E.
+            if !dev_plaintext && message.group_ciphertext.is_some() {
+                rchat_proto::E2E_VERSION_OLM_V1
+            } else {
+                0
+            }
+        }),
         plaintext_dev: if dev_plaintext {
             message.plaintext_dev.clone().unwrap_or_default()
         } else {

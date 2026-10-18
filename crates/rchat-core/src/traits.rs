@@ -131,6 +131,25 @@ pub trait Storage: Send + Sync {
 
     // --- receipts ---
     async fn get_receipts(&self, chat_id: &str) -> Result<Vec<ReceiptRecord>, StorageError>;
+
+    // --- групповые E2E-сессии ---
+    /// Устройства, которым уже выдавался ключ megolm-сессии чата.
+    /// Нужно, чтобы не рассылать ключ повторно и досылать его новым
+    /// устройствам при следующей отправке.
+    async fn group_key_shares(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+    ) -> Result<Vec<String>, StorageError>;
+    /// Отмечает выдачу ключа сессии указанным устройствам (идемпотентно).
+    async fn add_group_key_shares(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+        device_ids: &[String],
+    ) -> Result<(), StorageError>;
+    /// Удаляет записи о выданных ключах чата (ротация исходящей сессии).
+    async fn clear_group_key_shares(&self, chat_id: &str) -> Result<(), StorageError>;
 }
 
 /// Состояние E2E-сессий. Ключи — стабильные строки вида `olm_session:<device_id>`,

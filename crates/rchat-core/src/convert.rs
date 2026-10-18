@@ -79,12 +79,15 @@ pub fn member_from_proto(member: &proto::ChatMember) -> MemberRecord {
         user_id: member.user_id.clone(),
         username: member.username.clone(),
         display_name: member.display_name.clone(),
+        role: proto::ChatMemberRole::try_from(member.role)
+            .unwrap_or(proto::ChatMemberRole::Unspecified),
         joined_at_ms: member.joined_at_ms,
     }
 }
 
 /// Преобразует чат из протокола в доменную запись, определяя собеседника и
-/// заголовок с точки зрения пользователя `as_user`.
+/// заголовок с точки зрения пользователя `as_user`: у личного чата заголовок —
+/// имя собеседника, у группового — имя группы.
 pub fn chat_from_proto(
     chat: &proto::Chat,
     as_user: &str,
@@ -97,18 +100,31 @@ pub fn chat_from_proto(
         return Err(CoreError::Protocol("chat without kind/e2e mode".into()));
     }
     let members: Vec<MemberRecord> = chat.members.iter().map(member_from_proto).collect();
-    let peer = members.iter().find(|m| m.user_id != as_user);
-    let title = match peer {
-        Some(m) if !m.display_name.is_empty() => m.display_name.clone(),
-        Some(m) => m.username.clone(),
-        None => "chat".to_string(),
+    let (title, peer_user_id) = match kind {
+        proto::ChatKind::Group => {
+            let title = if chat.name.is_empty() {
+                "group".to_string()
+            } else {
+                chat.name.clone()
+            };
+            (title, None)
+        }
+        _ => {
+            let peer = members.iter().find(|m| m.user_id != as_user);
+            let title = match peer {
+                Some(m) if !m.display_name.is_empty() => m.display_name.clone(),
+                Some(m) => m.username.clone(),
+                None => "chat".to_string(),
+            };
+            (title, peer.map(|m| m.user_id.clone()))
+        }
     };
     let record = ChatRecord {
         chat_id: chat.chat_id.clone(),
         kind,
         e2e_mode,
         title,
-        peer_user_id: peer.map(|m| m.user_id.clone()),
+        peer_user_id,
         created_at_ms: chat.created_at_ms,
         updated_at_ms: chat.updated_at_ms,
         last_server_id: chat.last_server_id,

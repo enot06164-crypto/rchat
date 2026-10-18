@@ -6,7 +6,7 @@
 //! [`MockStorage::fail_next_batch`]: следующая пачка синхронизации вернёт
 //! ошибку, не применив ни одной мутации и не продвинув курсор.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
@@ -28,6 +28,8 @@ struct Inner {
     messages: BTreeMap<String, MessageRecord>,
     outbox: BTreeMap<String, OutboxRecord>,
     receipts: BTreeMap<(String, String), ReceiptRecord>,
+    /// (chat_id, session_id) → выданные устройства.
+    group_shares: BTreeMap<(String, String), BTreeSet<String>>,
     cursor: u64,
     crypto: BTreeMap<String, Vec<u8>>,
 }
@@ -503,6 +505,43 @@ impl Storage for MockStorage {
             .collect();
         receipts.sort_by(|left, right| left.user_id.cmp(&right.user_id));
         Ok(receipts)
+    }
+
+    async fn group_key_shares(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        Ok(self
+            .lock()
+            .group_shares
+            .get(&(chat_id.to_string(), session_id.to_string()))
+            .map(|set| set.iter().cloned().collect())
+            .unwrap_or_default())
+    }
+
+    async fn add_group_key_shares(
+        &self,
+        chat_id: &str,
+        session_id: &str,
+        device_ids: &[String],
+    ) -> Result<(), StorageError> {
+        let mut inner = self.lock();
+        let entry = inner
+            .group_shares
+            .entry((chat_id.to_string(), session_id.to_string()))
+            .or_default();
+        for device_id in device_ids {
+            entry.insert(device_id.clone());
+        }
+        Ok(())
+    }
+
+    async fn clear_group_key_shares(&self, chat_id: &str) -> Result<(), StorageError> {
+        self.lock()
+            .group_shares
+            .retain(|(chat, _), _| chat != chat_id);
+        Ok(())
     }
 }
 

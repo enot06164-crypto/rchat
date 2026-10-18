@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use rchat_proto::proto;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use tracing::warn;
 
 use crate::actor::actor_main;
 use crate::config::ClientConfig;
@@ -98,6 +99,65 @@ pub(crate) struct Inner {
 impl Inner {
     pub(crate) fn is_shutdown(&self) -> bool {
         self.shutdown.load(Ordering::SeqCst)
+    }
+
+    /// Реакция на изменение состава группового E2E-чата: если кто-то выбыл из
+    /// чата, исходящая megolm-сессия ротируется — выбывший не должен читать
+    /// новые сообщения (ключ новой сессии ему не выдаётся). Вызывается до
+    /// применения нового состава, чтобы сравнить его с сохранённым.
+    pub(crate) async fn note_group_membership(
+        &self,
+        chat: &ChatRecord,
+        new_members: &[crate::types::MemberRecord],
+    ) {
+        if chat.kind != proto::ChatKind::Group || chat.e2e_mode != proto::E2eMode::OlmV1 {
+            return;
+        }
+        let old = match self.storage.chat_members(&chat.chat_id).await {
+            Ok(members) => members,
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    chat_id = %chat.chat_id,
+                    "failed to read members before rotation"
+                );
+                return;
+            }
+        };
+        // Первый снимок чата (локально состав пуст) — не изменение.
+        if old.is_empty() {
+            return;
+        }
+        let removed = old
+            .iter()
+            .any(|member| !new_members.iter().any(|m| m.user_id == member.user_id));
+        if removed {
+            self.rotate_group_session(&chat.chat_id, "member removed")
+                .await;
+        }
+    }
+
+    /// Ротация исходящей групповой сессии чата: следующая отправка создаст
+    /// новую сессию и выдаст её актуальному составу.
+    pub(crate) async fn rotate_group_session(&self, chat_id: &str, reason: &str) {
+        if let Some(crypto) = self.crypto.as_ref() {
+            if let Err(error) = crypto.rotate_group_session(chat_id).await {
+                warn!(
+                    error = %error,
+                    chat_id = %chat_id,
+                    reason,
+                    "failed to rotate group session"
+                );
+            }
+        }
+        if let Err(error) = self.storage.clear_group_key_shares(chat_id).await {
+            warn!(
+                error = %error,
+                chat_id = %chat_id,
+                reason,
+                "failed to clear group key share records"
+            );
+        }
     }
 
     pub(crate) fn emit(&self, event: UiEvent) {
@@ -441,11 +501,174 @@ impl Client {
                 .ok_or_else(|| CoreError::Protocol("create chat response without chat".into()))?,
             other => return Err(unexpected(other)),
         };
+        self.store_chat_snapshot(&chat).await
+    }
+
+    /// Создаёт групповой чат. Создатель становится владельцем; приглашённые
+    /// получают немедленное членство. Для E2E-группы все устройства участников
+    /// обязаны иметь ключи (сервер это проверяет).
+    pub async fn create_group_chat(
+        &self,
+        name: &str,
+        member_usernames: &[String],
+        e2e: bool,
+    ) -> Result<ChatRecord, CoreError> {
+        if e2e && self.inner.crypto.is_none() {
+            return Err(CoreError::E2eUnavailable(
+                "e2e group requested but no crypto provider configured".into(),
+            ));
+        }
+        let name = rchat_proto::validate::group_name(name)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        let mut usernames = Vec::with_capacity(member_usernames.len());
+        for username in member_usernames {
+            usernames.push(
+                rchat_proto::validate::username(username)
+                    .map_err(|e| CoreError::InvalidInput(e.to_string()))?,
+            );
+        }
+        let mode = if e2e {
+            proto::E2eMode::OlmV1
+        } else {
+            proto::E2eMode::NoneDev
+        };
+        let resp = self
+            .request(proto::request::Method::CreateGroupChat(
+                proto::CreateGroupChatRequest {
+                    name,
+                    member_usernames: usernames,
+                    e2e_mode: mode as i32,
+                },
+            ))
+            .await?;
+        let chat = match resp {
+            proto::response::Result::CreateGroupChat(r) => r
+                .chat
+                .ok_or_else(|| CoreError::Protocol("create group response without chat".into()))?,
+            other => return Err(unexpected(other)),
+        };
+        self.store_chat_snapshot(&chat).await
+    }
+
+    /// Приглашает пользователей в групповой чат (любой участник). Повторное
+    /// приглашение уже состоящих идемпотентно. Для E2E-группы у приглашаемых
+    /// должны быть устройства с ключами.
+    pub async fn invite_to_chat(
+        &self,
+        chat_id: &str,
+        usernames: &[String],
+    ) -> Result<ChatRecord, CoreError> {
+        rchat_proto::validate::chat_id(chat_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        if usernames.is_empty() {
+            return Err(CoreError::InvalidInput("no usernames to invite".into()));
+        }
+        let mut normalized = Vec::with_capacity(usernames.len());
+        for username in usernames {
+            normalized.push(
+                rchat_proto::validate::username(username)
+                    .map_err(|e| CoreError::InvalidInput(e.to_string()))?,
+            );
+        }
+        let resp = self
+            .request(proto::request::Method::InviteToChat(
+                proto::InviteToChatRequest {
+                    chat_id: chat_id.to_string(),
+                    usernames: normalized,
+                },
+            ))
+            .await?;
+        let chat = match resp {
+            proto::response::Result::InviteToChat(r) => r
+                .chat
+                .ok_or_else(|| CoreError::Protocol("invite response without chat".into()))?,
+            other => return Err(unexpected(other)),
+        };
+        self.store_chat_snapshot(&chat).await
+    }
+
+    /// Выход из группового чата. Владелец при выходе передаёт владение
+    /// старейшему участнику. Обновлённый состав приходит событием журнала.
+    pub async fn leave_chat(&self, chat_id: &str) -> Result<(), CoreError> {
+        rchat_proto::validate::chat_id(chat_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        let resp = self
+            .request(proto::request::Method::LeaveChat(proto::LeaveChatRequest {
+                chat_id: chat_id.to_string(),
+            }))
+            .await?;
+        match resp {
+            proto::response::Result::LeaveChat(_) => Ok(()),
+            other => Err(unexpected(other)),
+        }
+    }
+
+    /// Исключение участника владельцем.
+    pub async fn remove_chat_member(
+        &self,
+        chat_id: &str,
+        user_id: &str,
+    ) -> Result<ChatRecord, CoreError> {
+        rchat_proto::validate::chat_id(chat_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        rchat_proto::validate::user_id(user_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        let resp = self
+            .request(proto::request::Method::RemoveChatMember(
+                proto::RemoveChatMemberRequest {
+                    chat_id: chat_id.to_string(),
+                    user_id: user_id.to_string(),
+                },
+            ))
+            .await?;
+        let chat = match resp {
+            proto::response::Result::RemoveChatMember(r) => r
+                .chat
+                .ok_or_else(|| CoreError::Protocol("remove member response without chat".into()))?,
+            other => return Err(unexpected(other)),
+        };
+        self.store_chat_snapshot(&chat).await
+    }
+
+    /// Переименование группового чата владельцем.
+    pub async fn rename_chat(&self, chat_id: &str, name: &str) -> Result<ChatRecord, CoreError> {
+        rchat_proto::validate::chat_id(chat_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        let name = rchat_proto::validate::group_name(name)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        let resp = self
+            .request(proto::request::Method::RenameChat(
+                proto::RenameChatRequest {
+                    chat_id: chat_id.to_string(),
+                    name,
+                },
+            ))
+            .await?;
+        let chat = match resp {
+            proto::response::Result::RenameChat(r) => r
+                .chat
+                .ok_or_else(|| CoreError::Protocol("rename response without chat".into()))?,
+            other => return Err(unexpected(other)),
+        };
+        self.store_chat_snapshot(&chat).await
+    }
+
+    /// Участники чата из локального хранилища (состав обновляется событиями
+    /// журнала и ответами сервера).
+    pub async fn chat_members(
+        &self,
+        chat_id: &str,
+    ) -> Result<Vec<crate::types::MemberRecord>, CoreError> {
+        Ok(self.inner.storage.chat_members(chat_id).await?)
+    }
+
+    /// Сохраняет снимок чата из ответа сервера и обновляет кеш устройств.
+    async fn store_chat_snapshot(&self, chat: &proto::Chat) -> Result<ChatRecord, CoreError> {
         let session = self.require_session()?;
-        let (record, members) = convert::chat_from_proto(&chat, &session.user_id)?;
+        let (record, members) = convert::chat_from_proto(chat, &session.user_id)?;
+        self.inner.note_group_membership(&record, &members).await;
         self.inner.storage.upsert_chat(&record, &members).await?;
         self.inner.emit(UiEvent::ChatUpserted(record.clone()));
-        // Кешируем устройства участников, чтобы отправка работала и офлайн.
         let user_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
         let _ = self.refresh_devices(&user_ids).await;
         Ok(record)
@@ -567,7 +790,7 @@ impl Client {
         let local_id = convert::new_local_message_id()?;
         let client = self.clone();
         let fetch = move |ids: Vec<String>| async move { client.fetch_bundles(&ids).await };
-        let request = crate::send::compose_send_request(
+        let (request, key_shares) = crate::send::compose_send_request(
             &self.inner,
             &local_id,
             fetch,
@@ -613,6 +836,18 @@ impl Client {
             .storage
             .insert_outgoing(&message, &outbox)
             .await?;
+        // Ключ групповой сессии уже в запросе: фиксируем выдачу, чтобы не
+        // дублировать ключ этим устройствам (сбой записи не критичен).
+        if !key_shares.is_empty() {
+            if let Err(error) = self
+                .inner
+                .storage
+                .add_group_key_shares(chat_id, &request.group_session_id, &key_shares)
+                .await
+            {
+                warn!(error = %error, chat_id = %chat_id, "failed to record group key shares");
+            }
+        }
         self.inner.emit(UiEvent::OutboxChanged {
             local_id: local_id.clone(),
             state: OutboxState::Pending,
@@ -666,7 +901,7 @@ impl Client {
 
         let client = self.clone();
         let fetch = move |ids: Vec<String>| async move { client.fetch_bundles(&ids).await };
-        let request =
+        let (request, key_shares) =
             crate::send::compose_edit_request(&self.inner, fetch, &chat, &account, server_id, text)
                 .await?;
         let response = self
@@ -678,6 +913,18 @@ impl Client {
                 .ok_or_else(|| CoreError::Protocol("edit response without message".into()))?,
             other => return Err(unexpected(other)),
         };
+        // Правка доставлена (в т.ч. с ключом групповой сессии) — фиксируем
+        // выдачу; сбой записи не критичен.
+        if !key_shares.is_empty() {
+            if let Err(error) = self
+                .inner
+                .storage
+                .add_group_key_shares(chat_id, &view.group_session_id, &key_shares)
+                .await
+            {
+                warn!(error = %error, chat_id = %chat_id, "failed to record group key shares");
+            }
+        }
         let edited_at_ms = if view.edited_at_ms != 0 {
             view.edited_at_ms
         } else {
