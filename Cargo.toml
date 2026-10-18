@@ -32,7 +32,7 @@ rchat-crypto-provider = { path = "crates/rchat-crypto-provider" }
 rchat-testkit = { path = "crates/rchat-testkit" }
 
 async-trait = "0.1.92"
-argon2 = { version = "0.6.0", features = ["std"] }
+argon2 = "0.6.0"
 base64 = "0.23.1"
 chacha20poly1305 = { version = "0.11.0", features = ["std"] }
 clap = { version = "4.6.7", features = ["derive"] }

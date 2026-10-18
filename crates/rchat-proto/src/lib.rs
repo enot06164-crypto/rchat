@@ -304,6 +304,19 @@ pub fn check_frame_size(len: usize, max_frame_bytes: usize) -> Result<(), ProtoE
     Ok(())
 }
 
+/// Сериализует произвольное protobuf-сообщение протокола (например,
+/// сохранённое событие журнала синхронизации).
+pub fn encode_message<M: prost::Message>(message: &M) -> Result<Vec<u8>, ProtoError> {
+    let mut buf = Vec::with_capacity(256);
+    message.encode(&mut buf)?;
+    Ok(buf)
+}
+
+/// Декодирует protobuf-сообщение протокола.
+pub fn decode_message<M: prost::Message + Default>(bytes: &[u8]) -> Result<M, ProtoError> {
+    Ok(M::decode(bytes)?)
+}
+
 impl Envelope {
     pub fn with_request(request_id: u64, method: request::Method) -> Self {
         Envelope {

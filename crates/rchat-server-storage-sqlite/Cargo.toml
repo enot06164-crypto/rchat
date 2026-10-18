@@ -7,3 +7,30 @@ license.workspace = true
 
 [dependencies]
 rchat-server.workspace = true
+rchat-proto.workspace = true
+async-trait.workspace = true
+rusqlite.workspace = true
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "signal",
+] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+futures-util.workspace = true
+# Сетевой слой бинарника: TLS + WebSocket.
+tokio-tungstenite.workspace = true
+tokio-rustls.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+
+[[bin]]
+name = "rchat-server"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
