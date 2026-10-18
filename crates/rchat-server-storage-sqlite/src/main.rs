@@ -151,12 +151,13 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             tls_from_files(cert, key).map_err(app_error)?,
         ))),
         TlsChoice::DevSelfSigned { hosts } => {
+            let (dev_config, fingerprint) = tls_dev_self_signed(hosts).map_err(app_error)?;
             tracing::warn!(
-                "режим разработки: самоподписанный TLS-сертификат; клиентам нужен pin/доверие"
+                fingerprint = %fingerprint,
+                "режим разработки: самоподписанный TLS-сертификат; \
+                 клиенту нужен --tls-fingerprint <отпечаток> (или --tls-insecure)"
             );
-            Some(tokio_rustls::TlsAcceptor::from(Arc::new(
-                tls_dev_self_signed(hosts).map_err(app_error)?,
-            )))
+            Some(tokio_rustls::TlsAcceptor::from(Arc::new(dev_config)))
         }
         TlsChoice::PlaintextInsecure => {
             if !is_loopback(&args.listen.ip()) {

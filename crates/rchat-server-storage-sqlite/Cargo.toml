@@ -26,6 +26,7 @@ tokio-tungstenite.workspace = true
 tokio-rustls.workspace = true
 rustls.workspace = true
 rcgen.workspace = true
+sha2.workspace = true
 
 [[bin]]
 name = "rchat-server"

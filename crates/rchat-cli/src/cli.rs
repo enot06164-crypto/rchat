@@ -1,0 +1,159 @@
+//! Разбор аргументов командной строки.
+//!
+//! Пароль никогда не передаётся аргументом: он либо запрашивается
+//! интерактивно (без эха), либо читается из stdin (`--password-stdin`),
+//! либо берётся из переменной окружения `RCHAT_PASSWORD` (для скриптов;
+//! менее безопасно, потому что переменные окружения видны процессам
+//! пользователя).
+
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "rchat-cli",
+    version,
+    about = "CLI-клиент rchat: регистрация, чаты, сообщения и синхронизация",
+    long_about = "Терминальный клиент rchat. Ядро клиента (rchat-core) не знает про \
+                  конкретный транспорт, хранилище и CLI: этот бинарник собирает их вместе \
+                  (WebSocket + TLS, SQLite, шифрованное файловое хранилище секретов)."
+)]
+pub struct Cli {
+    /// URL сервера: ws://host:port (локально) или wss://host:port (TLS).
+    #[arg(
+        long,
+        global = true,
+        env = "RCHAT_SERVER",
+        default_value = "ws://127.0.0.1:8443"
+    )]
+    pub server: String,
+
+    /// Каталог локальных данных (БД, секреты). По умолчанию — системный
+    /// каталог данных пользователя.
+    #[arg(long, global = true, env = "RCHAT_DATA_DIR")]
+    pub data_dir: Option<PathBuf>,
+
+    /// SHA-256 отпечаток TLS-сертификата сервера (hex, ':' допустимы) для
+    /// пиннинга, например для самоподписанных сертификатов.
+    #[arg(
+        long,
+        global = true,
+        env = "RCHAT_TLS_FINGERPRINT",
+        conflicts_with = "tls_insecure"
+    )]
+    pub tls_fingerprint: Option<String>,
+
+    /// Отключить проверку TLS-сертификата (только явное локальное
+    /// тестирование; в боевом режиме не использовать).
+    #[arg(long, global = true, conflicts_with = "tls_fingerprint")]
+    pub tls_insecure: bool,
+
+    /// Имя этого устройства в списке устройств аккаунта.
+    #[arg(long, global = true, env = "RCHAT_DEVICE_NAME")]
+    pub device_name: Option<String>,
+
+    /// Подробность логов: без флага — предупреждения, -v — info, -vv — debug.
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+/// Общие аргументы команд, требующих пароль.
+#[derive(Args, Debug)]
+pub struct PasswordArgs {
+    /// Прочитать пароль одной строкой из stdin (для скриптов и тестов).
+    #[arg(long)]
+    pub password_stdin: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Зарегистрировать нового пользователя и войти под ним.
+    Register {
+        /// Имя пользователя (логин).
+        username: String,
+        /// Отображаемое имя (по умолчанию совпадает с логином).
+        #[arg(long)]
+        display_name: Option<String>,
+        #[command(flatten)]
+        password: PasswordArgs,
+    },
+
+    /// Войти существующим пользователем.
+    Login {
+        username: String,
+        #[command(flatten)]
+        password: PasswordArgs,
+    },
+
+    /// Выйти: отозвать серверную сессию и удалить локальный токен.
+    Logout {
+        /// Дополнительно удалить локальные данные и E2E-состояние.
+        #[arg(long)]
+        wipe: bool,
+    },
+
+    /// Состояние соединения, сессии, курсора синхронизации и очереди.
+    Status,
+
+    /// Показать локальный профиль и текущую сессию.
+    Me,
+
+    /// Устройства собственного аккаунта.
+    Devices,
+
+    /// Отозвать устройство аккаунта по его идентификатору.
+    RevokeDevice { device_id: String },
+
+    /// Список чатов (локальный кеш, обновляется сервером).
+    Chats,
+
+    /// Создать личный чат с пользователем.
+    ChatCreate {
+        /// Логин собеседника.
+        peer: String,
+        /// Включить E2E (пока недоступно: провайдер криптографии появится
+        /// на следующем этапе).
+        #[arg(long)]
+        e2e: bool,
+    },
+
+    /// Отправить текстовое сообщение (чат задаётся id или логином собеседника).
+    Send {
+        /// Чат: `chat_id` или логин собеседника в личном чате.
+        chat: String,
+        /// Текст сообщения (слова соединяются пробелами).
+        #[arg(required = true, num_args = 1..)]
+        text: Vec<String>,
+        /// Ответить на сообщение с данным server_id.
+        #[arg(long)]
+        reply_to: Option<u64>,
+        /// Сколько секунд ждать подтверждения сервера; затем сообщение
+        /// остаётся в очереди и уйдёт автоматически при подключении.
+        #[arg(long, default_value_t = 10)]
+        wait: u64,
+    },
+
+    /// История сообщений чата (локальная или с сервера).
+    History {
+        /// Чат: `chat_id` или логин собеседника.
+        chat: String,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+        /// Загрузить с сервера (с расшифрованием), а не только из кеша.
+        #[arg(long)]
+        from_server: bool,
+        /// Показать сообщения старше указанного server_id.
+        #[arg(long)]
+        before: Option<u64>,
+    },
+
+    /// Однократно синхронизироваться с сервером.
+    Sync,
+
+    /// Слушать события (сообщения, presence, outbox) до Ctrl+C.
+    Watch,
+}

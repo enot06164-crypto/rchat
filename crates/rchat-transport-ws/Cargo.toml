@@ -7,3 +7,17 @@ license.workspace = true
 
 [dependencies]
 rchat-core.workspace = true
+rchat-proto.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["net", "time", "io-util"] }
+tokio-rustls.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "net", "time"] }

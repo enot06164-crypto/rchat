@@ -34,7 +34,7 @@ rchat-testkit = { path = "crates/rchat-testkit" }
 async-trait = "0.1.92"
 argon2 = "0.6.0"
 base64 = "0.23.1"
-chacha20poly1305 = { version = "0.11.0", features = ["std"] }
+chacha20poly1305 = "0.11.0"
 clap = { version = "4.6.7", features = ["derive"] }
 directories = "6.0.0"
 futures-util = "0.3.34"
@@ -45,6 +45,7 @@ rcgen = "0.14.10"
 rpassword = "7.5.4"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
 sha2 = "0.11.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"

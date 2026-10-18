@@ -11,6 +11,7 @@ use futures_util::{SinkExt, StreamExt};
 use rchat_server::gateway::{run_connection, ConnError, ConnFrame, ServerConn};
 use rchat_server::service::{PeerInfo, Server};
 use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig as WsConfig;
@@ -53,8 +54,23 @@ pub fn tls_from_files(cert: &Path, key: &Path) -> Result<rustls::ServerConfig, S
         .map_err(|e| format!("некорректная пара сертификат/ключ: {e}"))
 }
 
+/// SHA-256 отпечаток DER-сертификата в виде `aa:bb:...` — именно это
+/// значение клиент передаёт в `--tls-fingerprint` (см. `rchat-transport-ws`).
+pub fn certificate_fingerprint_hex(cert_der: &[u8]) -> String {
+    let digest = Sha256::digest(cert_der);
+    digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
 /// Генерирует самоподписанный сертификат для локальной разработки.
-pub fn tls_dev_self_signed(hosts: &[String]) -> Result<rustls::ServerConfig, String> {
+///
+/// Возвращает конфигурацию и SHA-256 отпечаток листового сертификата:
+/// сервер печатает его в лог, чтобы клиенты могли включить пиннинг
+/// (`--tls-fingerprint`).
+pub fn tls_dev_self_signed(hosts: &[String]) -> Result<(rustls::ServerConfig, String), String> {
     let mut names: Vec<String> = hosts.to_vec();
     if names.is_empty() {
         names.push("localhost".to_string());
@@ -67,13 +83,15 @@ pub fn tls_dev_self_signed(hosts: &[String]) -> Result<rustls::ServerConfig, Str
     let certified = rcgen::generate_simple_self_signed(names)
         .map_err(|e| format!("не удалось сгенерировать сертификат: {e}"))?;
     let cert = certified.cert.der().clone();
+    let fingerprint = certificate_fingerprint_hex(cert.as_ref());
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
         certified.signing_key.serialize_der(),
     ));
-    rustls::ServerConfig::builder()
+    let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(vec![cert], key)
-        .map_err(|e| format!("некорректный самоподписанный сертификат: {e}"))
+        .map_err(|e| format!("некорректный самоподписанный сертификат: {e}"))?;
+    Ok((config, fingerprint))
 }
 
 /// Клиентское соединение поверх WebSocket.
