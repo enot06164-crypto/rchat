@@ -59,6 +59,7 @@ pub const SERVER_CAPABILITIES: &[&str] = &[
     rchat_proto::caps::HISTORY,
     rchat_proto::caps::SNAPSHOT,
     rchat_proto::caps::E2E_OLM_V1,
+    rchat_proto::caps::GROUPS,
 ];
 
 /// Результат согласования протокола.
@@ -298,8 +299,8 @@ async fn handshake(
         .cloned()
         .collect();
     // Минор согласуется как минимум из возможностей клиента и сервера.
-    // Сейчас PROTOCOL_MINOR = 0, поэтому минимум тривиален; allow оставлен,
-    // чтобы выражение было готово к росту минорной версии.
+    // Сервер умеет и minor 0, и minor 1 (группы); поведение-специфика не
+    // требуется — новые возможности гейтятся ответами на методы.
     #[allow(clippy::unnecessary_min_or_max)]
     let minor = hello.max_minor.min(rchat_proto::PROTOCOL_MINOR);
     let client_frame_limit = if hello.max_frame_bytes == 0 {

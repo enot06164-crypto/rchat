@@ -126,6 +126,7 @@ impl From<RepoError> for ServerError {
             RepoError::Conflict(key) => match key.as_str() {
                 "username_taken" => ServerError::username_taken(),
                 "chat_pair" => ServerError::conflict("direct chat already exists"),
+                "group_full" => ServerError::limit_exceeded("group chat member limit reached"),
                 other => ServerError::conflict(other.to_string()),
             },
             RepoError::NotFound(detail) => {

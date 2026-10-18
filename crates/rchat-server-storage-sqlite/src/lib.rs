@@ -22,7 +22,7 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
@@ -261,6 +261,18 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         -- Индексы под выборки синхронизации и очистку журнала.
         CREATE INDEX sync_events_created_idx ON sync_events(created_at_ms);
         CREATE INDEX sync_events_device_seq_idx ON sync_events(device_id, seq);
+        "#,
+    ),
+    (
+        3,
+        r#"
+        -- Групповые чаты (protocol minor 1): название и роли участников,
+        -- megolm-ciphertext сообщений и вид получательской копии.
+        ALTER TABLE chats ADD COLUMN name TEXT NOT NULL DEFAULT '';
+        ALTER TABLE chat_members ADD COLUMN role INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE messages ADD COLUMN group_ciphertext BLOB;
+        ALTER TABLE messages ADD COLUMN group_session_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE message_recipients ADD COLUMN payload_kind INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
 ];

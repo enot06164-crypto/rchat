@@ -221,6 +221,26 @@ impl Server {
                 let auth = self.authed(state)?;
                 self.handle_mark_receipt(&auth, request).await?
             }
+            M::CreateGroupChat(request) => {
+                let auth = self.authed(state)?;
+                self.handle_create_group_chat(&auth, request).await?
+            }
+            M::InviteToChat(request) => {
+                let auth = self.authed(state)?;
+                self.handle_invite_to_chat(&auth, request).await?
+            }
+            M::LeaveChat(request) => {
+                let auth = self.authed(state)?;
+                self.handle_leave_chat(&auth, request).await?
+            }
+            M::RemoveChatMember(request) => {
+                let auth = self.authed(state)?;
+                self.handle_remove_chat_member(&auth, request).await?
+            }
+            M::RenameChat(request) => {
+                let auth = self.authed(state)?;
+                self.handle_rename_chat(&auth, request).await?
+            }
             M::Sync(request) => {
                 let auth = self.authed(state)?;
                 self.handle_sync(&auth, request).await?
@@ -624,9 +644,8 @@ impl Server {
             }
             if self
                 .repo
-                .find_direct_chat(&auth.user.user_id, user_id)
+                .has_shared_chat(&auth.user.user_id, user_id)
                 .await?
-                .is_some()
             {
                 allowed.insert(user_id.clone());
             }
@@ -723,20 +742,8 @@ impl Server {
             ));
         }
         if mode == proto::E2eMode::OlmV1 {
-            let devices = self
-                .repo
-                .devices_for_users(&[auth.user.user_id.clone(), peer.user_id.clone()], false)
+            self.require_e2e_for_users(&[auth.user.user_id.clone(), peer.user_id.clone()])
                 .await?;
-            for user in [&auth.user.user_id, &peer.user_id] {
-                if !devices
-                    .iter()
-                    .any(|device| &device.user_id == user && device.has_e2e_keys())
-                {
-                    return Err(ServerError::e2e_keys_missing(
-                        "both users need at least one E2E device for an e2e chat",
-                    ));
-                }
-            }
         }
 
         if let Some((chat, members)) = self
@@ -763,6 +770,7 @@ impl Server {
             chat_id: random_id()?,
             kind: proto::ChatKind::Direct as i32,
             e2e_mode: mode as i32,
+            name: String::new(),
             created_at_ms: now,
             updated_at_ms: now,
             last_server_id: 0,
@@ -772,11 +780,13 @@ impl Server {
                 chat_id: chat.chat_id.clone(),
                 user_id: auth.user.user_id.clone(),
                 joined_at_ms: now,
+                role: 0,
             },
             MemberRecord {
                 chat_id: chat.chat_id.clone(),
                 user_id: peer.user_id.clone(),
                 joined_at_ms: now,
+                role: 0,
             },
         ];
         let chat_proto = p::chat_to_proto(&chat, &members, &[auth.user.clone(), peer.clone()]);
@@ -846,6 +856,476 @@ impl Server {
     }
 
     // -----------------------------------------------------------------
+    // Групповые чаты
+    // -----------------------------------------------------------------
+
+    /// Проверяет, что у каждого перечисленного пользователя есть хотя бы одно
+    /// неотозванное устройство с E2E-ключами.
+    async fn require_e2e_for_users(&self, user_ids: &[String]) -> Result<(), ServerError> {
+        let devices = self.repo.devices_for_users(user_ids, false).await?;
+        for user_id in user_ids {
+            if !devices
+                .iter()
+                .any(|device| &device.user_id == user_id && device.has_e2e_keys())
+            {
+                return Err(ServerError::e2e_keys_missing(
+                    "every member needs at least one E2E device for an e2e chat",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Пользователи-участники для `chat_to_proto`: известные + догруженные.
+    async fn member_users(
+        &self,
+        members: &[MemberRecord],
+        known: &[UserRecord],
+    ) -> Result<Vec<UserRecord>, ServerError> {
+        let mut map: BTreeMap<String, UserRecord> = known
+            .iter()
+            .map(|user| (user.user_id.clone(), user.clone()))
+            .collect();
+        let missing: Vec<String> = members
+            .iter()
+            .map(|member| member.user_id.clone())
+            .filter(|id| !map.contains_key(id))
+            .collect();
+        if !missing.is_empty() {
+            for user in self.repo.find_users_by_ids(&missing).await? {
+                map.insert(user.user_id.clone(), user);
+            }
+        }
+        Ok(map.into_values().collect())
+    }
+
+    /// Готовит журнальные события ChatUpdated для устройств `target_users`.
+    async fn chat_updated_fanout(
+        &self,
+        chat_proto: &proto::Chat,
+        target_users: &[String],
+        now_ms: u64,
+    ) -> Result<(Vec<NewSyncEvent>, Vec<DeviceRecord>, Vec<u8>), ServerError> {
+        let payload = p::encode_event_payload(p::chat_updated_event(chat_proto.clone()))?;
+        let devices = self.repo.devices_for_users(target_users, false).await?;
+        let events = devices
+            .iter()
+            .map(|device| NewSyncEvent {
+                device_id: device.device_id.clone(),
+                kind_hint: 16,
+                payload: payload.clone(),
+                created_at_ms: now_ms,
+            })
+            .collect();
+        Ok((events, devices, payload))
+    }
+
+    /// Пишет push-событие всем устройствам, которым repo назначил seq.
+    fn push_chat_events(&self, devices: &[DeviceRecord], payload: &[u8], seqs: &[(String, u64)]) {
+        for (index, device) in devices.iter().enumerate() {
+            if let Some((_, seq)) = seqs.get(index) {
+                self.push_event(&device.user_id, &device.device_id, payload, *seq);
+            }
+        }
+    }
+
+    /// Приводит снимок чата к состоянию «обновлён сейчас».
+    fn chat_after_update(chat: &ChatRecord, now_ms: u64) -> ChatRecord {
+        ChatRecord {
+            updated_at_ms: now_ms.max(chat.updated_at_ms),
+            ..chat.clone()
+        }
+    }
+
+    fn group_max_members(&self) -> usize {
+        self.config
+            .max_group_members
+            .min(rchat_proto::limits::MAX_GROUP_MEMBERS_HARD)
+    }
+
+    async fn handle_create_group_chat(
+        &self,
+        auth: &AuthContext,
+        request: proto::CreateGroupChatRequest,
+    ) -> Result<response::Result, ServerError> {
+        let name = validate_group_name(&request.name)?;
+        let mode = proto::E2eMode::try_from(request.e2e_mode)
+            .map_err(|_| ServerError::invalid_request("unknown e2e mode"))?;
+        if mode == proto::E2eMode::Unspecified {
+            return Err(ServerError::invalid_request(
+                "e2e mode must be specified explicitly",
+            ));
+        }
+        if mode == proto::E2eMode::NoneDev && !self.config.allow_dev_plaintext_chats {
+            return Err(ServerError::forbidden(
+                "plaintext dev chats are disabled on this server",
+            ));
+        }
+        if request.member_usernames.len() > rchat_proto::limits::MAX_INVITES_PER_REQUEST {
+            return Err(ServerError::limit_exceeded(
+                "too many members in one request",
+            ));
+        }
+        let max_members = self.group_max_members();
+
+        let mut invited: Vec<UserRecord> = Vec::new();
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        for raw in &request.member_usernames {
+            let username = validate_username(raw)?;
+            let user = self
+                .repo
+                .find_user_by_username(&username)
+                .await?
+                .ok_or_else(|| ServerError::not_found("user not found"))?;
+            if user.user_id == auth.user.user_id || !seen.insert(user.user_id.clone()) {
+                continue;
+            }
+            invited.push(user);
+        }
+        if 1 + invited.len() > max_members {
+            return Err(ServerError::limit_exceeded(
+                "group chat member limit reached",
+            ));
+        }
+
+        let now = rchat_proto::now_ms();
+        let chat_id = random_id()?;
+        let mut members: Vec<MemberRecord> = Vec::with_capacity(invited.len() + 1);
+        members.push(MemberRecord {
+            chat_id: chat_id.clone(),
+            user_id: auth.user.user_id.clone(),
+            joined_at_ms: now,
+            role: proto::ChatMemberRole::Owner as i32,
+        });
+        for user in &invited {
+            members.push(MemberRecord {
+                chat_id: chat_id.clone(),
+                user_id: user.user_id.clone(),
+                joined_at_ms: now,
+                role: proto::ChatMemberRole::Member as i32,
+            });
+        }
+        if mode == proto::E2eMode::OlmV1 {
+            let user_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+            self.require_e2e_for_users(&user_ids).await?;
+        }
+
+        let chat = ChatRecord {
+            chat_id,
+            kind: proto::ChatKind::Group as i32,
+            e2e_mode: mode as i32,
+            name,
+            created_at_ms: now,
+            updated_at_ms: now,
+            last_server_id: 0,
+        };
+        let users = self
+            .member_users(&members, std::slice::from_ref(&auth.user))
+            .await?;
+        let chat_proto = p::chat_to_proto(&chat, &members, &users);
+        let payload = p::encode_event_payload(p::chat_created_event(chat_proto.clone()))?;
+        let user_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+        let devices = self.repo.devices_for_users(&user_ids, false).await?;
+        let events: Vec<NewSyncEvent> = devices
+            .iter()
+            .map(|device| NewSyncEvent {
+                device_id: device.device_id.clone(),
+                kind_hint: 10,
+                payload: payload.clone(),
+                created_at_ms: now,
+            })
+            .collect();
+        let seqs = self.repo.create_chat(&chat, &members, &events).await?;
+        self.push_chat_events(&devices, &payload, &seqs);
+
+        Ok(response::Result::CreateGroupChat(
+            proto::CreateGroupChatResponse {
+                chat: Some(chat_proto),
+            },
+        ))
+    }
+
+    async fn handle_invite_to_chat(
+        &self,
+        auth: &AuthContext,
+        request: proto::InviteToChatRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if chat.kind != proto::ChatKind::Group as i32 {
+            return Err(ServerError::invalid_request(
+                "membership management applies to group chats only",
+            ));
+        }
+        if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+            return Err(ServerError::forbidden("not a member of this chat"));
+        }
+        if request.usernames.len() > rchat_proto::limits::MAX_INVITES_PER_REQUEST {
+            return Err(ServerError::limit_exceeded(
+                "too many members in one request",
+            ));
+        }
+        let existing: BTreeSet<String> = members.iter().map(|m| m.user_id.clone()).collect();
+        let mut new_users: Vec<UserRecord> = Vec::new();
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        for raw in &request.usernames {
+            let username = validate_username(raw)?;
+            let user = self
+                .repo
+                .find_user_by_username(&username)
+                .await?
+                .ok_or_else(|| ServerError::not_found("user not found"))?;
+            if user.user_id == auth.user.user_id
+                || existing.contains(&user.user_id)
+                || !seen.insert(user.user_id.clone())
+            {
+                continue;
+            }
+            new_users.push(user);
+        }
+
+        let now = rchat_proto::now_ms();
+        if new_users.is_empty() {
+            // Идемпотентно: все уже в чате.
+            let users = self
+                .member_users(&members, std::slice::from_ref(&auth.user))
+                .await?;
+            return Ok(response::Result::InviteToChat(
+                proto::InviteToChatResponse {
+                    chat: Some(p::chat_to_proto(&chat, &members, &users)),
+                },
+            ));
+        }
+        if chat.e2e_mode == proto::E2eMode::OlmV1 as i32 {
+            let ids: Vec<String> = new_users.iter().map(|u| u.user_id.clone()).collect();
+            self.require_e2e_for_users(&ids).await?;
+        }
+        let max_members = self.group_max_members();
+        if members.len() + new_users.len() > max_members {
+            return Err(ServerError::limit_exceeded(
+                "group chat member limit reached",
+            ));
+        }
+
+        let new_members: Vec<MemberRecord> = new_users
+            .iter()
+            .map(|user| MemberRecord {
+                chat_id: chat.chat_id.clone(),
+                user_id: user.user_id.clone(),
+                joined_at_ms: now,
+                role: proto::ChatMemberRole::Member as i32,
+            })
+            .collect();
+        let mut members_after = members.clone();
+        members_after.extend(new_members.iter().cloned());
+        let chat_after = Self::chat_after_update(&chat, now);
+        let users = self.member_users(&members_after, &new_users).await?;
+        let chat_proto = p::chat_to_proto(&chat_after, &members_after, &users);
+        let targets: Vec<String> = members_after.iter().map(|m| m.user_id.clone()).collect();
+        let (events, devices, payload) =
+            self.chat_updated_fanout(&chat_proto, &targets, now).await?;
+        let seqs = self
+            .repo
+            .add_chat_members(&chat.chat_id, &new_members, max_members, &events, now)
+            .await?;
+        self.push_chat_events(&devices, &payload, &seqs);
+
+        Ok(response::Result::InviteToChat(
+            proto::InviteToChatResponse {
+                chat: Some(chat_proto),
+            },
+        ))
+    }
+
+    async fn handle_leave_chat(
+        &self,
+        auth: &AuthContext,
+        request: proto::LeaveChatRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if chat.kind != proto::ChatKind::Group as i32 {
+            return Err(ServerError::invalid_request(
+                "leaving is supported for group chats only",
+            ));
+        }
+        let me = members
+            .iter()
+            .find(|m| m.user_id == auth.user.user_id)
+            .ok_or_else(|| ServerError::forbidden("not a member of this chat"))?
+            .clone();
+        // Владелец передаёт владение участнику с самым ранним вступлением.
+        let new_owner = if me.is_owner() {
+            members
+                .iter()
+                .filter(|m| m.user_id != auth.user.user_id)
+                .min_by(|a, b| (a.joined_at_ms, &a.user_id).cmp(&(b.joined_at_ms, &b.user_id)))
+                .map(|m| m.user_id.clone())
+        } else {
+            None
+        };
+        let now = rchat_proto::now_ms();
+        let mut members_after: Vec<MemberRecord> = members
+            .iter()
+            .filter(|m| m.user_id != auth.user.user_id)
+            .cloned()
+            .collect();
+        if let Some(owner) = &new_owner {
+            for member in &mut members_after {
+                if &member.user_id == owner {
+                    member.role = proto::ChatMemberRole::Owner as i32;
+                }
+            }
+        }
+        let chat_after = Self::chat_after_update(&chat, now);
+        let users = self
+            .member_users(&members_after, std::slice::from_ref(&auth.user))
+            .await?;
+        let chat_proto = p::chat_to_proto(&chat_after, &members_after, &users);
+        let mut targets: Vec<String> = members_after.iter().map(|m| m.user_id.clone()).collect();
+        targets.push(auth.user.user_id.clone());
+        let (events, devices, payload) =
+            self.chat_updated_fanout(&chat_proto, &targets, now).await?;
+        let seqs = self
+            .repo
+            .remove_chat_member(
+                &chat.chat_id,
+                &auth.user.user_id,
+                new_owner.as_deref(),
+                &events,
+                now,
+            )
+            .await?;
+        self.push_chat_events(&devices, &payload, &seqs);
+
+        Ok(response::Result::LeaveChat(proto::LeaveChatResponse {}))
+    }
+
+    async fn handle_remove_chat_member(
+        &self,
+        auth: &AuthContext,
+        request: proto::RemoveChatMemberRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        rchat_proto::validate::user_id(&request.user_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if chat.kind != proto::ChatKind::Group as i32 {
+            return Err(ServerError::invalid_request(
+                "membership management applies to group chats only",
+            ));
+        }
+        let me = members
+            .iter()
+            .find(|m| m.user_id == auth.user.user_id)
+            .ok_or_else(|| ServerError::forbidden("not a member of this chat"))?;
+        if !me.is_owner() {
+            return Err(ServerError::forbidden("only the owner can remove members"));
+        }
+        if request.user_id == auth.user.user_id {
+            return Err(ServerError::invalid_request("use leave to quit the chat"));
+        }
+        if !members.iter().any(|m| m.user_id == request.user_id) {
+            return Err(ServerError::not_found("member not found"));
+        }
+        let now = rchat_proto::now_ms();
+        let members_after: Vec<MemberRecord> = members
+            .iter()
+            .filter(|m| m.user_id != request.user_id)
+            .cloned()
+            .collect();
+        let chat_after = Self::chat_after_update(&chat, now);
+        let users = self
+            .member_users(&members_after, std::slice::from_ref(&auth.user))
+            .await?;
+        let chat_proto = p::chat_to_proto(&chat_after, &members_after, &users);
+        let mut targets: Vec<String> = members_after.iter().map(|m| m.user_id.clone()).collect();
+        targets.push(request.user_id.clone());
+        let (events, devices, payload) =
+            self.chat_updated_fanout(&chat_proto, &targets, now).await?;
+        let seqs = self
+            .repo
+            .remove_chat_member(&chat.chat_id, &request.user_id, None, &events, now)
+            .await?;
+        self.push_chat_events(&devices, &payload, &seqs);
+
+        Ok(response::Result::RemoveChatMember(
+            proto::RemoveChatMemberResponse {
+                chat: Some(chat_proto),
+            },
+        ))
+    }
+
+    async fn handle_rename_chat(
+        &self,
+        auth: &AuthContext,
+        request: proto::RenameChatRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let name = validate_group_name(&request.name)?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if chat.kind != proto::ChatKind::Group as i32 {
+            return Err(ServerError::invalid_request(
+                "renaming applies to group chats only",
+            ));
+        }
+        let me = members
+            .iter()
+            .find(|m| m.user_id == auth.user.user_id)
+            .ok_or_else(|| ServerError::forbidden("not a member of this chat"))?;
+        if !me.is_owner() {
+            return Err(ServerError::forbidden("only the owner can rename the chat"));
+        }
+        if chat.name == name {
+            let users = self
+                .member_users(&members, std::slice::from_ref(&auth.user))
+                .await?;
+            return Ok(response::Result::RenameChat(proto::RenameChatResponse {
+                chat: Some(p::chat_to_proto(&chat, &members, &users)),
+            }));
+        }
+        let now = rchat_proto::now_ms();
+        let mut chat_after = Self::chat_after_update(&chat, now);
+        chat_after.name = name;
+        let users = self
+            .member_users(&members, std::slice::from_ref(&auth.user))
+            .await?;
+        let chat_proto = p::chat_to_proto(&chat_after, &members, &users);
+        let targets: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+        let (events, devices, payload) =
+            self.chat_updated_fanout(&chat_proto, &targets, now).await?;
+        let seqs = self
+            .repo
+            .rename_chat(&chat.chat_id, &chat_after.name, &events, now)
+            .await?;
+        self.push_chat_events(&devices, &payload, &seqs);
+
+        Ok(response::Result::RenameChat(proto::RenameChatResponse {
+            chat: Some(chat_proto),
+        }))
+    }
+
+    // -----------------------------------------------------------------
     // Сообщения
     // -----------------------------------------------------------------
 
@@ -888,6 +1368,8 @@ impl Server {
             &request.content_kind,
             &request.recipients,
             &request.plaintext_dev,
+            &request.group_ciphertext,
+            &request.group_session_id,
         )?;
 
         let message = MessageRecord {
@@ -904,6 +1386,8 @@ impl Server {
             sender_curve25519: auth.device.curve25519.clone(),
             olm_type: 0,
             plaintext_dev: content.plaintext.clone(),
+            group_ciphertext: content.group_ciphertext.clone(),
+            group_session_id: content.group_session_id.clone(),
         };
 
         // События по одному на каждое неотозванное устройство участника.
@@ -965,6 +1449,11 @@ impl Server {
 
     /// Общая проверка содержимого для отправки/редактирования:
     /// режим чата, покрытие устройств, размеры, валидация recipients.
+    ///
+    /// Личный E2E-чат: ciphertext-ы на все устройства (полное покрытие),
+    /// group-поля запрещены. Групповой E2E-чат: общий megolm-ciphertext
+    /// обязателен, recipients — только доставка ключа (payload_kind =
+    /// GROUP_KEY), полное покрытие не требуется.
     #[allow(clippy::too_many_arguments)]
     fn prepare_outgoing(
         &self,
@@ -975,12 +1464,17 @@ impl Server {
         content_kind: &str,
         recipients_in: &[proto::RecipientPayload],
         plaintext_dev: &str,
+        group_ciphertext: &[u8],
+        group_session_id: &str,
     ) -> Result<OutgoingContent, ServerError> {
         rchat_proto::validate::content_kind(content_kind)
             .map_err(|e| ServerError::invalid_request(e.to_string()))?;
         if recipients_in.len() > rchat_proto::limits::MAX_RECIPIENTS_PER_MESSAGE {
             return Err(ServerError::invalid_request("too many recipients"));
         }
+        let chat_kind = proto::ChatKind::try_from(chat.kind)
+            .map_err(|_| ServerError::internal("chat has unknown kind"))?;
+        let is_group = chat_kind == proto::ChatKind::Group;
         let member_ids: BTreeSet<&str> = devices.iter().map(|d| d.device_id.as_str()).collect();
         let e2e_ids: BTreeSet<&str> = devices
             .iter()
@@ -1013,6 +1507,22 @@ impl Server {
             if proto::OlmMessageType::try_from(payload.olm_type).is_err() {
                 return Err(ServerError::invalid_request("unknown olm message type"));
             }
+            let payload_kind = proto::RecipientPayloadKind::try_from(payload.payload_kind)
+                .map_err(|_| ServerError::invalid_request("unknown recipient payload kind"))?;
+            match (is_group, payload_kind) {
+                (true, proto::RecipientPayloadKind::GroupKey)
+                | (false, proto::RecipientPayloadKind::Message) => {}
+                (true, _) => {
+                    return Err(ServerError::invalid_request(
+                        "group chat recipients must carry a group key",
+                    ));
+                }
+                (false, _) => {
+                    return Err(ServerError::invalid_request(
+                        "group key payload is not allowed in a direct chat",
+                    ));
+                }
+            }
             recipients.push(RecipientRecord {
                 server_id,
                 device_id: payload.device_id.clone(),
@@ -1020,13 +1530,19 @@ impl Server {
                 e2e_version: payload.e2e_version,
                 olm_type: payload.olm_type,
                 sender_curve25519: payload.sender_curve25519.clone(),
+                payload_kind: payload.payload_kind,
             });
         }
 
         let e2e_mode = proto::E2eMode::try_from(chat.e2e_mode)
             .map_err(|_| ServerError::internal("chat has unknown e2e mode"))?;
-        let plaintext = match e2e_mode {
+        let (plaintext, group) = match e2e_mode {
             proto::E2eMode::NoneDev => {
+                if !group_ciphertext.is_empty() || !group_session_id.is_empty() {
+                    return Err(ServerError::invalid_request(
+                        "group ciphertext is not allowed in a dev plaintext chat",
+                    ));
+                }
                 if plaintext_dev.is_empty() {
                     return Err(ServerError::invalid_request(
                         "plaintext is required in a dev plaintext chat",
@@ -1035,7 +1551,7 @@ impl Server {
                 if plaintext_dev.len() > max_bytes {
                     return Err(ServerError::payload_too_large("plaintext is too large"));
                 }
-                Some(plaintext_dev.to_string())
+                (Some(plaintext_dev.to_string()), None)
             }
             proto::E2eMode::OlmV1 => {
                 if !plaintext_dev.is_empty() {
@@ -1043,41 +1559,83 @@ impl Server {
                         "plaintext is not allowed in an e2e chat",
                     ));
                 }
-                // Обязательное покрытие: все E2E-устройства участников, кроме
-                // отправляющего.
-                let required: Vec<&str> = e2e_ids
-                    .iter()
-                    .copied()
-                    .filter(|id| *id != sender_device_id)
-                    .collect();
-                let missing: Vec<&str> = required
-                    .iter()
-                    .copied()
-                    .filter(|id| !seen.contains(*id))
-                    .collect();
-                if !missing.is_empty() {
-                    return Err(ServerError::e2e_keys_missing(format!(
-                        "encrypted copies are required for {} device(s)",
-                        missing.len()
-                    )));
-                }
-                // Ciphertext допустим только для E2E-устройств.
-                for payload in &recipients {
-                    if !e2e_ids.contains(payload.device_id.as_str()) {
+                if is_group {
+                    if group_ciphertext.is_empty() {
                         return Err(ServerError::invalid_request(
-                            "recipient device has no e2e keys",
+                            "group ciphertext is required in a group e2e chat",
                         ));
                     }
-                    if payload.e2e_version != rchat_proto::E2E_VERSION_OLM_V1 {
-                        return Err(ServerError::invalid_request("unknown e2e version"));
-                    }
-                    if payload.sender_curve25519.len() != rchat_proto::limits::DEVICE_KEY_LEN {
-                        return Err(ServerError::invalid_request(
-                            "sender curve25519 key must be 32 bytes",
+                    if group_ciphertext.len() > max_bytes {
+                        return Err(ServerError::payload_too_large(
+                            "group ciphertext is too large",
                         ));
                     }
+                    let sid_len = group_session_id.chars().count();
+                    if sid_len == 0 || sid_len > rchat_proto::limits::GROUP_SESSION_ID_MAX {
+                        return Err(ServerError::invalid_request(
+                            "group session id is empty or too long",
+                        ));
+                    }
+                    // Полное покрытие не требуется: recipients — только
+                    // доставка ключа тем устройствам, у кого его ещё нет.
+                    for payload in &recipients {
+                        if !e2e_ids.contains(payload.device_id.as_str()) {
+                            return Err(ServerError::invalid_request(
+                                "recipient device has no e2e keys",
+                            ));
+                        }
+                        if payload.e2e_version != rchat_proto::E2E_VERSION_OLM_V1 {
+                            return Err(ServerError::invalid_request("unknown e2e version"));
+                        }
+                        if payload.sender_curve25519.len() != rchat_proto::limits::DEVICE_KEY_LEN {
+                            return Err(ServerError::invalid_request(
+                                "sender curve25519 key must be 32 bytes",
+                            ));
+                        }
+                    }
+                    (None, Some(group_ciphertext.to_vec()))
+                } else {
+                    if !group_ciphertext.is_empty() || !group_session_id.is_empty() {
+                        return Err(ServerError::invalid_request(
+                            "group ciphertext is not allowed in a direct chat",
+                        ));
+                    }
+                    // Обязательное покрытие: все E2E-устройства участников,
+                    // кроме отправляющего.
+                    let required: Vec<&str> = e2e_ids
+                        .iter()
+                        .copied()
+                        .filter(|id| *id != sender_device_id)
+                        .collect();
+                    let missing: Vec<&str> = required
+                        .iter()
+                        .copied()
+                        .filter(|id| !seen.contains(*id))
+                        .collect();
+                    if !missing.is_empty() {
+                        return Err(ServerError::e2e_keys_missing(format!(
+                            "encrypted copies are required for {} device(s)",
+                            missing.len()
+                        )));
+                    }
+                    // Ciphertext допустим только для E2E-устройств.
+                    for payload in &recipients {
+                        if !e2e_ids.contains(payload.device_id.as_str()) {
+                            return Err(ServerError::invalid_request(
+                                "recipient device has no e2e keys",
+                            ));
+                        }
+                        if payload.e2e_version != rchat_proto::E2E_VERSION_OLM_V1 {
+                            return Err(ServerError::invalid_request("unknown e2e version"));
+                        }
+                        if payload.sender_curve25519.len() != rchat_proto::limits::DEVICE_KEY_LEN {
+                            return Err(ServerError::invalid_request(
+                                "sender curve25519 key must be 32 bytes",
+                            ));
+                        }
+                    }
+                    (None, None)
                 }
-                None
             }
             proto::E2eMode::Unspecified => {
                 return Err(ServerError::internal("chat has unspecified e2e mode"))
@@ -1088,6 +1646,12 @@ impl Server {
             content_kind: content_kind.to_string(),
             recipients,
             plaintext,
+            group_ciphertext: group,
+            group_session_id: if group_ciphertext.is_empty() {
+                String::new()
+            } else {
+                group_session_id.to_string()
+            },
         })
     }
 
@@ -1158,6 +1722,8 @@ impl Server {
             &request.content_kind,
             &request.recipients,
             &request.plaintext_dev,
+            &request.group_ciphertext,
+            &request.group_session_id,
         )?;
 
         // Если у устройства-редактора есть E2E-ключи, сообщение после правки
@@ -1171,6 +1737,8 @@ impl Server {
             content_kind: content.content_kind.clone(),
             edited_at_ms: now,
             plaintext_dev: content.plaintext.clone(),
+            group_ciphertext: content.group_ciphertext.clone(),
+            group_session_id: content.group_session_id.clone(),
             // Правка могла прийти с другого устройства автора: события несут
             // фактического отправителя новых ciphertext-ов.
             sender_device_id: auth.device.device_id.clone(),
@@ -1198,7 +1766,13 @@ impl Server {
             deleted_at_ms: 0,
             content_kind: Some(content.content_kind.clone()),
             plaintext_dev: content.plaintext.clone(),
-            clear_plaintext: false,
+            group_ciphertext: content.group_ciphertext.clone(),
+            group_session_id: if content.group_ciphertext.is_some() {
+                Some(content.group_session_id.clone())
+            } else {
+                None
+            },
+            clear_content: false,
             sender_device_id: Some(auth.device.device_id.clone()),
             sender_curve25519: sender_curve25519.clone(),
             recipients: Some(content.recipients.clone()),
@@ -1256,11 +1830,14 @@ impl Server {
             ));
         }
         let now = rchat_proto::now_ms();
-        // Событие-надгробие не должно нести содержимое: plaintext сбрасывается
-        // до сборки payload (иначе dev-чат утёк бы текстом в журнал).
+        // Событие-надгробие не должно нести содержимое: plaintext и megolm-
+        // ciphertext сбрасываются до сборки payload (иначе dev-чат утёк бы
+        // текстом, а групповой — шифротекстом, в журнал).
         let deleted_preview = MessageRecord {
             deleted_at_ms: now,
             plaintext_dev: None,
+            group_ciphertext: None,
+            group_session_id: String::new(),
             ..message.clone()
         };
         let mut events = Vec::with_capacity(devices.len());
@@ -1279,9 +1856,11 @@ impl Server {
             deleted_at_ms: now,
             content_kind: None,
             plaintext_dev: None,
+            group_ciphertext: None,
+            group_session_id: None,
             // Удаление для всех: ciphertext-ы и plaintext стираются, чтобы
             // содержимое нельзя было получить ни через историю, ни из БД.
-            clear_plaintext: true,
+            clear_content: true,
             sender_device_id: None,
             sender_curve25519: None,
             recipients: Some(Vec::new()),
@@ -1603,9 +2182,8 @@ impl Server {
         }
         Ok(self
             .repo
-            .find_direct_chat(&auth.user.user_id, &device.user_id)
-            .await?
-            .is_some())
+            .has_shared_chat(&auth.user.user_id, &device.user_id)
+            .await?)
     }
 
     // -----------------------------------------------------------------
@@ -1656,6 +2234,8 @@ struct OutgoingContent {
     content_kind: String,
     recipients: Vec<RecipientRecord>,
     plaintext: Option<String>,
+    group_ciphertext: Option<Vec<u8>>,
+    group_session_id: String,
 }
 
 // ---------------------------------------------------------------------
@@ -1669,6 +2249,10 @@ fn validate_username(raw: &str) -> Result<String, ServerError> {
 fn validate_display_name(raw: &str) -> Result<String, ServerError> {
     rchat_proto::validate::display_name(raw)
         .map_err(|e| ServerError::invalid_request(e.to_string()))
+}
+
+fn validate_group_name(raw: &str) -> Result<String, ServerError> {
+    rchat_proto::validate::group_name(raw).map_err(|e| ServerError::invalid_request(e.to_string()))
 }
 
 fn validate_password(raw: &str) -> Result<(), ServerError> {

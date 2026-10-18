@@ -45,6 +45,7 @@ pub fn member_to_proto(member: &MemberRecord, user: &UserRecord) -> proto::ChatM
         username: user.username.clone(),
         display_name: user.display_name.clone(),
         joined_at_ms: member.joined_at_ms,
+        role: member.role,
     }
 }
 
@@ -80,6 +81,7 @@ pub fn chat_to_proto(
         created_at_ms: chat.created_at_ms,
         updated_at_ms: chat.updated_at_ms,
         last_server_id: chat.last_server_id,
+        name: chat.name.clone(),
     }
 }
 
@@ -119,6 +121,17 @@ pub fn message_view(
             .filter(|key| !key.is_empty())
             .unwrap_or_else(|| message.sender_curve25519.clone()),
         olm_type: recipient.map(|r| r.olm_type).unwrap_or(message.olm_type),
+        group_ciphertext: if dev_plaintext {
+            Vec::new()
+        } else {
+            message.group_ciphertext.clone().unwrap_or_default()
+        },
+        group_session_id: if dev_plaintext {
+            String::new()
+        } else {
+            message.group_session_id.clone()
+        },
+        recipient_payload_kind: recipient.map(|r| r.payload_kind).unwrap_or(0),
     }
 }
 
@@ -133,6 +146,10 @@ pub fn receipt_event(receipt: &ReceiptRecord) -> sync_event::Payload {
 
 pub fn chat_created_event(chat: proto::Chat) -> sync_event::Payload {
     sync_event::Payload::ChatCreated(proto::ChatCreatedEvent { chat: Some(chat) })
+}
+
+pub fn chat_updated_event(chat: proto::Chat) -> sync_event::Payload {
+    sync_event::Payload::ChatUpdated(proto::ChatUpdatedEvent { chat: Some(chat) })
 }
 
 pub fn message_event(message: proto::Message) -> sync_event::Payload {
@@ -176,6 +193,7 @@ pub fn kind_hint(payload: &sync_event::Payload) -> u32 {
         sync_event::Payload::MessageDeleted(_) => 13,
         sync_event::Payload::Receipt(_) => 14,
         sync_event::Payload::DeviceChanged(_) => 15,
+        sync_event::Payload::ChatUpdated(_) => 16,
     }
 }
 

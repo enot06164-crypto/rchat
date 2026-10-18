@@ -35,6 +35,7 @@ fn plaintext_message(
         reply_to_server_id: 0,
         recipients: Vec::new(),
         plaintext_dev: text.to_string(),
+        ..Default::default()
     }
 }
 
@@ -341,6 +342,7 @@ async fn foreign_chat_is_inaccessible_and_sender_is_session_bound() {
             content_kind: "text".to_string(),
             recipients: Vec::new(),
             plaintext_dev: "правка".to_string(),
+            ..Default::default()
         }),
         Method::DeleteMessage(proto::DeleteMessageRequest {
             server_id: sent.server_id,
@@ -370,6 +372,7 @@ async fn foreign_chat_is_inaccessible_and_sender_is_session_bound() {
                 content_kind: "text".to_string(),
                 recipients: Vec::new(),
                 plaintext_dev: "правка".to_string(),
+                ..Default::default()
             }),
         )
         .await,

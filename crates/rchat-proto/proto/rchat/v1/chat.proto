@@ -7,6 +7,16 @@ import "rchat/v1/common.proto";
 enum ChatKind {
   CHAT_KIND_UNSPECIFIED = 0;
   CHAT_KIND_DIRECT = 1;
+  CHAT_KIND_GROUP = 2;
+}
+
+// Роль участника в групповом чате. В личных чатах не заполняется.
+enum ChatMemberRole {
+  CHAT_MEMBER_ROLE_UNSPECIFIED = 0;
+  CHAT_MEMBER_ROLE_MEMBER = 1;
+  // Владелец: может исключать участников и переименовывать чат.
+  // У группы всегда ровно один владелец.
+  CHAT_MEMBER_ROLE_OWNER = 2;
 }
 
 // Режим конфиденциальности чата. Фиксируется при создании и не меняется
@@ -25,6 +35,7 @@ message ChatMember {
   string username = 2;
   string display_name = 3;
   uint64 joined_at_ms = 4;
+  ChatMemberRole role = 5;
 }
 
 message Chat {
@@ -36,6 +47,8 @@ message Chat {
   uint64 updated_at_ms = 6;
   // Последний server_id сообщения в чате (0, если сообщений нет).
   uint64 last_server_id = 7;
+  // Название группового чата; пусто для личных чатов.
+  string name = 8;
 }
 
 message CreateDirectChatRequest {
@@ -52,4 +65,60 @@ message ListChatsRequest {}
 
 message ListChatsResponse {
   repeated Chat chats = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Групповые чаты.
+//
+// Модель участия: приглашение без подтверждения (invite = immediate
+// membership). Приглашать может любой участник; исключать и переименовывать —
+// только владелец. Владелец — создатель; если владелец выходит, владение
+// переходит участнику с самым ранним joined_at_ms.
+// ---------------------------------------------------------------------------
+
+message CreateGroupChatRequest {
+  string name = 1;
+  // Логины приглашаемых участников (без учёта регистра, кроме создателя).
+  repeated string member_usernames = 2;
+  // Режим требуется указать явно; E2E_MODE_UNSPECIFIED отклоняется.
+  E2eMode e2e_mode = 3;
+}
+
+message CreateGroupChatResponse {
+  Chat chat = 1;
+}
+
+message InviteToChatRequest {
+  string chat_id = 1;
+  repeated string usernames = 2;
+}
+
+message InviteToChatResponse {
+  Chat chat = 1;
+}
+
+message LeaveChatRequest {
+  string chat_id = 1;
+}
+
+message LeaveChatResponse {}
+
+// Исключение участника владельцем. Владельца исключить нельзя; для выхода
+// владельца используется LeaveChat.
+message RemoveChatMemberRequest {
+  string chat_id = 1;
+  string user_id = 2;
+}
+
+message RemoveChatMemberResponse {
+  Chat chat = 1;
+}
+
+message RenameChatRequest {
+  string chat_id = 1;
+  string name = 2;
+}
+
+message RenameChatResponse {
+  Chat chat = 1;
 }

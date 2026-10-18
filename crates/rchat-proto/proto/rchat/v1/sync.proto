@@ -24,6 +24,8 @@ enum SyncEventKind {
   SYNC_EVENT_KIND_MESSAGE_DELETED = 13;
   SYNC_EVENT_KIND_RECEIPT = 14;
   SYNC_EVENT_KIND_DEVICE_CHANGED = 15;
+  // Изменились имя чата и/или состав участников (полный снимок Chat).
+  SYNC_EVENT_KIND_CHAT_UPDATED = 16;
 }
 
 message ChatCreatedEvent {
@@ -63,6 +65,13 @@ message DeviceChangedEvent {
   uint64 changed_at_ms = 4;
 }
 
+// Изменение чата: полный снимок состава участников (и имени для групп).
+// Доставляется всем текущим участникам, а также исключённым/вышедшим
+// пользователям (чтобы их клиенты увидели, что они больше не в чате).
+message ChatUpdatedEvent {
+  Chat chat = 1;
+}
+
 message SyncEvent {
   uint64 seq = 1;
   uint32 kind_hint = 2;
@@ -73,6 +82,7 @@ message SyncEvent {
     MessageDeletedEvent message_deleted = 13;
     ReceiptEvent receipt = 14;
     DeviceChangedEvent device_changed = 15;
+    ChatUpdatedEvent chat_updated = 16;
   }
 }
 

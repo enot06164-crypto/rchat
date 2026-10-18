@@ -27,6 +27,7 @@ fn send_request(
         reply_to_server_id: 0,
         recipients,
         plaintext_dev: plaintext_dev.to_string(),
+        ..Default::default()
     }
 }
 
@@ -40,6 +41,7 @@ fn edit_request(
         content_kind: "text".to_string(),
         recipients,
         plaintext_dev: plaintext_dev.to_string(),
+        ..Default::default()
     }
 }
 
@@ -52,6 +54,7 @@ fn recipient(device_id: &str, ciphertext: Vec<u8>) -> proto::RecipientPayload {
         e2e_version: rchat_proto::E2E_VERSION_OLM_V1,
         olm_type: proto::OlmMessageType::Normal as i32,
         sender_curve25519: vec![0x33; 32],
+        ..Default::default()
     }
 }
 

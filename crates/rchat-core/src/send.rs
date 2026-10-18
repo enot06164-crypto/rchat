@@ -145,6 +145,7 @@ where
                     e2e_version: message.e2e_version,
                     olm_type: message.olm_type as i32,
                     sender_curve25519: message.sender_curve25519.clone(),
+                    payload_kind: proto::RecipientPayloadKind::Message as i32,
                 });
             }
         }
@@ -195,6 +196,8 @@ where
         reply_to_server_id: reply_to.unwrap_or(0),
         recipients: content.recipients,
         plaintext_dev: content.plaintext_dev,
+        group_ciphertext: Vec::new(),
+        group_session_id: String::new(),
     };
     check_request_size(inner, &request)?;
     Ok(request)
@@ -220,6 +223,8 @@ where
         content_kind: content.content_kind,
         recipients: content.recipients,
         plaintext_dev: content.plaintext_dev,
+        group_ciphertext: Vec::new(),
+        group_session_id: String::new(),
     };
     check_request_size(inner, &request)?;
     Ok(request)

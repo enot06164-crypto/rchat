@@ -40,6 +40,7 @@ async fn full_plaintext_flow_registration_to_receipt() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: "привет".to_string(),
+                ..Default::default()
             },
         )
         .await,
@@ -61,6 +62,7 @@ async fn full_plaintext_flow_registration_to_receipt() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: "другое содержимое".to_string(),
+                ..Default::default()
             },
         )
         .await,
@@ -182,6 +184,7 @@ async fn full_plaintext_flow_registration_to_receipt() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: "привет".to_string(),
+                ..Default::default()
             },
         )
         .await,
@@ -200,6 +203,7 @@ async fn full_plaintext_flow_registration_to_receipt() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: "привет".to_string(),
+                ..Default::default()
             },
         )
         .await,
@@ -284,6 +288,7 @@ async fn e2e_chat_requires_keys_and_full_coverage() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: "нельзя".to_string(),
+                ..Default::default()
             },
         )
         .await,
@@ -302,6 +307,7 @@ async fn e2e_chat_requires_keys_and_full_coverage() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: String::new(),
+                ..Default::default()
             },
         )
         .await,
@@ -324,8 +330,10 @@ async fn e2e_chat_requires_keys_and_full_coverage() {
                     e2e_version: 1,
                     olm_type: proto::OlmMessageType::Prekey as i32,
                     sender_curve25519: vec![0x22; 32],
+                    ..Default::default()
                 }],
                 plaintext_dev: String::new(),
+                ..Default::default()
             },
         )
         .await,
@@ -354,6 +362,7 @@ async fn e2e_chat_requires_keys_and_full_coverage() {
                         e2e_version: 1,
                         olm_type: proto::OlmMessageType::Normal as i32,
                         sender_curve25519: vec![0x22; 32],
+                        ..Default::default()
                     },
                     proto::RecipientPayload {
                         device_id: "c1".to_string(),
@@ -361,9 +370,11 @@ async fn e2e_chat_requires_keys_and_full_coverage() {
                         e2e_version: 1,
                         olm_type: proto::OlmMessageType::Normal as i32,
                         sender_curve25519: vec![0x22; 32],
+                        ..Default::default()
                     },
                 ],
                 plaintext_dev: String::new(),
+                ..Default::default()
             },
         )
         .await,
@@ -418,8 +429,10 @@ async fn multi_device_login_and_fanout() {
                     e2e_version: 1,
                     olm_type: proto::OlmMessageType::Prekey as i32,
                     sender_curve25519: vec![0x22; 32],
+                    ..Default::default()
                 }],
                 plaintext_dev: String::new(),
+                ..Default::default()
             },
         )
         .await,
@@ -442,6 +455,7 @@ async fn multi_device_login_and_fanout() {
                         e2e_version: 1,
                         olm_type: proto::OlmMessageType::Prekey as i32,
                         sender_curve25519: vec![0x22; 32],
+                        ..Default::default()
                     },
                     proto::RecipientPayload {
                         device_id: "b2".to_string(),
@@ -449,9 +463,11 @@ async fn multi_device_login_and_fanout() {
                         e2e_version: 1,
                         olm_type: proto::OlmMessageType::Prekey as i32,
                         sender_curve25519: vec![0x22; 32],
+                        ..Default::default()
                     },
                 ],
                 plaintext_dev: String::new(),
+                ..Default::default()
             },
         )
         .await,
@@ -500,6 +516,7 @@ async fn snapshot_returns_state_with_upper_bound() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: "привет".to_string(),
+                ..Default::default()
             },
         )
         .await,

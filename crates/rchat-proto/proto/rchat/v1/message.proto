@@ -11,6 +11,16 @@ enum OlmMessageType {
   OLM_MESSAGE_TYPE_PREKEY = 1;
 }
 
+// Что зашифровано в ciphertext конкретной копии (для одного устройства).
+enum RecipientPayloadKind {
+  // Обычное содержимое сообщения (личные E2E-чаты).
+  RECIPIENT_PAYLOAD_KIND_MESSAGE = 0;
+  // Ключ групповой (Megolm) сессии для этого устройства: Olm-конверт, внутри
+  // которого бинарный GroupKeyPayload (формат — зона ответственности
+  // E2E-провайдера). Используется только в групповых E2E-чатах.
+  RECIPIENT_PAYLOAD_KIND_GROUP_KEY = 1;
+}
+
 // Зашифрованная копия сообщения для одного конкретного устройства получателя.
 message RecipientPayload {
   string device_id = 1;
@@ -20,6 +30,7 @@ message RecipientPayload {
   OlmMessageType olm_type = 4;
   // curve25519 identity key отправителя (для создания входящей сессии).
   bytes sender_curve25519 = 5;
+  RecipientPayloadKind payload_kind = 6;
 }
 
 // Сообщение, как его видит запрашивающее устройство.
@@ -45,6 +56,14 @@ message Message {
   // для создания входящей сессии. Сверяется с кешем устройства.
   bytes sender_curve25519 = 14;
   OlmMessageType olm_type = 15;
+  // Megolm-ciphertext группового E2E-сообщения: одинаков для всех устройств.
+  // Пусто для личных чатов и dev-сообщений.
+  bytes group_ciphertext = 16;
+  // Идентификатор Megolm-сессии (base64), которой зашифрован group_ciphertext.
+  string group_session_id = 17;
+  // Вид ciphertext для запрашивающего устройства (RecipientPayloadKind).
+  // При пустом ciphertext не значим.
+  RecipientPayloadKind recipient_payload_kind = 18;
 }
 
 message SendMessageRequest {
@@ -54,12 +73,18 @@ message SendMessageRequest {
   string client_message_id = 2;
   string content_kind = 3;
   uint64 reply_to_server_id = 4;
-  // Копии для всех устройств всех участников чата (кроме устройства
-  // отправителя). Для E2E-чата обязаны покрывать все неотозванные
-  // E2E-устройства участников.
+  // Копии для устройств всех участников чата (кроме устройства отправителя).
+  // Для личного E2E-чата обязаны покрывать все неотозванные E2E-устройства
+  // участников. Для группового E2E-чата — это доставка ключа Megolm-сессии
+  // (payload_kind = GROUP_KEY) тем устройствам, у которых его ещё нет; полное
+  // покрытие не требуется.
   repeated RecipientPayload recipients = 5;
   // Только для чатов E2E_MODE_NONE_DEV; в E2E-чате отклоняется.
   string plaintext_dev = 6;
+  // Для группового E2E-чата: megolm-ciphertext (обязателен) и идентификатор
+  // сессии. Для личных E2E-чатов должны быть пустыми.
+  bytes group_ciphertext = 7;
+  string group_session_id = 8;
 }
 
 message SendMessageResponse {
@@ -82,8 +107,12 @@ message GetHistoryResponse {
 message EditMessageRequest {
   uint64 server_id = 1;
   string content_kind = 2;
+  // Семантика как в SendMessageRequest: в личном E2E-чате — полное покрытие,
+  // в групповом — доставка ключа и общий megolm-ciphertext.
   repeated RecipientPayload recipients = 3;
   string plaintext_dev = 4;
+  bytes group_ciphertext = 5;
+  string group_session_id = 6;
 }
 
 message EditMessageResponse {

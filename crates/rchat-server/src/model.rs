@@ -120,10 +120,12 @@ pub struct BundleRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatRecord {
     pub chat_id: String,
-    /// Значение `proto::ChatKind` (1 — direct).
+    /// Значение `proto::ChatKind` (1 — direct, 2 — group).
     pub kind: i32,
     /// Значение `proto::E2eMode`.
     pub e2e_mode: i32,
+    /// Название группового чата; пусто для личных.
+    pub name: String,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub last_server_id: u64,
@@ -135,6 +137,15 @@ pub struct MemberRecord {
     pub chat_id: String,
     pub user_id: String,
     pub joined_at_ms: u64,
+    /// Значение `proto::ChatMemberRole` (0 — direct/не задано, 1 — member,
+    /// 2 — owner). У группы ровно один owner, пока в ней есть участники.
+    pub role: i32,
+}
+
+impl MemberRecord {
+    pub fn is_owner(&self) -> bool {
+        self.role == rchat_proto::proto::ChatMemberRole::Owner as i32
+    }
 }
 
 /// Сообщение (без получательских ciphertext-ов).
@@ -154,6 +165,10 @@ pub struct MessageRecord {
     pub olm_type: i32,
     /// Только для чатов `E2E_MODE_NONE_DEV`.
     pub plaintext_dev: Option<String>,
+    /// Megolm-ciphertext группового E2E-сообщения (общий для всех устройств).
+    pub group_ciphertext: Option<Vec<u8>>,
+    /// Идентификатор Megolm-сессии (base64); пусто, если не применимо.
+    pub group_session_id: String,
 }
 
 /// Ciphertext сообщения для одного устройства получателя.
@@ -165,6 +180,9 @@ pub struct RecipientRecord {
     pub e2e_version: u32,
     pub olm_type: i32,
     pub sender_curve25519: Vec<u8>,
+    /// Значение `proto::RecipientPayloadKind` (0 — содержимое, 1 — ключ
+    /// групповой Megolm-сессии).
+    pub payload_kind: i32,
 }
 
 /// Событие журнала синхронизации устройства.
@@ -228,9 +246,14 @@ pub struct MessageUpdate {
     pub content_kind: Option<String>,
     /// Новое значение `plaintext_dev` (только dev-чаты); `None` — не менять.
     pub plaintext_dev: Option<String>,
+    /// Новый megolm-ciphertext группового E2E-сообщения; `None` — не менять.
+    pub group_ciphertext: Option<Vec<u8>>,
+    /// Новый идентификатор Megolm-сессии; `None` — не менять.
+    pub group_session_id: Option<String>,
     /// Удаление для всех: содержимое стирается (`plaintext_dev` → NULL,
-    /// recipients заменяются, для удаления — пустым списком).
-    pub clear_plaintext: bool,
+    /// `group_ciphertext` → NULL, `group_session_id` → '', recipients
+    /// заменяются на пустой список).
+    pub clear_content: bool,
     /// Новый `sender_device_id` (правка с другого устройства автора);
     /// `None` — не менять.
     pub sender_device_id: Option<String>,

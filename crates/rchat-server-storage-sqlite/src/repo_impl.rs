@@ -534,12 +534,13 @@ impl Repo for SqliteRepo {
                 None
             };
             tx.execute(
-                "INSERT INTO chats(chat_id, kind, e2e_mode, pair_key, created_at_ms, updated_at_ms, last_server_id)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO chats(chat_id, kind, e2e_mode, name, pair_key, created_at_ms, updated_at_ms, last_server_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     chat.chat_id,
                     chat.kind as i64,
                     chat.e2e_mode as i64,
+                    chat.name,
                     pair,
                     chat.created_at_ms as i64,
                     chat.updated_at_ms as i64,
@@ -549,8 +550,13 @@ impl Repo for SqliteRepo {
             .map_err(|e| map_sql("insert chat", e))?;
             for member in &members {
                 tx.execute(
-                    "INSERT INTO chat_members(chat_id, user_id, joined_at_ms) VALUES(?1, ?2, ?3)",
-                    params![member.chat_id, member.user_id, member.joined_at_ms as i64],
+                    "INSERT INTO chat_members(chat_id, user_id, joined_at_ms, role) VALUES(?1, ?2, ?3, ?4)",
+                    params![
+                        member.chat_id,
+                        member.user_id,
+                        member.joined_at_ms as i64,
+                        member.role as i64
+                    ],
                 )
                 .map_err(|e| map_sql("insert member", e))?;
             }
@@ -576,7 +582,7 @@ impl Repo for SqliteRepo {
     ) -> Result<Vec<(ChatRecord, Vec<MemberRecord>)>, RepoError> {
         let user_id = user_id.to_string();
         self.call(move |conn| {
-            let sql = "SELECT c.chat_id, c.kind, c.e2e_mode, c.created_at_ms, c.updated_at_ms, c.last_server_id
+            let sql = "SELECT c.chat_id, c.kind, c.e2e_mode, c.name, c.created_at_ms, c.updated_at_ms, c.last_server_id
                  FROM chats c JOIN chat_members m ON m.chat_id = c.chat_id
                  WHERE m.user_id = ?1 ORDER BY c.updated_at_ms DESC, c.chat_id";
             let mut stmt = conn
@@ -593,6 +599,152 @@ impl Repo for SqliteRepo {
                 result.push((chat, members));
             }
             Ok(result)
+        })
+        .await
+    }
+
+    async fn has_shared_chat(&self, user_a: &str, user_b: &str) -> Result<bool, RepoError> {
+        let user_a = user_a.to_string();
+        let user_b = user_b.to_string();
+        self.call(move |conn| {
+            let found: Option<i64> = conn
+                .query_row(
+                    "SELECT 1 FROM chat_members a
+                     JOIN chat_members b ON b.chat_id = a.chat_id
+                     WHERE a.user_id = ?1 AND b.user_id = ?2
+                     LIMIT 1",
+                    params![user_a, user_b],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| RepoError::internal(format!("has_shared_chat: {e}")))?;
+            Ok(found.is_some())
+        })
+        .await
+    }
+
+    async fn add_chat_members(
+        &self,
+        chat_id: &str,
+        members: &[MemberRecord],
+        max_members: usize,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError> {
+        let chat_id = chat_id.to_string();
+        let members = members.to_vec();
+        let events = events.to_vec();
+        self.call(move |conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|e| RepoError::internal(format!("begin add_members: {e}")))?;
+            let current: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM chat_members WHERE chat_id = ?1",
+                    params![chat_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| RepoError::internal(format!("count members: {e}")))?;
+            if current as usize + members.len() > max_members {
+                return Err(RepoError::Conflict("group_full".into()));
+            }
+            for member in &members {
+                tx.execute(
+                    "INSERT INTO chat_members(chat_id, user_id, joined_at_ms, role) VALUES(?1, ?2, ?3, ?4)",
+                    params![
+                        member.chat_id,
+                        member.user_id,
+                        member.joined_at_ms as i64,
+                        member.role as i64
+                    ],
+                )
+                .map_err(|e| map_sql("insert member", e))?;
+            }
+            bump_chat_updated_at(&tx, &chat_id, now_ms)?;
+            let seqs = insert_events(&tx, &events)?;
+            tx.commit()
+                .map_err(|e| RepoError::internal(format!("commit add_members: {e}")))?;
+            Ok(seqs)
+        })
+        .await
+    }
+
+    async fn remove_chat_member(
+        &self,
+        chat_id: &str,
+        user_id: &str,
+        transfer_owner_to: Option<&str>,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError> {
+        let chat_id = chat_id.to_string();
+        let user_id = user_id.to_string();
+        let transfer_owner_to = transfer_owner_to.map(str::to_string);
+        let events = events.to_vec();
+        self.call(move |conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|e| RepoError::internal(format!("begin remove_member: {e}")))?;
+            let changed = tx
+                .execute(
+                    "DELETE FROM chat_members WHERE chat_id = ?1 AND user_id = ?2",
+                    params![chat_id, user_id],
+                )
+                .map_err(|e| map_sql("delete member", e))?;
+            if changed == 0 {
+                return Err(RepoError::NotFound(format!("member {user_id}")));
+            }
+            if let Some(new_owner) = &transfer_owner_to {
+                let promoted = tx
+                    .execute(
+                        "UPDATE chat_members SET role = ?3 WHERE chat_id = ?1 AND user_id = ?2",
+                        params![
+                            chat_id,
+                            new_owner,
+                            rchat_proto::proto::ChatMemberRole::Owner as i64
+                        ],
+                    )
+                    .map_err(|e| map_sql("promote owner", e))?;
+                if promoted == 0 {
+                    return Err(RepoError::NotFound(format!("member {new_owner}")));
+                }
+            }
+            bump_chat_updated_at(&tx, &chat_id, now_ms)?;
+            let seqs = insert_events(&tx, &events)?;
+            tx.commit()
+                .map_err(|e| RepoError::internal(format!("commit remove_member: {e}")))?;
+            Ok(seqs)
+        })
+        .await
+    }
+
+    async fn rename_chat(
+        &self,
+        chat_id: &str,
+        name: &str,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError> {
+        let chat_id = chat_id.to_string();
+        let name = name.to_string();
+        let events = events.to_vec();
+        self.call(move |conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|e| RepoError::internal(format!("begin rename_chat: {e}")))?;
+            let changed = tx
+                .execute(
+                    "UPDATE chats SET name = ?2, updated_at_ms = MAX(updated_at_ms, ?3) WHERE chat_id = ?1",
+                    params![chat_id, name, now_ms as i64],
+                )
+                .map_err(|e| map_sql("rename chat", e))?;
+            if changed == 0 {
+                return Err(RepoError::NotFound(format!("chat {chat_id}")));
+            }
+            let seqs = insert_events(&tx, &events)?;
+            tx.commit()
+                .map_err(|e| RepoError::internal(format!("commit rename_chat: {e}")))?;
+            Ok(seqs)
         })
         .await
     }
@@ -795,18 +947,35 @@ impl Repo for SqliteRepo {
             )
             .map_err(|e| RepoError::internal(format!("update message: {e}")))?;
             // Политика удаления «для всех»: содержимое не остаётся на сервере.
-            if update.clear_plaintext {
+            if update.clear_content {
                 tx.execute(
-                    "UPDATE messages SET plaintext_dev = NULL WHERE server_id = ?1",
+                    "UPDATE messages SET plaintext_dev = NULL, group_ciphertext = NULL,
+                         group_session_id = '' WHERE server_id = ?1",
                     params![server_id as i64],
                 )
-                .map_err(|e| RepoError::internal(format!("clear plaintext: {e}")))?;
-            } else if let Some(text) = &update.plaintext_dev {
-                tx.execute(
-                    "UPDATE messages SET plaintext_dev = ?2 WHERE server_id = ?1",
-                    params![server_id as i64, text],
-                )
-                .map_err(|e| RepoError::internal(format!("update plaintext: {e}")))?;
+                .map_err(|e| RepoError::internal(format!("clear content: {e}")))?;
+            } else {
+                if let Some(text) = &update.plaintext_dev {
+                    tx.execute(
+                        "UPDATE messages SET plaintext_dev = ?2 WHERE server_id = ?1",
+                        params![server_id as i64, text],
+                    )
+                    .map_err(|e| RepoError::internal(format!("update plaintext: {e}")))?;
+                }
+                if let Some(group) = &update.group_ciphertext {
+                    tx.execute(
+                        "UPDATE messages SET group_ciphertext = ?2 WHERE server_id = ?1",
+                        params![server_id as i64, group],
+                    )
+                    .map_err(|e| RepoError::internal(format!("update group ciphertext: {e}")))?;
+                }
+                if let Some(session_id) = &update.group_session_id {
+                    tx.execute(
+                        "UPDATE messages SET group_session_id = ?2 WHERE server_id = ?1",
+                        params![server_id as i64, session_id],
+                    )
+                    .map_err(|e| RepoError::internal(format!("update group session id: {e}")))?;
+                }
             }
             if let Some(recipients) = &update.recipients {
                 tx.execute(

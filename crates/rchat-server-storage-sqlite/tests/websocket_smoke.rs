@@ -242,6 +242,7 @@ async fn websocket_plaintext_end_to_end() {
                 reply_to_server_id: 0,
                 recipients: Vec::new(),
                 plaintext_dev: "привет из smoke-теста".to_string(),
+                ..Default::default()
             }),
         )
         .await

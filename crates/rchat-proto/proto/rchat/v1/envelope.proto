@@ -5,6 +5,7 @@
 //   10..=19 — чаты и сообщения;
 //   20..=29 — синхронизация;
 //   30..=39 — прочие операции;
+//   40..=49 — групповые чаты и участники;
 //   100     — общая ошибка ответа;
 //   >=200   — зарезервировано.
 
@@ -87,6 +88,12 @@ message Request {
     SnapshotRequest get_snapshot = 21;
 
     RevokeDeviceRequest revoke_device = 30;
+
+    CreateGroupChatRequest create_group_chat = 40;
+    InviteToChatRequest invite_to_chat = 41;
+    LeaveChatRequest leave_chat = 42;
+    RemoveChatMemberRequest remove_chat_member = 43;
+    RenameChatRequest rename_chat = 44;
   }
 }
 
@@ -114,6 +121,12 @@ message Response {
     SnapshotResponse get_snapshot = 21;
 
     RevokeDeviceResponse revoke_device = 30;
+
+    CreateGroupChatResponse create_group_chat = 40;
+    InviteToChatResponse invite_to_chat = 41;
+    LeaveChatResponse leave_chat = 42;
+    RemoveChatMemberResponse remove_chat_member = 43;
+    RenameChatResponse rename_chat = 44;
 
     Error error = 100;
   }

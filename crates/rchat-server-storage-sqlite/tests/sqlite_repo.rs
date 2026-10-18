@@ -61,6 +61,8 @@ fn message(server_id: u64, chat_id: &str, device_id: &str, client_id: &str) -> M
         sender_curve25519: Vec::new(),
         olm_type: 0,
         plaintext_dev: Some("hello".to_string()),
+        group_ciphertext: None,
+        group_session_id: String::new(),
     }
 }
 
@@ -69,6 +71,7 @@ fn chat(chat_id: &str) -> ChatRecord {
         chat_id: chat_id.to_string(),
         kind: 1,
         e2e_mode: 1,
+        name: String::new(),
         created_at_ms: 1_200,
         updated_at_ms: 1_200,
         last_server_id: 0,
@@ -80,6 +83,7 @@ fn member(chat_id: &str, user_id: &str) -> MemberRecord {
         chat_id: chat_id.to_string(),
         user_id: user_id.to_string(),
         joined_at_ms: 1_200,
+        role: 0,
     }
 }
 
@@ -239,6 +243,7 @@ async fn message_insert_events_and_idempotency() {
             e2e_version: 1,
             olm_type: 1,
             sender_curve25519: vec![9; 32],
+            payload_kind: 0,
         },
         RecipientRecord {
             server_id: 1,
@@ -247,6 +252,7 @@ async fn message_insert_events_and_idempotency() {
             e2e_version: 1,
             olm_type: 0,
             sender_curve25519: vec![9; 32],
+            payload_kind: 0,
         },
     ];
     let insert = NewMessage {
@@ -333,7 +339,9 @@ async fn message_edit_delete_and_events() {
         deleted_at_ms: 0,
         content_kind: Some("text".to_string()),
         plaintext_dev: Some("правка".to_string()),
-        clear_plaintext: false,
+        group_ciphertext: None,
+        group_session_id: None,
+        clear_content: false,
         sender_device_id: Some("d2".to_string()),
         sender_curve25519: Some(vec![9; 32]),
         recipients: Some(vec![RecipientRecord {
@@ -343,6 +351,7 @@ async fn message_edit_delete_and_events() {
             e2e_version: 1,
             olm_type: 0,
             sender_curve25519: vec![1; 32],
+            payload_kind: 0,
         }]),
         events: vec![event("d1", b"edit")],
         editor_user_id: "u1".to_string(),
@@ -368,7 +377,9 @@ async fn message_edit_delete_and_events() {
         deleted_at_ms: 4_000,
         content_kind: None,
         plaintext_dev: None,
-        clear_plaintext: true,
+        group_ciphertext: None,
+        group_session_id: None,
+        clear_content: true,
         sender_device_id: None,
         sender_curve25519: None,
         recipients: Some(Vec::new()),

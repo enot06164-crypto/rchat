@@ -13,7 +13,8 @@ pub use proto::*;
 
 /// Текущая версия протокола.
 pub const PROTOCOL_MAJOR: u32 = 1;
-pub const PROTOCOL_MINOR: u32 = 0;
+/// minor 1: групповые чаты (Megolm), роли участников, chat_updated.
+pub const PROTOCOL_MINOR: u32 = 1;
 
 /// Версии E2E-протокола.
 pub const E2E_VERSION_NONE: u32 = 0;
@@ -30,6 +31,9 @@ pub mod caps {
     pub const HISTORY: &str = "history";
     pub const SNAPSHOT: &str = "snapshot";
     pub const E2E_OLM_V1: &str = "e2e.olm.v1";
+    /// Групповые чаты: создание/приглашения/выход/исключение и события
+    /// chat_updated. Содержимое E2E-групп шифруется Megolm.
+    pub const GROUPS: &str = "groups";
 }
 
 /// Жёсткие лимиты протокола. Значения по умолчанию конфигурируемы на сервере
@@ -62,7 +66,9 @@ pub mod limits {
     pub const USER_ID_MAX: usize = 64;
     pub const MAX_CAPABILITIES: usize = 32;
     /// Максимум получателей в одном сообщении (все устройства всех участников).
-    pub const MAX_RECIPIENTS_PER_MESSAGE: usize = 64;
+    /// Поднят с 64 до 128 в protocol minor 1: в группе устройств может быть
+    /// больше (участники × устройства), чем в личном чате.
+    pub const MAX_RECIPIENTS_PER_MESSAGE: usize = 128;
     /// Максимум prekey в одном запросе загрузки ключей.
     pub const MAX_ONE_TIME_KEYS_PER_REQUEST: usize = 100;
     /// Максимум device_ids в одном запросе пакетов ключей.
@@ -71,6 +77,16 @@ pub mod limits {
     pub const MAX_USER_IDS_PER_REQUEST: usize = 64;
     /// Участников в личном чате.
     pub const DIRECT_CHAT_MEMBERS: usize = 2;
+    /// Название группового чата.
+    pub const GROUP_NAME_MIN: usize = 1;
+    pub const GROUP_NAME_MAX: usize = 64;
+    /// Участников группы: значение по умолчанию и жёсткий предел.
+    pub const MAX_GROUP_MEMBERS_DEFAULT: usize = 64;
+    pub const MAX_GROUP_MEMBERS_HARD: usize = 128;
+    /// Приглашаемых за один запрос.
+    pub const MAX_INVITES_PER_REQUEST: usize = 32;
+    /// Максимальная длина base64 идентификатора Megolm-сессии.
+    pub const GROUP_SESSION_ID_MAX: usize = 128;
     /// Ключи устройства: 32 байта ed25519 и 32 байта curve25519.
     pub const DEVICE_KEY_LEN: usize = 32;
 }
@@ -117,6 +133,12 @@ pub mod validate {
         ClientMessageIdInvalid,
         #[error("chat id must be 1..={} chars", limits::CHAT_ID_MAX)]
         ChatIdInvalid,
+        #[error(
+            "group name length must be {}..={}",
+            limits::GROUP_NAME_MIN,
+            limits::GROUP_NAME_MAX
+        )]
+        GroupNameLength,
         #[error("user id must be 1..={} chars", limits::USER_ID_MAX)]
         UserIdInvalid,
         #[error("too many recipients: max {}", limits::MAX_RECIPIENTS_PER_MESSAGE)]
@@ -216,6 +238,16 @@ pub mod validate {
             return Err(ValidationError::ChatIdInvalid);
         }
         Ok(())
+    }
+
+    /// Нормализует название группового чата (trim) и проверяет длину.
+    pub fn group_name(raw: &str) -> Result<String, ValidationError> {
+        let trimmed = raw.trim();
+        let len = trimmed.chars().count();
+        if !(limits::GROUP_NAME_MIN..=limits::GROUP_NAME_MAX).contains(&len) {
+            return Err(ValidationError::GroupNameLength);
+        }
+        Ok(trimmed.to_string())
     }
 
     pub fn user_id(raw: &str) -> Result<(), ValidationError> {
@@ -542,6 +574,44 @@ mod tests {
         assert!(validate::username("alice").is_ok());
         assert!(validate::username(&"a".repeat(32)).is_ok());
         assert!(validate::username(&"a".repeat(33)).is_err());
+    }
+
+    #[test]
+    fn validation_group_name() {
+        assert_eq!(validate::group_name("  Команда  ").unwrap(), "Команда");
+        assert!(validate::group_name("").is_err());
+        assert!(validate::group_name("   ").is_err());
+        assert!(validate::group_name(&"я".repeat(64)).is_ok());
+        assert!(validate::group_name(&"я".repeat(65)).is_err());
+    }
+
+    /// Новые поля группового сообщения (minor 1) переживают round-trip.
+    #[test]
+    fn group_message_roundtrip() {
+        let env = Envelope::with_request(
+            7,
+            request::Method::SendMessage(SendMessageRequest {
+                chat_id: "c1".into(),
+                client_message_id: "m1".into(),
+                content_kind: "text".into(),
+                reply_to_server_id: 0,
+                recipients: vec![RecipientPayload {
+                    device_id: "d1".into(),
+                    ciphertext: vec![9; 8],
+                    e2e_version: E2E_VERSION_OLM_V1,
+                    olm_type: OlmMessageType::Prekey as i32,
+                    sender_curve25519: vec![1; 32],
+                    payload_kind: RecipientPayloadKind::GroupKey as i32,
+                }],
+                plaintext_dev: String::new(),
+                group_ciphertext: vec![7; 16],
+                group_session_id: "sid".into(),
+            }),
+        );
+        let bytes = encode_envelope(&env).expect("encode");
+        let decoded =
+            decode_envelope(&bytes, limits::MAX_FRAME_BYTES_HARD as usize).expect("decode");
+        assert_eq!(env, decoded);
     }
 
     #[test]

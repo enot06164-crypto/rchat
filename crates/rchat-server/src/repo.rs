@@ -179,6 +179,44 @@ pub trait Repo: Send + Sync {
         user_id: &str,
     ) -> Result<Vec<(ChatRecord, Vec<MemberRecord>)>, RepoError>;
 
+    /// Есть ли у пары пользователей общий чат (личный или групповой).
+    /// Используется для видимости устройств (пакеты ключей, GetDevices).
+    async fn has_shared_chat(&self, user_a: &str, user_b: &str) -> Result<bool, RepoError>;
+
+    /// Добавляет участников в чат (приглашение): вставка строк, обновление
+    /// `updated_at_ms` и события — одной транзакцией. Проверяет предел числа
+    /// участников `max_members`; превышение → `Conflict("group_full")`.
+    async fn add_chat_members(
+        &self,
+        chat_id: &str,
+        members: &[MemberRecord],
+        max_members: usize,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError>;
+
+    /// Удаляет участника (выход или исключение). Если удаляется владелец и
+    /// передан `transfer_owner_to`, роль owner переходит этому участнику.
+    /// Обновляет `updated_at_ms` и пишет события одной транзакцией.
+    async fn remove_chat_member(
+        &self,
+        chat_id: &str,
+        user_id: &str,
+        transfer_owner_to: Option<&str>,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError>;
+
+    /// Переименование группового чата; обновляет `updated_at_ms` и пишет
+    /// события одной транзакцией.
+    async fn rename_chat(
+        &self,
+        chat_id: &str,
+        name: &str,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError>;
+
     // --- сообщения ---
 
     /// Вставляет сообщение, recipients, обновляет `chat.last_server_id` и

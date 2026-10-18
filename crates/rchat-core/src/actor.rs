@@ -490,26 +490,8 @@ impl Ctx<'_> {
                     },
                 })
             }
-            Some(Payload::ChatCreated(inner)) => {
-                let chat = inner
-                    .chat
-                    .as_ref()
-                    .ok_or_else(|| CoreError::Protocol("chat event without chat".into()))?;
-                let session = self
-                    .inner
-                    .session_info()
-                    .ok_or(CoreError::NotAuthenticated)?;
-                let (record, members) = convert::chat_from_proto(chat, &session.user_id)?;
-                for member in &members {
-                    if member.user_id != session.user_id {
-                        self.st.device_refresh.insert(member.user_id.clone());
-                    }
-                }
-                Ok(SyncApply::UpsertChat {
-                    chat: record,
-                    members,
-                })
-            }
+            Some(Payload::ChatCreated(inner)) => self.chat_snapshot_apply(inner.chat.as_ref()),
+            Some(Payload::ChatUpdated(inner)) => self.chat_snapshot_apply(inner.chat.as_ref()),
             Some(Payload::Receipt(inner)) => {
                 let delivered = inner.up_to_server_id;
                 let read = if inner.read { inner.up_to_server_id } else { 0 };
@@ -560,6 +542,27 @@ impl Ctx<'_> {
                 })
             }
         }
+    }
+
+    /// Применяет снимок чата из события журнала (chat_created / chat_updated):
+    /// обновляет запись чата и состав участников, помечает чужие устройства
+    /// к обновлению.
+    fn chat_snapshot_apply(&mut self, chat: Option<&proto::Chat>) -> Result<SyncApply, CoreError> {
+        let chat = chat.ok_or_else(|| CoreError::Protocol("chat event without chat".into()))?;
+        let session = self
+            .inner
+            .session_info()
+            .ok_or(CoreError::NotAuthenticated)?;
+        let (record, members) = convert::chat_from_proto(chat, &session.user_id)?;
+        for member in &members {
+            if member.user_id != session.user_id {
+                self.st.device_refresh.insert(member.user_id.clone());
+            }
+        }
+        Ok(SyncApply::UpsertChat {
+            chat: record,
+            members,
+        })
     }
 
     /// Расшифровывает содержимое сообщения для этого устройства.

@@ -60,6 +60,7 @@ pub(crate) fn chat_from_row(row: &Row<'_>) -> rusqlite::Result<ChatRecord> {
         chat_id: row.get("chat_id")?,
         kind: row.get::<_, i64>("kind")? as i32,
         e2e_mode: row.get::<_, i64>("e2e_mode")? as i32,
+        name: row.get("name")?,
         created_at_ms: row.get::<_, i64>("created_at_ms")? as u64,
         updated_at_ms: row.get::<_, i64>("updated_at_ms")? as u64,
         last_server_id: row.get::<_, i64>("last_server_id")? as u64,
@@ -71,6 +72,7 @@ pub(crate) fn member_from_row(row: &Row<'_>) -> rusqlite::Result<MemberRecord> {
         chat_id: row.get("chat_id")?,
         user_id: row.get("user_id")?,
         joined_at_ms: row.get::<_, i64>("joined_at_ms")? as u64,
+        role: row.get::<_, i64>("role")? as i32,
     })
 }
 
@@ -89,6 +91,8 @@ pub(crate) fn message_from_row(row: &Row<'_>) -> rusqlite::Result<MessageRecord>
         sender_curve25519: row.get("sender_curve25519")?,
         olm_type: row.get::<_, i64>("olm_type")? as i32,
         plaintext_dev: row.get("plaintext_dev")?,
+        group_ciphertext: row.get("group_ciphertext")?,
+        group_session_id: row.get("group_session_id")?,
     })
 }
 
@@ -100,6 +104,7 @@ pub(crate) fn recipient_from_row(row: &Row<'_>) -> rusqlite::Result<RecipientRec
         e2e_version: row.get::<_, i64>("e2e_version")? as u32,
         olm_type: row.get::<_, i64>("olm_type")? as i32,
         sender_curve25519: row.get("sender_curve25519")?,
+        payload_kind: row.get::<_, i64>("payload_kind")? as i32,
     })
 }
 

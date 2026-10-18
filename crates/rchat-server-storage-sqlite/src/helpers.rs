@@ -153,13 +153,13 @@ pub(crate) fn insert_prekeys(
 }
 
 pub(crate) const CHAT_COLUMNS: &str =
-    "chat_id, kind, e2e_mode, created_at_ms, updated_at_ms, last_server_id";
-pub(crate) const MEMBER_COLUMNS: &str = "chat_id, user_id, joined_at_ms";
+    "chat_id, kind, e2e_mode, name, created_at_ms, updated_at_ms, last_server_id";
+pub(crate) const MEMBER_COLUMNS: &str = "chat_id, user_id, joined_at_ms, role";
 pub(crate) const MESSAGE_COLUMNS: &str = "server_id, chat_id, sender_user_id, sender_device_id, \
      client_message_id, content_kind, reply_to_server_id, created_at_ms, edited_at_ms, \
-     deleted_at_ms, sender_curve25519, olm_type, plaintext_dev";
+     deleted_at_ms, sender_curve25519, olm_type, plaintext_dev, group_ciphertext, group_session_id";
 pub(crate) const RECIPIENT_COLUMNS: &str =
-    "server_id, device_id, ciphertext, e2e_version, olm_type, sender_curve25519";
+    "server_id, device_id, ciphertext, e2e_version, olm_type, sender_curve25519, payload_kind";
 
 /// Ключ уникальности личного чата (порядок участников не важен).
 pub(crate) fn pair_key(user_a: &str, user_b: &str) -> String {
@@ -262,8 +262,9 @@ pub(crate) fn insert_message_row(
     conn.execute(
         "INSERT INTO messages(server_id, chat_id, sender_user_id, sender_device_id,
              client_message_id, content_kind, reply_to_server_id, created_at_ms,
-             edited_at_ms, deleted_at_ms, sender_curve25519, olm_type, plaintext_dev)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             edited_at_ms, deleted_at_ms, sender_curve25519, olm_type, plaintext_dev,
+             group_ciphertext, group_session_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             message.server_id as i64,
             message.chat_id,
@@ -277,7 +278,9 @@ pub(crate) fn insert_message_row(
             message.deleted_at_ms as i64,
             message.sender_curve25519,
             message.olm_type as i64,
-            message.plaintext_dev
+            message.plaintext_dev,
+            message.group_ciphertext,
+            message.group_session_id
         ],
     )
     .map_err(|e| map_sql("insert message", e))?;
@@ -290,18 +293,33 @@ pub(crate) fn insert_recipient(
 ) -> Result<(), RepoError> {
     conn.execute(
         "INSERT OR REPLACE INTO message_recipients(server_id, device_id, ciphertext,
-             e2e_version, olm_type, sender_curve25519)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+             e2e_version, olm_type, sender_curve25519, payload_kind)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             recipient.server_id as i64,
             recipient.device_id,
             recipient.ciphertext,
             recipient.e2e_version as i64,
             recipient.olm_type as i64,
-            recipient.sender_curve25519
+            recipient.sender_curve25519,
+            recipient.payload_kind as i64
         ],
     )
     .map_err(|e| map_sql("insert recipient", e))?;
+    Ok(())
+}
+
+/// Обновляет `updated_at_ms` чата (внутри уже открытой транзакции).
+pub(crate) fn bump_chat_updated_at(
+    conn: &Connection,
+    chat_id: &str,
+    now_ms: u64,
+) -> Result<(), RepoError> {
+    conn.execute(
+        "UPDATE chats SET updated_at_ms = MAX(updated_at_ms, ?2) WHERE chat_id = ?1",
+        params![chat_id, now_ms as i64],
+    )
+    .map_err(|e| RepoError::internal(format!("bump chat updated_at: {e}")))?;
     Ok(())
 }
 

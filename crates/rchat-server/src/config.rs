@@ -80,6 +80,10 @@ pub struct ServerConfig {
     /// Явно документированный режим: не является защищённым E2E.
     pub allow_dev_plaintext_chats: bool,
 
+    /// Максимум участников группового чата (жёсткий предел протокола
+    /// применяется поверх значения конфигурации).
+    pub max_group_members: usize,
+
     pub argon2: Argon2Params,
     pub rate_limits: RateLimits,
 }
@@ -100,6 +104,7 @@ impl Default for ServerConfig {
             hello_timeout_seconds: 10,
             conn_idle_timeout_seconds: 150,
             allow_dev_plaintext_chats: true,
+            max_group_members: rchat_proto::limits::MAX_GROUP_MEMBERS_DEFAULT,
             argon2: Argon2Params::default(),
             rate_limits: RateLimits::default(),
         }
