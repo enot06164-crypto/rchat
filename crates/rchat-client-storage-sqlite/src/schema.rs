@@ -104,6 +104,7 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
         updated_at_ms INTEGER NOT NULL,
         last_server_id INTEGER NOT NULL DEFAULT 0
     );
+
     CREATE INDEX chats_updated_idx ON chats(updated_at_ms DESC);
 
     CREATE TABLE chat_members (
@@ -187,6 +188,14 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
         shared_at_ms INTEGER NOT NULL,
         PRIMARY KEY (chat_id, session_id, device_id)
     );
+    "#,
+    ),
+    (
+        7,
+        r#"
+    -- Облачный режим: ключ чата, которым зашифровано содержимое сообщений
+    -- (в E2E-чатах ключ пустой).
+    ALTER TABLE chats ADD COLUMN cloud_key BLOB;
     "#,
     ),
     (

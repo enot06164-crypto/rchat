@@ -186,6 +186,10 @@ impl Server {
                 let auth = self.authed(state)?;
                 self.handle_upload_keys(&auth, request).await?
             }
+            M::SearchMessages(request) => {
+                let auth = self.authed(state)?;
+                self.handle_search_messages(&auth, request).await?
+            }
             M::GetDeviceBundles(request) => {
                 let auth = self.authed(state)?;
                 self.handle_get_device_bundles(&auth, request).await?
@@ -577,6 +581,53 @@ impl Server {
     // Ключи и устройства
     // -----------------------------------------------------------------
 
+    /// Поиск по сообщениям аккаунта. Работает в облачном режиме: сервер
+    /// расшифровывает содержимое ключом аккаунта и ищет по нему. В приватных
+    /// чатах содержимое серверу недоступно — в выдачу они не попадают.
+    async fn handle_search_messages(
+        &self,
+        auth: &AuthContext,
+        request: proto::SearchMessagesRequest,
+    ) -> Result<response::Result, ServerError> {
+        let query = request.query.trim();
+        if query.is_empty() {
+            return Ok(response::Result::SearchMessages(
+                proto::SearchMessagesResponse { hits: Vec::new() },
+            ));
+        }
+        let limit = request.limit.clamp(1, 100);
+        let candidates = self
+            .repo
+            .search_candidates(&auth.user.user_id, limit * 4)
+            .await?;
+        let needle = query.to_lowercase();
+        let mut hits = Vec::new();
+        for candidate in candidates {
+            // Ключ чата знает сервер (облачный режим) — им и расшифровываем.
+            let Some(text) =
+                decrypt_cloud_text(&candidate.chat_key, &candidate.nonce, &candidate.ciphertext)
+            else {
+                continue;
+            };
+            if !text.to_lowercase().contains(&needle) {
+                continue;
+            }
+            hits.push(proto::SearchHit {
+                chat_id: candidate.chat_id.clone(),
+                server_id: candidate.server_id,
+                body: text,
+                created_at_ms: candidate.created_at_ms,
+                chat_title: candidate.chat_title.clone(),
+            });
+            if hits.len() >= limit as usize {
+                break;
+            }
+        }
+        Ok(response::Result::SearchMessages(
+            proto::SearchMessagesResponse { hits },
+        ))
+    }
+
     async fn handle_upload_keys(
         &self,
         auth: &AuthContext,
@@ -807,6 +858,7 @@ impl Server {
             chat_id: random_id()?,
             kind: proto::ChatKind::Direct as i32,
             e2e_mode: mode as i32,
+            cloud_key: cloud_key_for_mode(mode)?,
             name: String::new(),
             created_at_ms: now,
             updated_at_ms: now,
@@ -969,6 +1021,7 @@ impl Server {
     /// Приводит снимок чата к состоянию «обновлён сейчас».
     fn chat_after_update(chat: &ChatRecord, now_ms: u64) -> ChatRecord {
         ChatRecord {
+            cloud_key: chat.cloud_key.clone(),
             updated_at_ms: now_ms.max(chat.updated_at_ms),
             ..chat.clone()
         }
@@ -1051,6 +1104,7 @@ impl Server {
             chat_id,
             kind: proto::ChatKind::Group as i32,
             e2e_mode: mode as i32,
+            cloud_key: cloud_key_for_mode(mode)?,
             name,
             created_at_ms: now,
             updated_at_ms: now,
@@ -1561,6 +1615,8 @@ impl Server {
             &request.plaintext_dev,
             &request.group_ciphertext,
             &request.group_session_id,
+            &request.cloud_ciphertext,
+            &request.cloud_nonce,
         )?;
 
         let message = MessageRecord {
@@ -1580,6 +1636,8 @@ impl Server {
             group_ciphertext: content.group_ciphertext.clone(),
             group_session_id: content.group_session_id.clone(),
             grouped_id: request.grouped_id.clone(),
+            cloud_ciphertext: content.cloud_ciphertext.clone(),
+            cloud_nonce: content.cloud_nonce.clone(),
         };
 
         // События по одному на каждое неотозванное устройство участника.
@@ -1658,6 +1716,8 @@ impl Server {
         plaintext_dev: &str,
         group_ciphertext: &[u8],
         group_session_id: &str,
+        cloud_ciphertext: &[u8],
+        cloud_nonce: &[u8],
     ) -> Result<OutgoingContent, ServerError> {
         rchat_proto::validate::content_kind(content_kind)
             .map_err(|e| ServerError::invalid_request(e.to_string()))?;
@@ -1829,6 +1889,35 @@ impl Server {
                     (None, None)
                 }
             }
+            proto::E2eMode::Cloud => {
+                // Облачный режим: содержимое зашифровано ключом аккаунта,
+                // сервер знает ключ и может расшифровать — поэтому умеет искать
+                // по истории и отдавать её новому устройству.
+                if !plaintext_dev.is_empty() {
+                    return Err(ServerError::invalid_request(
+                        "plaintext is not allowed in a cloud chat",
+                    ));
+                }
+                if !group_ciphertext.is_empty() || !group_session_id.is_empty() {
+                    return Err(ServerError::invalid_request(
+                        "group ciphertext is not allowed in a cloud chat",
+                    ));
+                }
+                if cloud_ciphertext.is_empty() {
+                    return Err(ServerError::invalid_request(
+                        "cloud ciphertext is required in a cloud chat",
+                    ));
+                }
+                if cloud_ciphertext.len() > max_bytes {
+                    return Err(ServerError::payload_too_large(
+                        "cloud ciphertext is too large",
+                    ));
+                }
+                if cloud_nonce.len() != rchat_proto::limits::CLOUD_NONCE_LEN {
+                    return Err(ServerError::invalid_request("cloud nonce must be 24 bytes"));
+                }
+                (None, None)
+            }
             proto::E2eMode::Unspecified => {
                 return Err(ServerError::internal("chat has unspecified e2e mode"))
             }
@@ -1844,6 +1933,12 @@ impl Server {
             } else {
                 group_session_id.to_string()
             },
+            cloud_ciphertext: if cloud_ciphertext.is_empty() {
+                Vec::new()
+            } else {
+                cloud_ciphertext.to_vec()
+            },
+            cloud_nonce: cloud_nonce.to_vec(),
         })
     }
 
@@ -1916,6 +2011,8 @@ impl Server {
             &request.plaintext_dev,
             &request.group_ciphertext,
             &request.group_session_id,
+            &request.cloud_ciphertext,
+            &request.cloud_nonce,
         )?;
 
         // Если у устройства-редактора есть E2E-ключи, сообщение после правки
@@ -1931,6 +2028,8 @@ impl Server {
             plaintext_dev: content.plaintext.clone(),
             group_ciphertext: content.group_ciphertext.clone(),
             group_session_id: content.group_session_id.clone(),
+            cloud_ciphertext: content.cloud_ciphertext.clone(),
+            cloud_nonce: content.cloud_nonce.clone(),
             // Правка могла прийти с другого устройства автора: события несут
             // фактического отправителя новых ciphertext-ов.
             sender_device_id: auth.device.device_id.clone(),
@@ -2522,11 +2621,37 @@ struct OutgoingContent {
     plaintext: Option<String>,
     group_ciphertext: Option<Vec<u8>>,
     group_session_id: String,
+    cloud_ciphertext: Vec<u8>,
+    cloud_nonce: Vec<u8>,
 }
 
 // ---------------------------------------------------------------------
 // Валидация и конвертация входа
 // ---------------------------------------------------------------------
+
+/// Ключ облачного чата: случайные 32 байта. В E2E-чатах ключ не нужен
+/// (там своё шифрование), поэтому возвращается пустой вектор.
+fn cloud_key_for_mode(mode: proto::E2eMode) -> Result<Vec<u8>, ServerError> {
+    if mode != proto::E2eMode::Cloud {
+        return Ok(Vec::new());
+    }
+    let mut key = vec![0u8; rchat_proto::limits::CLOUD_KEY_LEN];
+    getrandom::fill(&mut key).map_err(|e| ServerError::internal(format!("rng: {e}")))?;
+    Ok(key)
+}
+
+/// Расшифровывает облачное содержимое ключом аккаунта. Возвращает `None`,
+/// если ключ или шифротекст не подходят: содержимое просто не попадёт в
+/// выдачу поиска.
+fn decrypt_cloud_text(key: &[u8], nonce: &[u8], ciphertext: &[u8]) -> Option<String> {
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+    let key: [u8; 32] = key.try_into().ok()?;
+    let nonce: [u8; 24] = nonce.try_into().ok()?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&key).ok()?;
+    let plaintext = cipher.decrypt(&XNonce::from(nonce), ciphertext).ok()?;
+    String::from_utf8(plaintext).ok()
+}
 
 fn validate_username(raw: &str) -> Result<String, ServerError> {
     rchat_proto::validate::username(raw).map_err(|e| ServerError::username_invalid(e.to_string()))

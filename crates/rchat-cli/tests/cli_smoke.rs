@@ -218,8 +218,14 @@ async fn register_chat_send_sync_history() {
 
 /// Создаёт E2E-чат alice → bob и возвращает его идентификатор.
 async fn create_e2e_chat(alice_dir: &Path, port: u16, peer: &str) -> String {
-    let (code, stdout, stderr) = cli(alice_dir, port, &["chat-create", peer, "--e2e"], None).await;
-    assert_ok(code, &stdout, &stderr, "chat-create --e2e");
+    let (code, stdout, stderr) = cli(
+        alice_dir,
+        port,
+        &["chat-create", peer, "--mode", "private"],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "chat-create --mode private");
     assert!(stdout.contains("E2E"), "stdout: {stdout}");
     stdout
         .lines()
@@ -540,12 +546,19 @@ async fn create_group(alice_dir: &Path, port: u16, name: &str, members: &str) ->
     let (code, stdout, stderr) = cli(
         alice_dir,
         port,
-        &["group-create", name, "--members", members],
+        &[
+            "group-create",
+            name,
+            "--members",
+            members,
+            "--mode",
+            "private",
+        ],
         None,
     )
     .await;
     assert_ok(code, &stdout, &stderr, "group-create");
-    assert!(stdout.contains("Megolm"), "stdout: {stdout}");
+    assert!(stdout.contains("E2E"), "stdout: {stdout}");
     stdout
         .lines()
         .next()
@@ -924,7 +937,14 @@ async fn call_signaling_lifecycle() {
     let (code, stdout, stderr) = cli(
         &alice_dir,
         server.port(),
-        &["group-create", "Группа", "--members", "bob", "--no-e2e"],
+        &[
+            "group-create",
+            "Группа",
+            "--members",
+            "bob",
+            "--mode",
+            "none",
+        ],
         None,
     )
     .await;

@@ -55,6 +55,7 @@ pub fn direct_chat(chat_id: &str, peer_user_id: &str) -> ChatRecord {
         chat_id: chat_id.to_string(),
         kind: proto::ChatKind::Direct,
         e2e_mode: proto::E2eMode::NoneDev,
+        cloud_key: Vec::new(),
         title: String::new(),
         peer_user_id: Some(peer_user_id.to_string()),
         created_at_ms: BASE_MS,

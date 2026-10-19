@@ -51,6 +51,7 @@ pub(crate) fn chat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatRec
         chat_id: row.get(0)?,
         kind: proto::ChatKind::try_from(kind as i32).unwrap_or(proto::ChatKind::Unspecified),
         e2e_mode: proto::E2eMode::try_from(e2e_mode as i32).unwrap_or(proto::E2eMode::Unspecified),
+        cloud_key: row.get::<_, Option<Vec<u8>>>(8)?.unwrap_or_default(),
         title: row.get(3)?,
         peer_user_id: row.get(4)?,
         created_at_ms: from_sql_u64(row.get(5)?),
@@ -60,7 +61,8 @@ pub(crate) fn chat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatRec
 }
 
 pub(crate) const CHAT_COLUMNS: &str =
-    "chat_id, kind, e2e_mode, title, peer_user_id, created_at_ms, updated_at_ms, last_server_id";
+    "chat_id, kind, e2e_mode, title, peer_user_id, created_at_ms, updated_at_ms, last_server_id, \
+     cloud_key";
 
 /// Строка `messages` → доменная запись. Позиции колонок фиксированы
 /// константой [`MESSAGE_COLUMNS`].

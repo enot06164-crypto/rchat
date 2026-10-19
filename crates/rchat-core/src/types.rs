@@ -2,7 +2,7 @@
 //! они не содержат секретов в незашифрованном виде и не зависят от конкретных
 //! реализаций хранилищ.
 
-use rchat_proto::proto::{ChatKind, ChatMemberRole, E2eMode};
+use rchat_proto::proto::{self, ChatKind, ChatMemberRole, E2eMode};
 
 use crate::payload::Attachment;
 
@@ -33,12 +33,65 @@ pub struct ChatRecord {
     pub chat_id: String,
     pub kind: ChatKind,
     pub e2e_mode: E2eMode,
+    /// Ключ облачного чата (32 байта); пусто в приватных чатах. Им
+    /// зашифровано содержимое сообщений; сервер знает ключ — поэтому умеет
+    /// искать по истории и отдавать её новому устройству.
+    pub cloud_key: Vec<u8>,
     pub title: String,
     /// Для личного чата — user_id собеседника (с точки зрения этого устройства).
     pub peer_user_id: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub last_server_id: u64,
+}
+
+/// Режим чата: как шифруется содержимое.
+///
+/// * `Cloud` — облачный режим (как облачные чаты Telegram): содержимое
+///   шифруется ключом аккаунта, который знает сервер, поэтому сервер умеет
+///   искать по истории и отдать её новому устройству аккаунта.
+/// * `Private` — приватный чат со сквозным шифрованием (olm/megolm): сервер
+///   не видит содержимого.
+/// * `NoneDev` — режим разработки без шифрования; сервер включает его только
+///   явным флагом.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatMode {
+    Cloud,
+    Private,
+    NoneDev,
+}
+
+impl ChatMode {
+    /// Режим по умолчанию — облачный (как в Telegram для обычных чатов).
+    pub const DEFAULT: ChatMode = ChatMode::Cloud;
+
+    /// Имя режима для хранения и отображения: `cloud` / `private` / `none`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ChatMode::Cloud => "cloud",
+            ChatMode::Private => "private",
+            ChatMode::NoneDev => "none",
+        }
+    }
+
+    /// Разбор имени режима (`cloud` / `private` / `none`).
+    pub fn parse(value: &str) -> Option<ChatMode> {
+        match value {
+            "cloud" => Some(ChatMode::Cloud),
+            "private" => Some(ChatMode::Private),
+            "none" | "none_dev" => Some(ChatMode::NoneDev),
+            _ => None,
+        }
+    }
+
+    /// Соответствующий режим протокола.
+    pub fn proto_mode(self) -> proto::E2eMode {
+        match self {
+            ChatMode::Cloud => proto::E2eMode::Cloud,
+            ChatMode::Private => proto::E2eMode::OlmV1,
+            ChatMode::NoneDev => proto::E2eMode::NoneDev,
+        }
+    }
 }
 
 /// Состояние звонка (сигнализация; медиа в v1 нет).

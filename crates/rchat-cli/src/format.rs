@@ -63,6 +63,7 @@ pub fn member_line(member: &rchat_core::types::MemberRecord) -> String {
 pub fn e2e_mode(mode: proto::E2eMode) -> &'static str {
     match mode {
         proto::E2eMode::OlmV1 => "E2E (olm.v1)",
+        proto::E2eMode::Cloud => "облачный",
         proto::E2eMode::NoneDev => "без E2E (dev)",
         other => {
             let _ = other;

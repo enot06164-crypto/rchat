@@ -16,6 +16,7 @@
 mod common;
 
 use common::*;
+use rchat_core::types::ChatMode;
 use rchat_proto::proto;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -41,7 +42,7 @@ async fn e2e_edit_delete_and_receipts_reach_all_devices() {
 
     // E2E-чат и первое сообщение от alice1.
     let chat = alice1
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
     assert_eq!(chat.e2e_mode, proto::E2eMode::OlmV1);

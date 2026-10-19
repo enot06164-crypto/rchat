@@ -12,6 +12,7 @@ mod common;
 
 use common::*;
 use rchat_core::events::{EventSubscription, UiEvent};
+use rchat_core::types::ChatMode;
 use rchat_core::types::{CallRecord, CallState};
 
 /// Ждёт следующее событие звонка, пропуская прочие UI-события.
@@ -54,7 +55,7 @@ async fn call_invite_accept_decline_end() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("direct chat");
     let mut alice_events = alice.subscribe();
@@ -144,7 +145,7 @@ async fn call_events_reach_all_devices() {
     login_user(&bob2, "bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("direct chat");
     let mut alice_events = alice.subscribe();
@@ -200,7 +201,7 @@ async fn calls_are_rejected_in_group_chat() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let group = alice
-        .create_group_chat("Группа", &["bob".to_string()], true)
+        .create_group_chat("Группа", &["bob".to_string()], ChatMode::Private)
         .await
         .expect("group");
     let error = alice

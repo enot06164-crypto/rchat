@@ -327,32 +327,73 @@ class RChatClient:
         return [item for item in data if isinstance(item, dict)]
 
     def create_direct_chat(
-        self, peer_username: str, e2e: bool = True
+        self, peer_username: str, mode: Optional[str] = None
     ) -> Chat:
-        data = self._command(
-            {
-                "@type": "create_direct_chat",
-                "peer_username": peer_username,
-                "e2e": bool(e2e),
-            }
-        )
+        """Создать личный чат.
+
+        `mode`: `cloud` — облачный режим (сервер знает ключ чата и умеет искать
+        по истории), `private` — сквозное шифрование, `none` — без шифрования
+        (только для разработки). Если не задан — режим по умолчанию из
+        настроек клиента (по умолчанию облачный).
+        """
+        request: Dict[str, Any] = {
+            "@type": "create_direct_chat",
+            "peer_username": peer_username,
+        }
+        if mode is not None:
+            request["mode"] = str(mode)
+        data = self._command(request)
         return _one(Chat, data, "chat")
 
     def create_group_chat(
         self,
         name: str,
         members: Optional[Sequence[str]] = None,
-        e2e: bool = True,
+        mode: Optional[str] = None,
     ) -> Chat:
+        """Создать групповой чат (режим — как у `create_direct_chat`)."""
         request: Dict[str, Any] = {
             "@type": "create_group_chat",
             "name": name,
-            "e2e": bool(e2e),
         }
         if members is not None:
             request["members"] = list(members)
+        if mode is not None:
+            request["mode"] = str(mode)
         data = self._command(request)
         return _one(Chat, data, "chat")
+
+    def get_settings(self) -> Dict[str, Any]:
+        """Настройки клиента (режим чатов по умолчанию)."""
+        data = self._command({"@type": "get_settings"})
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid settings payload: {data!r}")
+        return data
+
+    def set_default_chat_mode(self, mode: str) -> Dict[str, Any]:
+        """Сменить режим чатов по умолчанию: `cloud` или `private`."""
+        data = self._command(
+            {"@type": "set_default_chat_mode", "mode": str(mode)}
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid settings payload: {data!r}")
+        return data
+
+    def search_messages(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Поиск по сообщениям аккаунта (работает в облачном режиме)."""
+        data = self._command(
+            {
+                "@type": "search_messages",
+                "query": str(query),
+                "limit": int(limit),
+            }
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid search payload: {data!r}")
+        hits = data.get("hits", [])
+        if not isinstance(hits, list):
+            raise RChatError("internal", f"invalid search hits: {hits!r}")
+        return [item for item in hits if isinstance(item, dict)]
 
     def invite_to_chat(
         self, chat_id: str, usernames: Sequence[str]

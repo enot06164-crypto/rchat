@@ -124,6 +124,9 @@ pub struct ChatRecord {
     pub kind: i32,
     /// Значение `proto::E2eMode`.
     pub e2e_mode: i32,
+    /// Ключ облачного чата (32 байта); пусто в E2E-чатах. Сервер знает его
+    /// и поэтому может расшифровывать содержимое (облачный режим).
+    pub cloud_key: Vec<u8>,
     /// Название группового чата; пусто для личных.
     pub name: String,
     pub created_at_ms: u64,
@@ -171,6 +174,10 @@ pub struct MessageRecord {
     pub group_session_id: String,
     /// Идентификатор альбома (медиагруппы); пусто для обычных сообщений.
     pub grouped_id: String,
+    /// Облачный режим: содержимое под ключом аккаунта (сервер знает ключ).
+    pub cloud_ciphertext: Vec<u8>,
+    /// Nonce облачного шифра.
+    pub cloud_nonce: Vec<u8>,
 }
 
 /// Ciphertext сообщения для одного устройства получателя.

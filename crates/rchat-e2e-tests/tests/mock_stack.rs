@@ -13,6 +13,7 @@ use rchat_core::client::{Client, ClientBuilder};
 use rchat_core::config::ClientConfig;
 use rchat_core::error::CoreError;
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 use rchat_core::types::{ConnectionState, MessageRecord, MessageStatus};
 use rchat_testkit::mock_storage::{MockSecretStore, MockStorage};
 use rchat_testkit::mock_transport::MockTransportFactory;
@@ -136,7 +137,7 @@ async fn outbox_survives_faults_and_reconnect() {
 
     let chat = alice
         .client
-        .create_direct_chat("bob", false)
+        .create_direct_chat("bob", ChatMode::NoneDev)
         .await
         .expect("create chat");
     wait_for_chat(&bob.storage, &chat.chat_id).await;
@@ -204,7 +205,7 @@ async fn duplicate_frames_and_malformed_input_survive() {
 
     let chat = alice
         .client
-        .create_direct_chat("bob", false)
+        .create_direct_chat("bob", ChatMode::NoneDev)
         .await
         .expect("create chat");
     wait_for_chat(&bob.storage, &chat.chat_id).await;

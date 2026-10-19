@@ -48,6 +48,8 @@ fn event(device_id: &str, payload: &[u8]) -> NewSyncEvent {
 
 fn message(server_id: u64, chat_id: &str, device_id: &str, client_id: &str) -> MessageRecord {
     MessageRecord {
+        cloud_ciphertext: Vec::new(),
+        cloud_nonce: Vec::new(),
         server_id,
         chat_id: chat_id.to_string(),
         sender_user_id: "u1".to_string(),
@@ -69,6 +71,7 @@ fn message(server_id: u64, chat_id: &str, device_id: &str, client_id: &str) -> M
 
 fn chat(chat_id: &str) -> ChatRecord {
     ChatRecord {
+        cloud_key: Vec::new(),
         chat_id: chat_id.to_string(),
         kind: 1,
         e2e_mode: 1,

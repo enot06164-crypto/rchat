@@ -7,6 +7,7 @@ mod common;
 use common::*;
 use rchat_core::payload::{Attachment, AttachmentKind};
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 use rchat_proto::proto;
 
 fn attachment(kind: AttachmentKind, name: &str, mime: &str, data: &[u8]) -> Attachment {
@@ -40,7 +41,7 @@ async fn e2e_attachment_is_encrypted_end_to_end() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
     assert_eq!(chat.e2e_mode, proto::E2eMode::OlmV1);
@@ -147,7 +148,7 @@ async fn e2e_attachment_rejected_when_too_large() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
 

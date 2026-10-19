@@ -18,6 +18,7 @@ use common::*;
 use rchat_core::client::Client;
 use rchat_core::error::CoreError;
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 use rchat_core::types::MessageRecord;
 use rchat_proto::proto;
 use rusqlite::Connection;
@@ -97,7 +98,11 @@ async fn group_e2e_lifecycle_with_rotation() {
 
     // Группа с двумя участниками; создатель — владелец.
     let chat = alice
-        .create_group_chat("Проект", &["bob".to_string(), "carol".to_string()], true)
+        .create_group_chat(
+            "Проект",
+            &["bob".to_string(), "carol".to_string()],
+            ChatMode::Private,
+        )
         .await
         .expect("create group");
     assert_eq!(chat.kind, proto::ChatKind::Group);
@@ -246,7 +251,7 @@ async fn group_late_member_cannot_read_earlier_messages() {
     register_user(&carol, "carol", "Carol", "pw-carol-1").await;
 
     let chat = alice
-        .create_group_chat("Кружок", &["bob".to_string()], true)
+        .create_group_chat("Кружок", &["bob".to_string()], ChatMode::Private)
         .await
         .expect("create group");
 
@@ -331,7 +336,7 @@ async fn group_e2e_multi_device() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice1
-        .create_group_chat("Двое на связи", &["bob".to_string()], true)
+        .create_group_chat("Двое на связи", &["bob".to_string()], ChatMode::Private)
         .await
         .expect("create group");
     wait_for_chat(&alice2, &chat.chat_id).await;
@@ -429,7 +434,7 @@ async fn dev_group_rejected_by_default() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let error = alice
-        .create_group_chat("Черновик", &["bob".to_string()], false)
+        .create_group_chat("Черновик", &["bob".to_string()], ChatMode::NoneDev)
         .await
         .expect_err("dev group must be rejected by default");
     match error {

@@ -38,7 +38,7 @@ fn schema_is_valid_and_covers_protocol() {
     let commands = defs["Command"]["oneOf"]
         .as_array()
         .expect("Command is a union");
-    assert_eq!(commands.len(), 35, "all documented commands are present");
+    assert_eq!(commands.len(), 38, "all documented commands are present");
     for command in commands {
         assert!(
             command["properties"]["@type"]["enum"]

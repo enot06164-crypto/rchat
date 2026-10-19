@@ -60,6 +60,9 @@ pub(crate) fn chat_from_row(row: &Row<'_>) -> rusqlite::Result<ChatRecord> {
         chat_id: row.get("chat_id")?,
         kind: row.get::<_, i64>("kind")? as i32,
         e2e_mode: row.get::<_, i64>("e2e_mode")? as i32,
+        cloud_key: row
+            .get::<_, Option<Vec<u8>>>("cloud_key")?
+            .unwrap_or_default(),
         name: row.get("name")?,
         created_at_ms: row.get::<_, i64>("created_at_ms")? as u64,
         updated_at_ms: row.get::<_, i64>("updated_at_ms")? as u64,
@@ -94,6 +97,8 @@ pub(crate) fn message_from_row(row: &Row<'_>) -> rusqlite::Result<MessageRecord>
         group_ciphertext: row.get("group_ciphertext")?,
         group_session_id: row.get("group_session_id")?,
         grouped_id: row.get("grouped_id")?,
+        cloud_ciphertext: row.get("cloud_ciphertext")?,
+        cloud_nonce: row.get("cloud_nonce")?,
     })
 }
 

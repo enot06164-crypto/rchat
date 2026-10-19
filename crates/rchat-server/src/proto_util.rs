@@ -78,6 +78,9 @@ pub fn chat_to_proto(
         chat_id: chat.chat_id.clone(),
         kind: chat.kind,
         e2e_mode: chat.e2e_mode,
+        // Ключ облачного чата получают только участники (чат отдаётся лишь
+        // им), поэтому секретность ключа держится на членстве в чате.
+        cloud_key: chat.cloud_key.clone(),
         members: members_proto,
         created_at_ms: chat.created_at_ms,
         updated_at_ms: chat.updated_at_ms,
@@ -143,6 +146,10 @@ pub fn message_view(
         },
         recipient_payload_kind: recipient.map(|r| r.payload_kind).unwrap_or(0),
         grouped_id: message.grouped_id.clone(),
+        // Облачный режим: содержимое под ключом аккаунта — одинаково для всех
+        // устройств аккаунта, поэтому копии на устройство не нужны.
+        cloud_ciphertext: message.cloud_ciphertext.clone(),
+        cloud_nonce: message.cloud_nonce.clone(),
     }
 }
 

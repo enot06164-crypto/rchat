@@ -125,7 +125,7 @@ class ClientE2ETests(unittest.TestCase):
                     self.assertIn(alice_session.avatar.color_index, range(8))
                     self.assertRegex(alice_session.avatar.color_hex, r"^#[0-9A-F]{6}$")
 
-                    chat = alice.create_direct_chat("bob", e2e=True)
+                    chat = alice.create_direct_chat("bob", mode="private")
                     self.assertIsInstance(chat, dict)
                     self.assertEqual(chat.kind, "direct")
                     self.assertEqual(chat["kind"], "direct")
@@ -188,6 +188,101 @@ class ClientE2ETests(unittest.TestCase):
                     process.poll(),
                     "rchat-server crashed while the Python clients ran",
                 )
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                log_file.close()
+                if process.returncode not in (0, -15):
+                    details = log_path.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                    if details:
+                        print(details, file=sys.stderr)
+
+
+    def test_cloud_chat_mode_settings_and_search(self) -> None:
+        """Облачный режим: настройки, облачный чат и поиск по истории."""
+        text = "облачный текст для поиска"
+        with tempfile.TemporaryDirectory(prefix="rchat-python-cloud-") as root:
+            root_path = Path(root)
+            log_path = root_path / "server.log"
+            port = _free_port()
+            command = [
+                str(self.server_binary),
+                "--db",
+                str(root_path / "server.sqlite3"),
+                "--listen",
+                f"127.0.0.1:{port}",
+                "--plaintext-insecure",
+                "--allow-dev-plaintext-chats",
+            ]
+            log_file = open(log_path, "wb")
+            process = subprocess.Popen(
+                command,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+            )
+            try:
+                _wait_until_listening(process, port, log_path)
+                url = f"ws://127.0.0.1:{port}"
+
+                with RChatClient(
+                    root_path / "alice", url, e2e=True
+                ) as alice, RChatClient(
+                    root_path / "bob", url, e2e=True
+                ) as bob:
+                    alice.register("alice", "pw-alice-2", "Alice")
+                    bob.register("bob", "pw-bob-2", "Bob")
+
+                    # По умолчанию — облачный режим.
+                    settings = alice.get_settings()
+                    self.assertEqual(settings["default_chat_mode"], "cloud")
+                    self.assertEqual(settings["default_chat_privacy"], "cloud")
+
+                    # Режим меняется в настройках.
+                    alice.set_default_chat_mode("private")
+                    self.assertEqual(
+                        alice.get_settings()["default_chat_mode"], "private"
+                    )
+                    alice.set_default_chat_mode("cloud")
+
+                    chat = alice.create_direct_chat("bob")
+                    self.assertEqual(chat.e2e_mode, "cloud")
+                    self.assertEqual(chat["privacy"], "cloud")
+
+                    local_id = alice.send_message(chat.chat_id, text)
+                    self.assertTrue(local_id)
+
+                    deadline = time.monotonic() + 20.0
+                    received = False
+                    while time.monotonic() < deadline and not received:
+                        event = bob.poll_event(timeout=0.5)
+                        if event is None:
+                            continue
+                        if (
+                            event.event == "message_received"
+                            and event.data.get("body") == text
+                        ):
+                            received = True
+                    self.assertTrue(
+                        received,
+                        "Bob did not receive the cloud message within 20s",
+                    )
+
+                    # Поиск по истории: сервер знает ключ облачного чата.
+                    hits = alice.search_messages("облачный текст")
+                    self.assertTrue(
+                        hits, "server did not find the cloud message"
+                    )
+                    self.assertEqual(hits[0]["chat_id"], chat.chat_id)
+                    self.assertIn(text, hits[0]["body"])
+                    self.assertEqual(
+                        alice.search_messages("такого-слова-нет"), []
+                    )
             finally:
                 process.terminate()
                 try:

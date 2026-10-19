@@ -17,11 +17,13 @@ import type {
   AttachmentUpload,
   Chat,
   ChatMember,
+  ChatPrivacy,
   ConnectionState,
   Message,
   MessageStatus,
   RchatEvent,
   Receipt,
+  SearchHit,
   Session,
 } from "../types/rchat";
 
@@ -51,6 +53,12 @@ export interface AppState {
   authError: string | null;
   sendError: string | null;
   newChatError: string | null;
+  /** Режим чатов по умолчанию: облачный (`cloud`) или приватный (`private`). */
+  defaultChatMode: ChatPrivacy;
+  /** Найденные сообщения (поиск по истории; только для облачного режима). */
+  searchHits: SearchHit[];
+  /** Идёт ли поиск по сообщениям. */
+  searchBusy: boolean;
 }
 
 const INITIAL_STATE: AppState = {
@@ -70,6 +78,9 @@ const INITIAL_STATE: AppState = {
   authError: null,
   sendError: null,
   newChatError: null,
+  defaultChatMode: "cloud",
+  searchHits: [],
+  searchBusy: false,
 };
 
 export const [state, setState] = createStore<AppState>(INITIAL_STATE);
@@ -184,6 +195,7 @@ export async function boot(): Promise<void> {
     setState("connection", connection.state as ConnectionState);
     const session = (await chatApi.getSession()) as Session | null;
     setState("session", session);
+    await loadSettings();
     if (session !== null) {
       const chats = (await chatApi.getChats()) as Chat[];
       setState("chats", chats.sort(byCreatedDesc));
@@ -199,6 +211,52 @@ export async function boot(): Promise<void> {
     setState("booted", false);
   } finally {
     booting = false;
+  }
+}
+
+/**
+ * Настройки клиента: режим чатов по умолчанию (облачный или приватный).
+ */
+export async function loadSettings(): Promise<void> {
+  try {
+    const settings = await chatApi.getSettings();
+    setState("defaultChatMode", settings.default_chat_privacy === "private" ? "private" : "cloud");
+  } catch {
+    /* шлюз не готов — останется текущее значение */
+  }
+}
+
+/** Меняет режим чатов по умолчанию (применяется к новым чатам). */
+export async function setDefaultChatMode(mode: ChatPrivacy): Promise<void> {
+  setState("defaultChatMode", mode);
+  try {
+    await chatApi.setDefaultChatMode(mode);
+  } catch (error) {
+    setState("defaultChatMode", mode === "cloud" ? "private" : "cloud");
+    console.warn("rchat: set default chat mode", error);
+  }
+}
+
+/**
+ * Поиск по сообщениям аккаунта.  Работает в облачном режиме: сервер
+ * расшифровывает содержимое ключом чата и ищет по нему.  В приватных чатах
+ * содержимое серверу недоступно, поэтому в выдаче их нет.
+ */
+export async function searchMessages(query: string): Promise<void> {
+  const trimmed = query.trim();
+  if (trimmed === "") {
+    setState({ searchHits: [], searchBusy: false });
+    return;
+  }
+  setState("searchBusy", true);
+  try {
+    const result = await chatApi.searchMessages(trimmed);
+    setState("searchHits", result.hits ?? []);
+  } catch (error) {
+    console.warn("rchat: search messages", error);
+    setState("searchHits", []);
+  } finally {
+    setState("searchBusy", false);
   }
 }
 
@@ -556,7 +614,10 @@ export async function sendCurrentText(
   }
 }
 
-export async function createDirectChat(usernameRaw: string): Promise<Chat | null> {
+export async function createDirectChat(
+  usernameRaw: string,
+  mode?: ChatPrivacy
+): Promise<Chat | null> {
   const username = usernameRaw.trim().replace(/^@+/, "");
   setState("newChatError", null);
   if (username === "") {
@@ -564,7 +625,7 @@ export async function createDirectChat(usernameRaw: string): Promise<Chat | null
     return null;
   }
   try {
-    const chat = (await chatApi.createDirectChat(username)) as Chat;
+    const chat = (await chatApi.createDirectChat(username, mode)) as Chat;
     upsertChat(chat);
     return chat;
   } catch (error) {

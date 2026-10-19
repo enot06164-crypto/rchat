@@ -239,8 +239,8 @@ rchat_destroy(handle);
 | `get_chats` | — | массив чатов из локального кеша |
 | `refresh_chats` | — | массив чатов с сервера (сеть) |
 | `get_chat_members` | `chat_id` | массив участников |
-| `create_direct_chat` | `peer_username`, `e2e?` (по умолчанию true) | чат |
-| `create_group_chat` | `name`, `members?` (usernames), `e2e?` (true) | чат |
+| `create_direct_chat` | `peer_username`, `mode?` (`cloud`/`private`/`none`) | чат |
+| `create_group_chat` | `name`, `members?` (usernames), `mode?` | чат |
 | `invite_to_chat` | `chat_id`, `usernames` | чат |
 | `leave_chat` | `chat_id` | `null` |
 | `remove_chat_member` | `chat_id`, `user_id` | чат |
@@ -257,7 +257,8 @@ rchat_destroy(handle);
 {
   "chat_id": "<chat_id>",
   "kind": "direct",
-  "e2e_mode": "olm_v1",
+  "e2e_mode": "cloud",
+  "privacy": "cloud",
   "title": "Bob",
   "peer_user_id": "<user_id>",
   "created_at_ms": 1700000000000,
@@ -267,8 +268,43 @@ rchat_destroy(handle);
 }
 ```
 
-`kind`: `direct`, `group`, `unspecified`; `e2e_mode`: `olm_v1`, `none_dev`,
-`unspecified`. Для группового чата `peer_user_id` — `null`.
+`kind`: `direct`, `group`, `unspecified`; `e2e_mode`: `cloud`, `olm_v1`,
+`none_dev`, `unspecified`; `privacy`: `cloud` (сервер знает ключ чата) или
+`private` (сквозное шифрование). Для группового чата `peer_user_id` — `null`.
+
+### 5.2.1. Режим чатов и поиск по истории
+
+| `@type` | Поля | `data` |
+| --- | --- | --- |
+| `get_settings` | — | `{default_chat_mode, default_chat_privacy}` |
+| `set_default_chat_mode` | `mode` (`cloud`/`private`/`none`) | `{default_chat_mode}` |
+| `search_messages` | `query`, `limit?` (50) | `{hits: [...]}` |
+
+- `mode` в `create_direct_chat`/`create_group_chat`: `cloud` — облачный чат
+  (сервер знает ключ и умеет искать по истории), `private` — сквозное
+  шифрование, `none` — без шифрования (только для разработки). Если `mode` не
+  задан, берётся режим по умолчанию из настроек (`get_settings`). Прежнее
+  поле `e2e` поддерживается для совместимости: `true` — приватный чат,
+  `false` — без шифрования.
+- `get_settings`/`set_default_chat_mode` управляют режимом **новых** чатов;
+  уже созданные чаты сохраняют свой режим. По умолчанию — `cloud`.
+- `search_messages` ищет по содержимому сообщений. Работает в облачном
+  режиме: сервер расшифровывает сообщения ключом чата. Приватные чаты в
+  выдачу не попадают — их содержимое серверу недоступно.
+
+```json
+{
+  "hits": [
+    {
+      "chat_id": "<chat_id>",
+      "server_id": 42,
+      "body": "текст сообщения",
+      "created_at_ms": 1700000000000,
+      "chat_title": "Bob"
+    }
+  ]
+}
+```
 
 Объект участника:
 
@@ -698,7 +734,7 @@ from rchat import RChatClient
 with RChatClient("/tmp/rchat/alice", "wss://chat.example",
                  tls_fingerprint="AA:BB:...") as client:
     client.login("alice", "password")
-    chat = client.create_direct_chat("bob", e2e=True)
+    chat = client.create_direct_chat("bob", mode="private")
     client.send_message(chat.chat_id, "привет")
 
     for event in client.events():

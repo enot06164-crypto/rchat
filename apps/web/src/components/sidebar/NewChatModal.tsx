@@ -7,6 +7,9 @@ export function NewChatModal(props: { onClose: () => void }) {
   const [username, setUsername] = createSignal("");
   const [localError, setLocalError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // Приватный чат — по сквозному шифрованию; по умолчанию режим клиента
+  // (облачный, как в обычных чатах Telegram).
+  const [privateChat, setPrivateChat] = createSignal(state.defaultChatMode === "private");
 
   const error = () => localError() ?? state.newChatError;
 
@@ -14,7 +17,10 @@ export function NewChatModal(props: { onClose: () => void }) {
     setLocalError(null);
     setBusy(true);
     try {
-      const chat = await createDirectChat(username());
+      const chat = await createDirectChat(
+        username(),
+        privateChat() ? "private" : "cloud"
+      );
       if (chat !== null) {
         props.onClose();
         await openChat(chat.chat_id);
@@ -49,6 +55,14 @@ export function NewChatModal(props: { onClose: () => void }) {
             if (event.key === "Enter") void submit();
           }}
         />
+        <label class="modal__checkbox">
+          <input
+            type="checkbox"
+            checked={privateChat()}
+            onChange={(event) => setPrivateChat(event.currentTarget.checked)}
+          />
+          <span>Приватный чат (сквозное шифрование)</span>
+        </label>
         <Show when={error() !== null}>
           <div class="modal__error">{error()}</div>
         </Show>

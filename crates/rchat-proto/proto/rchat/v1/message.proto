@@ -67,6 +67,11 @@ message Message {
   // Идентификатор альбома (медиагруппы): сообщения с одинаковым grouped_id
   // относятся к одному альбому. Пусто для обычных сообщений.
   string grouped_id = 19;
+  // Облачный режим: содержимое, зашифрованное ключом аккаунта (сервер
+  // знает ключ и может расшифровать — поэтому умеет искать и отдавать
+  // историю новому устройству). Пусто в E2E-чатах.
+  bytes cloud_ciphertext = 20;
+  bytes cloud_nonce = 21;
 }
 
 message SendMessageRequest {
@@ -90,6 +95,9 @@ message SendMessageRequest {
   string group_session_id = 8;
   // Идентификатор альбома: у сообщений одного альбома он общий.
   string grouped_id = 9;
+  // Облачный режим: содержимое под ключом аккаунта (см. Message).
+  bytes cloud_ciphertext = 10;
+  bytes cloud_nonce = 11;
 }
 
 message SendMessageResponse {
@@ -118,6 +126,9 @@ message EditMessageRequest {
   string plaintext_dev = 4;
   bytes group_ciphertext = 5;
   string group_session_id = 6;
+  // Облачный режим: содержимое под ключом аккаунта (см. Message).
+  bytes cloud_ciphertext = 7;
+  bytes cloud_nonce = 8;
 }
 
 message EditMessageResponse {

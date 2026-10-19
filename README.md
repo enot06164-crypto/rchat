@@ -1,8 +1,10 @@
 # rchat
 
 Учебно-рабочий мессенджер на Rust: сервер + клиентское ядро + терминальный
-клиент (CLI). Сквозное шифрование — Olm для личных чатов и Megolm для
-групповых (библиотека [vodozemac], своя криптография не пишется). Запускается
+клиент (CLI). Два режима чатов, как в Telegram: **облачный** (по умолчанию —
+сервер знает ключ чата, умеет искать по истории и отдаёт её новому устройству)
+и **приватный** (сквозное шифрование: Olm для личных чатов и Megolm для
+групповых, библиотека [vodozemac], своя криптография не пишется). Запускается
 локально без Docker и внешних сервисов: всё состояние — SQLite и файлы в
 каталоге данных.
 
@@ -24,6 +26,20 @@ JSON), официальный **Python SDK** (`bindings/python`, только с
 WebSocket-шлюз `rchat.gateway`, протокол FFI не меняется).
 
 [vodozemac]: https://github.com/matrix-org/vodozemac
+
+## Режимы чатов
+
+| | Приватный (`private`) | Облачный (`cloud`, по умолчанию) |
+| --- | --- | --- |
+| Шифрование | Olm/Megolm, ключ на устройство | ключ чата (его знает сервер) |
+| Сервер видит текст | нет | да (в этом и смысл режима) |
+| Поиск по истории | только на устройстве | на сервере, по всем чатам |
+| Новое устройство аккаунта | без истории | сразу вся история |
+
+Режим по умолчанию меняется в настройках клиента (веб: меню профиля →
+«Настройки»; FFI: `set_default_chat_mode`; CLI: `chat-create --mode`), и
+применяется к новым чатам — уже созданные чаты сохраняют свой режим. Подробно
+— `docs/architecture.md` §7.6.
 
 ## Состав репозитория
 
@@ -76,8 +92,9 @@ export RCHAT_TLS_FINGERPRINT=<sha256-отпечаток из лога>   # ':' �
 ./target/debug/rchat-cli --data-dir /tmp/rchat/alice register alice
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob register bob
 
-# 4. E2E-чат (выводит chat_id), отправка, синхронизация, история.
-./target/debug/rchat-cli --data-dir /tmp/rchat/alice chat-create bob --e2e
+# 4. Чат (выводит chat_id), отправка, синхронизация, история.
+#    По умолчанию — облачный режим; приватный — `--mode private`.
+./target/debug/rchat-cli --data-dir /tmp/rchat/alice chat-create bob
 ./target/debug/rchat-cli --data-dir /tmp/rchat/alice send <chat_id> Привет
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob sync
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob history <chat_id>
@@ -85,7 +102,8 @@ export RCHAT_TLS_FINGERPRINT=<sha256-отпечаток из лога>   # ':' �
 # 5. Живой режим: события до Ctrl+C (сообщения, presence, outbox).
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob watch
 
-# 6. Групповой чат: создание (E2E по умолчанию), состав, приглашение.
+# 6. Групповой чат: создание (`--mode private` — сквозное шифрование),
+#    состав, приглашение.
 ./target/debug/rchat-cli --data-dir /tmp/rchat/alice group-create Проект --members bob
 ./target/debug/rchat-cli --data-dir /tmp/rchat/alice send <chat_id> Всем привет
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob sync
@@ -114,7 +132,7 @@ export RCHAT_TLS_FINGERPRINT=<sha256-отпечаток из лога>   # ':' �
     --plaintext-insecure --allow-dev-plaintext-chats
 
 ./target/debug/rchat-cli --server ws://127.0.0.1:8443 --data-dir /tmp/rchat/alice register alice
-./target/debug/rchat-cli --data-dir /tmp/rchat/alice chat-create bob            # dev-чат, без E2E
+./target/debug/rchat-cli --data-dir /tmp/rchat/alice chat-create bob            # облачный чат (по умолчанию)
 ./target/debug/rchat-cli --data-dir /tmp/rchat/alice send bob Привет
 ```
 
@@ -174,9 +192,10 @@ RCHAT_ACCOUNT=home ./target/debug/rchat-cli --data-dir /tmp/rchat register bob
 `register`, `login`, `logout`, `accounts`, `account-delete <имя> [--yes]`,
 `status`, `me`, `devices`
 (`devices --chat <логин>` — устройства участников для сверки отпечатков),
-`revoke-device`, `chats`, `chat-create <логин> [--e2e]`,
-`group-create <имя> [--members a,b]` (E2E по умолчанию; `--no-e2e` — только
-с dev-сервером), `group info|invite|leave|remove|rename <чат|группа> ...`
+`revoke-device`, `chats`, `chat-create <логин> [--mode cloud|private|none]`,
+`group-create <имя> [--members a,b] [--mode ...]` (режим по умолчанию — из
+настроек клиента, то есть облачный; `--mode none` — только с dev-сервером),
+`group info|invite|leave|remove|rename <чат|группа> ...`
 (участник приглашает; исключает и переименовывает владелец),
 `send <чат> <текст>... [--reply-to <server_id>] [--wait N]`,
 `history <чат> [--from-server] [--before <server_id>] [--limit N]`,
@@ -227,7 +246,7 @@ from rchat import RChatClient
 with RChatClient("/tmp/rchat/alice", "wss://chat.example",
                  tls_fingerprint="AA:BB:...") as client:
     client.login("alice", "password")
-    chat = client.create_direct_chat("bob", e2e=True)
+    chat = client.create_direct_chat("bob", mode="private")
     client.send_message(chat.chat_id, "привет")
     for event in client.events():
         if event.event == "message_received":

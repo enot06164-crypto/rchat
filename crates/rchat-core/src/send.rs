@@ -26,6 +26,10 @@ pub(crate) struct ComposedContent {
     /// фиксируются в хранилище после постановки запроса в outbox, чтобы
     /// не рассылать ключ повторно и досылать его новым устройствам.
     pub group_key_shares: Vec<String>,
+    /// Облачный режим: содержимое под ключом аккаунта (сервер знает ключ).
+    pub cloud_ciphertext: Vec<u8>,
+    /// Nonce облачного шифра.
+    pub cloud_nonce: Vec<u8>,
 }
 
 /// Дозаполняет дескрипторы устройств свежими пакетами ключей с сервера:
@@ -85,6 +89,8 @@ where
 {
     let mut recipients: Vec<proto::RecipientPayload> = Vec::new();
     let mut plaintext_dev = String::new();
+    let mut cloud_ciphertext: Vec<u8> = Vec::new();
+    let mut cloud_nonce: Vec<u8> = Vec::new();
     // Конверт (текст + вложение) шифруется целиком: байты файла не видны
     // серверу, как и текст.
     let payload_bytes = payload.encode();
@@ -204,6 +210,8 @@ where
                     group_ciphertext: encryption.ciphertext,
                     group_session_id: encryption.session_id,
                     group_key_shares,
+                    cloud_ciphertext,
+                    cloud_nonce,
                 });
             }
 
@@ -241,6 +249,26 @@ where
                 });
             }
         }
+        proto::E2eMode::Cloud => {
+            // Облачный режим: содержимое шифруется ключом аккаунта, который
+            // знает сервер (как облачные чаты Telegram). Ключ принадлежит
+            // аккаунту, поэтому история читается на любом новом устройстве.
+            let crypto = inner
+                .crypto
+                .as_ref()
+                .ok_or_else(|| {
+                    CoreError::E2eUnavailable("cloud chat but no crypto provider configured".into())
+                })?
+                .clone();
+            let key: [u8; 32] = chat
+                .cloud_key
+                .as_slice()
+                .try_into()
+                .map_err(|_| CoreError::Protocol("cloud chat has no key".into()))?;
+            let (ciphertext, nonce) = crypto.encrypt_blob(&key, &payload_bytes).await?;
+            cloud_ciphertext = ciphertext;
+            cloud_nonce = nonce;
+        }
         proto::E2eMode::NoneDev => {
             if inner.config.e2e_enabled {
                 // Режим разработки допустим и при включённом E2E, но только
@@ -266,6 +294,8 @@ where
         group_ciphertext: Vec::new(),
         group_session_id: String::new(),
         group_key_shares: Vec::new(),
+        cloud_ciphertext,
+        cloud_nonce,
     })
 }
 
@@ -304,6 +334,8 @@ where
         group_ciphertext: content.group_ciphertext,
         group_session_id: content.group_session_id,
         grouped_id: options.grouped_id.clone().unwrap_or_default(),
+        cloud_ciphertext: content.cloud_ciphertext,
+        cloud_nonce: content.cloud_nonce,
     };
     check_request_size(inner, &request)?;
     Ok((request, content.group_key_shares))
@@ -331,6 +363,8 @@ where
         plaintext_dev: content.plaintext_dev,
         group_ciphertext: content.group_ciphertext,
         group_session_id: content.group_session_id,
+        cloud_ciphertext: content.cloud_ciphertext,
+        cloud_nonce: content.cloud_nonce,
     };
     check_request_size(inner, &request)?;
     Ok((request, content.group_key_shares))

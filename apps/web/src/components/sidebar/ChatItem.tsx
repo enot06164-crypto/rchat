@@ -1,6 +1,6 @@
 import { Match, Show, Switch } from "solid-js";
 import type { JSX } from "solid-js";
-import { Check, CheckCheck, CircleAlert, Clock } from "lucide-solid";
+import { Check, CheckCheck, CircleAlert, Clock, Lock } from "lucide-solid";
 import type { Chat, MessageStatus } from "../../types/rchat";
 import { openChat, readUpToFor, state } from "../../services/store";
 import { Avatar } from "../Avatar";
@@ -94,7 +94,13 @@ export function ChatItem(props: { chat: Chat }): JSX.Element {
       <Avatar info={props.chat.avatar} size={54} />
       <div class="chat-item__body">
         <div class="chat-item__top">
-          <span class="chat-item__title">{props.chat.title}</span>
+          <span class="chat-item__title">
+            {/* Замок — приватный чат (E2E); облачные чаты, как в Telegram, без значка. */}
+            <Show when={props.chat.privacy === "private"}>
+              <Lock size={13} class="chat-item__lock" />
+            </Show>
+            {props.chat.title}
+          </span>
           <span class="chat-item__time">
             {formatShortTime(props.chat.updated_at_ms)}
           </span>

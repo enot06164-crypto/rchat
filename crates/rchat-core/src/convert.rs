@@ -126,6 +126,7 @@ pub fn chat_from_proto(
         chat_id: chat.chat_id.clone(),
         kind,
         e2e_mode,
+        cloud_key: chat.cloud_key.clone(),
         title,
         peer_user_id,
         created_at_ms: chat.created_at_ms,

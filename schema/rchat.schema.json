@@ -728,6 +728,70 @@
           }
         },
         {
+          "description": "Настройки клиента (режим чатов по умолчанию).",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_settings"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Сменить режим чатов по умолчанию: `cloud` или `private`.",
+          "type": "object",
+          "required": [
+            "@type",
+            "mode"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "set_default_chat_mode"
+              ]
+            },
+            "mode": {
+              "description": "`cloud` — облачный режим (по умолчанию), `private` — сквозное шифрование, `none` — без шифрования (только для разработки).",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Поиск по сообщениям аккаунта (облачный режим: сервер расшифровывает содержимое ключом чата).",
+          "type": "object",
+          "required": [
+            "@type",
+            "query"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "search_messages"
+              ]
+            },
+            "limit": {
+              "description": "Ограничение числа ответов; по умолчанию 50.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "query": {
+              "description": "Строка запроса.",
+              "type": "string"
+            }
+          }
+        },
+        {
           "description": "Создать личный чат.",
           "type": "object",
           "required": [
@@ -742,9 +806,16 @@
               ]
             },
             "e2e": {
-              "description": "Включить E2E; по умолчанию `true`.",
+              "description": "Прежний флаг: `true` — приватный чат, `false` — без шифрования. Используется, только если не задан `mode`.",
               "type": [
                 "boolean",
+                "null"
+              ]
+            },
+            "mode": {
+              "description": "Режим чата: `cloud`, `private` или `none`. Если не задан — режим по умолчанию из настроек.",
+              "type": [
+                "string",
                 "null"
               ]
             },
@@ -768,7 +839,7 @@
               ]
             },
             "e2e": {
-              "description": "Включить E2E; по умолчанию `true`.",
+              "description": "Прежний флаг: `true` — приватный чат, `false` — без шифрования. Используется, только если не задан `mode`.",
               "type": [
                 "boolean",
                 "null"
@@ -783,6 +854,13 @@
               "items": {
                 "type": "string"
               }
+            },
+            "mode": {
+              "description": "Режим чата: `cloud`, `private` или `none`. Если не задан — режим по умолчанию из настроек.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "name": {
               "type": "string"

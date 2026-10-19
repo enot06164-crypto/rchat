@@ -22,7 +22,7 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
@@ -388,6 +388,16 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         r#"
     -- Альбомы (медиагруппы): сообщения одного альбома делят grouped_id.
     ALTER TABLE messages ADD COLUMN grouped_id TEXT NOT NULL DEFAULT '';
+    "#,
+    ),
+    (
+        7,
+        r#"
+    -- Облачный режим: ключ чата (сервер знает его и может расшифровать
+    -- содержимое) и облачные шифротексты сообщений.
+    ALTER TABLE chats ADD COLUMN cloud_key BLOB;
+    ALTER TABLE messages ADD COLUMN cloud_ciphertext BLOB;
+    ALTER TABLE messages ADD COLUMN cloud_nonce BLOB;
     "#,
     ),
     (

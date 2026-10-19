@@ -68,7 +68,7 @@ with RChatClient(
 ) as client:
     client.login("alice", "password")
 
-    chat = client.create_direct_chat("bob", e2e=True)
+    chat = client.create_direct_chat("bob", mode="private")
     client.send_message(chat.chat_id, "привет")
 
     for event in client.events():

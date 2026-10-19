@@ -11,6 +11,7 @@ mod common;
 use common::*;
 use rchat_core::payload::{Attachment, AttachmentKind};
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 
 fn file_attachment(name: &str, data: &[u8]) -> Attachment {
     Attachment {
@@ -43,7 +44,7 @@ async fn e2e_same_file_uploaded_once() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
 
@@ -112,7 +113,7 @@ async fn e2e_downloaded_file_is_cached_locally() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
 

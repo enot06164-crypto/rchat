@@ -16,6 +16,7 @@ import type {
   ErrorEnvelope,
   OkEnvelope,
   RchatEvent,
+  SearchHit,
 } from "../types/rchat";
 
 export class RchatApiError extends Error {
@@ -244,8 +245,19 @@ export const chatApi = {
     api.call<unknown[]>("get_messages", { chat_id: chatId, limit }),
   getReceipts: (chatId: string) =>
     api.call<unknown[]>("get_receipts", { chat_id: chatId }),
-  createDirectChat: (username: string) =>
-    api.call<unknown>("create_direct_chat", { peer_username: username }),
+  createDirectChat: (username: string, mode?: string) =>
+    api.call<unknown>("create_direct_chat", { peer_username: username, mode }),
+  /** Настройки клиента: режим чатов по умолчанию. */
+  getSettings: () =>
+    api.call<{ default_chat_mode: string; default_chat_privacy: string }>(
+      "get_settings"
+    ),
+  /** Сменить режим чатов по умолчанию: `cloud` или `private`. */
+  setDefaultChatMode: (mode: string) =>
+    api.call<{ default_chat_mode: string }>("set_default_chat_mode", { mode }),
+  /** Поиск по сообщениям аккаунта (работает в облачном режиме). */
+  searchMessages: (query: string, limit = 50) =>
+    api.call<{ hits: SearchHit[] }>("search_messages", { query, limit }),
   sendMessage: (
     chatId: string,
     text: string,

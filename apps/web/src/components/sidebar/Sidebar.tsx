@@ -1,9 +1,26 @@
 import { Show, createSignal, onCleanup } from "solid-js";
-import { ArrowLeft, LogOut, Menu, PenLine, Search, UserPlus, X } from "lucide-solid";
-import { connectionLabel, logout, state } from "../../services/store";
+import {
+  ArrowLeft,
+  Cloud,
+  Lock,
+  LogOut,
+  Menu,
+  PenLine,
+  Search,
+  UserPlus,
+  X,
+} from "lucide-solid";
+import {
+  connectionLabel,
+  logout,
+  searchMessages,
+  setDefaultChatMode,
+  state,
+} from "../../services/store";
 import { Avatar } from "../Avatar";
 import { ChatList } from "./ChatList";
 import { NewChatModal } from "./NewChatModal";
+import { SearchResults } from "./SearchResults";
 
 /**
  * Левая колонка (Telegram WebK `#column-left`):
@@ -18,6 +35,7 @@ export function Sidebar() {
   const [searchFocused, setSearchFocused] = createSignal(false);
   const [newChatOpen, setNewChatOpen] = createSignal(false);
   const [meMenuOpen, setMeMenuOpen] = createSignal(false);
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   const linkStatus = () =>
     state.linkUp ? connectionLabel(state.connection) : "шлюз недоступен";
@@ -34,6 +52,22 @@ export function Sidebar() {
   };
   document.addEventListener("mousedown", closeMenus);
   onCleanup(() => document.removeEventListener("mousedown", closeMenus));
+
+  // Поиск по сообщениям: с задержкой, чтобы не дёргать сервер на каждую
+  // букву (как в WebK).  Пустая строка — очищаем выдачу.
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  const onSearchInput = (value: string): void => {
+    setQuery(value);
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    if (value.trim() === "") {
+      void searchMessages("");
+      return;
+    }
+    searchTimer = setTimeout(() => void searchMessages(value), 250);
+  };
+  onCleanup(() => {
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+  });
 
   const onBurgerClick = (): void => {
     if (query().trim() !== "") {
@@ -75,7 +109,7 @@ export function Sidebar() {
             value={query()}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
-            onInput={(event) => setQuery(event.currentTarget.value)}
+            onInput={(event) => onSearchInput(event.currentTarget.value)}
           />
           <Show when={query() !== ""}>
             <button
@@ -125,6 +159,23 @@ export function Sidebar() {
 
             <button
               role="menuitem"
+              class="me-menu__item"
+              onClick={() => {
+                setMeMenuOpen(false);
+                setSettingsOpen(true);
+              }}
+            >
+              <Show
+                when={state.defaultChatMode === "cloud"}
+                fallback={<Lock size={18} />}
+              >
+                <Cloud size={18} />
+              </Show>
+              <span>Настройки</span>
+            </button>
+
+            <button
+              role="menuitem"
               class="me-menu__item me-menu__item--danger"
               onClick={() => void logout()}
             >
@@ -136,6 +187,7 @@ export function Sidebar() {
       </header>
 
       <ChatList query={query()} />
+      <SearchResults query={query()} />
 
       <button
         classList={{ fab: true, "is-open": newChatOpen() }}
@@ -148,6 +200,61 @@ export function Sidebar() {
 
       <Show when={newChatOpen()}>
         <NewChatModal onClose={() => setNewChatOpen(false)} />
+      </Show>
+
+      <Show when={settingsOpen()}>
+        <div
+          class="modal-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setSettingsOpen(false);
+          }}
+        >
+          <div class="modal" role="dialog" aria-modal="true">
+            <div class="modal__title">Настройки</div>
+
+            <div class="settings__row">
+              <div class="settings__text">
+                <div class="settings__name">Режим чатов</div>
+                <div class="settings__hint">
+                  {state.defaultChatMode === "cloud"
+                    ? "Облачный: сервер видит содержимое, умеет искать по истории и отдаёт её новому устройству — как обычные чаты Telegram."
+                    : "Приватный: сквозное шифрование, сервер не видит содержимого."}
+                </div>
+              </div>
+              <div class="settings__switch">
+                <button
+                  classList={{
+                    switch: true,
+                    "switch--on": state.defaultChatMode === "cloud",
+                  }}
+                  role="switch"
+                  aria-checked={state.defaultChatMode === "cloud"}
+                  title={
+                    state.defaultChatMode === "cloud"
+                      ? "Облачный режим"
+                      : "Приватный режим (E2E)"
+                  }
+                  onClick={() =>
+                    void setDefaultChatMode(
+                      state.defaultChatMode === "cloud" ? "private" : "cloud"
+                    )
+                  }
+                >
+                  <span class="switch__thumb" />
+                </button>
+                <span class="settings__switch-label">
+                  {state.defaultChatMode === "cloud" ? "Облачный" : "Приватный"}
+                </span>
+              </div>
+            </div>
+
+            <div class="modal__actions">
+              <button class="button button--accent" onClick={() => setSettingsOpen(false)}>
+                Готово
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
     </aside>
   );

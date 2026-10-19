@@ -106,3 +106,25 @@ message RevokeDeviceRequest {
 }
 
 message RevokeDeviceResponse {}
+
+// Поиск по сообщениям аккаунта (только облачный режим: сервер расшифровывает
+// содержимое ключом аккаунта).
+message SearchMessagesRequest {
+  // Строка запроса (регистронезависимо).
+  string query = 1;
+  // Ограничение числа ответов.
+  uint32 limit = 2;
+}
+
+message SearchMessagesResponse {
+  repeated SearchHit hits = 1;
+}
+
+message SearchHit {
+  string chat_id = 1;
+  uint64 server_id = 2;
+  string body = 3;
+  uint64 created_at_ms = 4;
+  // Имя чата (для показа в выдаче).
+  string chat_title = 5;
+}

@@ -884,9 +884,9 @@ fn upsert_chat_sql(
     members: &[MemberRecord],
 ) -> Result<(), StorageError> {
     conn.execute(
-        "INSERT INTO chats(chat_id, kind, e2e_mode, title, peer_user_id, created_at_ms,
-                           updated_at_ms, last_server_id)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "INSERT INTO chats(chat_id, kind, e2e_mode, title, peer_user_id, cloud_key,
+                           created_at_ms, updated_at_ms, last_server_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(chat_id) DO UPDATE SET
              kind = excluded.kind,
              e2e_mode = excluded.e2e_mode,
@@ -894,13 +894,15 @@ fn upsert_chat_sql(
              peer_user_id = excluded.peer_user_id,
              created_at_ms = MIN(chats.created_at_ms, excluded.created_at_ms),
              updated_at_ms = MAX(chats.updated_at_ms, excluded.updated_at_ms),
-             last_server_id = MAX(chats.last_server_id, excluded.last_server_id)",
+             last_server_id = MAX(chats.last_server_id, excluded.last_server_id),
+             cloud_key = excluded.cloud_key",
         rusqlite::params![
             chat.chat_id,
             crate::helpers::chat_kind_to_sql(chat.kind),
             crate::helpers::e2e_mode_to_sql(chat.e2e_mode),
             chat.title,
             chat.peer_user_id,
+            chat.cloud_key,
             to_sql_u64("upsert_chat created", chat.created_at_ms)?,
             to_sql_u64("upsert_chat updated", chat.updated_at_ms)?,
             to_sql_u64("upsert_chat last_server_id", chat.last_server_id)?,

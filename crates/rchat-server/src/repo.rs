@@ -352,4 +352,28 @@ pub trait Repo: Send + Sync {
     async fn abort_blob(&self, blob_id: &str, owner_user_id: &str) -> Result<(), RepoError>;
     /// Чат, к которому привязан блоб (по его ссылке) — для проверки прав.
     async fn blob_chat(&self, blob_ref: &str) -> Result<Option<String>, RepoError>;
+
+    // --- облачный режим ---
+
+    /// Кандидаты для поиска по сообщениям: облачные сообщения чатов, в
+    /// которых пользователь состоит. Возвращаются зашифрованные содержимое,
+    /// nonce и ключ чата — расшифровывает их сервер.
+    async fn search_candidates(
+        &self,
+        user_id: &str,
+        limit: u32,
+    ) -> Result<Vec<SearchCandidate>, RepoError>;
+}
+
+/// Сообщение-кандидат для поиска по истории (облачный режим).
+#[derive(Debug, Clone)]
+pub struct SearchCandidate {
+    pub chat_id: String,
+    pub chat_title: String,
+    pub server_id: u64,
+    pub ciphertext: Vec<u8>,
+    pub nonce: Vec<u8>,
+    /// Ключ облачного чата (сервер знает его — в этом суть режима).
+    pub chat_key: Vec<u8>,
+    pub created_at_ms: u64,
 }

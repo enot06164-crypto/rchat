@@ -104,6 +104,8 @@ message Request {
     CallDeclineRequest call_decline = 52;
     CallEndRequest call_end = 53;
 
+    SearchMessagesRequest search_messages = 65;
+
     UploadBlobRequest upload_blob = 60;
     FinishBlobRequest finish_blob = 61;
     DownloadBlobRequest download_blob = 62;
@@ -146,6 +148,8 @@ message Response {
     CallAcceptResponse call_accept = 51;
     CallDeclineResponse call_decline = 52;
     CallEndResponse call_end = 53;
+
+    SearchMessagesResponse search_messages = 65;
 
     UploadBlobResponse upload_blob = 60;
     FinishBlobResponse finish_blob = 61;

@@ -24,6 +24,7 @@ fn account() -> LocalAccount {
 
 fn chat(id: &str, updated_at: u64) -> ChatRecord {
     ChatRecord {
+        cloud_key: Vec::new(),
         chat_id: id.to_string(),
         kind: ChatKind::Direct,
         e2e_mode: E2eMode::NoneDev,

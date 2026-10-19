@@ -9,6 +9,7 @@ mod common;
 use common::*;
 use rchat_core::payload::{Attachment, AttachmentKind};
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 use rchat_proto::proto;
 
 /// Файл заметно больше прежнего лимита кадра сообщения (128 КиБ).
@@ -32,7 +33,7 @@ async fn e2e_blob_channel_delivers_file_encrypted() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
     assert_eq!(chat.e2e_mode, proto::E2eMode::OlmV1);
@@ -123,7 +124,7 @@ async fn e2e_blob_channel_rejects_oversized_file() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
 

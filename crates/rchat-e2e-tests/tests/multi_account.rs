@@ -12,6 +12,7 @@ mod common;
 
 use common::*;
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn accounts_in_one_process_are_isolated() {
@@ -61,11 +62,11 @@ async fn accounts_in_one_process_are_isolated() {
 
     // Два независимых E2E-чата: alice↔bob и bob↔carol.
     let ab = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("chat alice-bob");
     let bc = bob
-        .create_direct_chat("carol", true)
+        .create_direct_chat("carol", ChatMode::Private)
         .await
         .expect("chat bob-carol");
 

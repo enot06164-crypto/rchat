@@ -30,6 +30,6 @@ pub use traits::{
     TransportFactory,
 };
 pub use types::{
-    ChatRecord, ConnectionState, DeviceRecord, LocalAccount, MemberRecord, MessageRecord,
+    ChatMode, ChatRecord, ConnectionState, DeviceRecord, LocalAccount, MemberRecord, MessageRecord,
     MessageStatus, OutboxRecord, OutboxState, ReceiptRecord, SyncApply, SyncProgress, UserRecord,
 };

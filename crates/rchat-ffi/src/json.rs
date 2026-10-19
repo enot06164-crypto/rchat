@@ -38,6 +38,16 @@ fn e2e_mode(mode: E2eMode) -> &'static str {
         E2eMode::Unspecified => "unspecified",
         E2eMode::NoneDev => "none_dev",
         E2eMode::OlmV1 => "olm_v1",
+        E2eMode::Cloud => "cloud",
+    }
+}
+
+/// Приватность чата для интерфейса: `private` — сквозное шифрование,
+/// `cloud` — облачный режим (сервер знает ключ и умеет искать по истории).
+fn chat_privacy(mode: E2eMode) -> &'static str {
+    match mode {
+        E2eMode::Cloud => "cloud",
+        _ => "private",
     }
 }
 
@@ -101,6 +111,8 @@ pub(crate) fn chat(chat: &ChatRecord) -> Value {
         "kind": chat_kind(chat.kind),
         "e2e_mode": e2e_mode(chat.e2e_mode),
         "title": chat.title,
+        // Приватность чата: `private` (E2E) или `cloud` (сервер знает ключ).
+        "privacy": chat_privacy(chat.e2e_mode),
         "peer_user_id": chat.peer_user_id,
         "created_at_ms": chat.created_at_ms,
         "updated_at_ms": chat.updated_at_ms,

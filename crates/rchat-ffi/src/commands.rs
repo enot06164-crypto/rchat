@@ -10,6 +10,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use rchat_core::payload::{Attachment, AttachmentKind, BlobRef};
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 use serde_json::{json, Value};
 
 use crate::error::FfiError;
@@ -72,6 +73,43 @@ pub(crate) async fn dispatch(
             handle.client.logout(wipe).await?;
             Ok(json!({"wiped": wipe}))
         }
+        "get_settings" => {
+            let mode = handle.client.default_chat_mode();
+            Ok(json!({
+                "default_chat_mode": mode.as_str(),
+                "default_chat_privacy": match mode {
+                    ChatMode::Cloud => "cloud",
+                    _ => "private",
+                },
+            }))
+        }
+        "set_default_chat_mode" => {
+            let mode = string_field(request, "mode")?;
+            let mode = ChatMode::parse(mode.trim()).ok_or_else(|| {
+                FfiError::invalid(format!(
+                    "unknown mode `{mode}`: expected cloud, private or none"
+                ))
+            })?;
+            handle.client.set_default_chat_mode(mode).await?;
+            Ok(json!({"default_chat_mode": mode.as_str()}))
+        }
+        "search_messages" => {
+            let query = string_field(request, "query")?;
+            let limit = optional_u64_field(request, "limit")?.unwrap_or(50) as u32;
+            let hits = handle.client.search_messages(&query, limit).await?;
+            Ok(json!({
+                "hits": hits
+                    .iter()
+                    .map(|hit| json!({
+                        "chat_id": hit.chat_id,
+                        "server_id": hit.server_id,
+                        "body": hit.body,
+                        "created_at_ms": hit.created_at_ms,
+                        "chat_title": hit.chat_title,
+                    }))
+                    .collect::<Vec<_>>(),
+            }))
+        }
         "get_chats" => {
             let chats = handle.storage.list_chats().await?;
             Ok(Value::Array(chats.iter().map(json::chat).collect()))
@@ -87,17 +125,17 @@ pub(crate) async fn dispatch(
         }
         "create_direct_chat" => {
             let peer = string_field(request, "peer_username")?;
-            let e2e = bool_field(request, "e2e", true)?;
-            let chat = handle.client.create_direct_chat(&peer, e2e).await?;
+            let mode = chat_mode_field(request, handle.client.default_chat_mode())?;
+            let chat = handle.client.create_direct_chat(&peer, mode).await?;
             Ok(json::chat(&chat))
         }
         "create_group_chat" => {
             let name = string_field(request, "name")?;
             let members = string_list(request, "members", false)?;
-            let e2e = bool_field(request, "e2e", true)?;
+            let mode = chat_mode_field(request, handle.client.default_chat_mode())?;
             let chat = handle
                 .client
-                .create_group_chat(&name, &members, e2e)
+                .create_group_chat(&name, &members, mode)
                 .await?;
             Ok(json::chat(&chat))
         }
@@ -480,6 +518,30 @@ fn optional_u64_field(request: &Value, name: &str) -> Result<Option<u64>, FfiErr
         Some(_) => Err(FfiError::invalid(format!(
             "field {name} must be a non-negative integer"
         ))),
+    }
+}
+
+/// Режим чата из запроса: поле `mode` (`cloud` / `private` / `none`).
+/// Для совместимости поддерживается и прежнее поле `e2e`: `true` — приватный
+/// чат, `false` — чат без шифрования (режим разработки). Если поля нет —
+/// берётся режим по умолчанию из настроек клиента.
+fn chat_mode_field(request: &Value, default: ChatMode) -> Result<ChatMode, FfiError> {
+    match request.get("mode") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(value)) => {
+            return ChatMode::parse(value.trim()).ok_or_else(|| {
+                FfiError::invalid(format!(
+                    "unknown mode `{value}`: expected cloud, private or none"
+                ))
+            })
+        }
+        Some(_) => return Err(FfiError::invalid("field mode must be a string")),
+    }
+    match request.get("e2e") {
+        None | Some(Value::Null) => Ok(default),
+        Some(Value::Bool(true)) => Ok(ChatMode::Private),
+        Some(Value::Bool(false)) => Ok(ChatMode::NoneDev),
+        Some(_) => Err(FfiError::invalid("field e2e must be a boolean")),
     }
 }
 

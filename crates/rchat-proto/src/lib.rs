@@ -68,6 +68,10 @@ pub mod limits {
     pub const CHAT_ID_MAX: usize = 64;
     /// Идентификатор звонка (генерируется сервером).
     pub const CALL_ID_MAX: usize = 64;
+    /// Длина nonce облачного шифра (XChaCha20-Poly1305): 24 байта.
+    pub const CLOUD_NONCE_LEN: usize = 24;
+    /// Длина ключа аккаунта для облачного режима: 32 байта.
+    pub const CLOUD_KEY_LEN: usize = 32;
     pub const USER_ID_MAX: usize = 64;
     pub const MAX_CAPABILITIES: usize = 32;
     /// Максимум получателей в одном сообщении (все устройства всех участников).
@@ -622,6 +626,8 @@ mod tests {
                 group_ciphertext: vec![7; 16],
                 group_session_id: "sid".into(),
                 grouped_id: String::new(),
+                cloud_ciphertext: Vec::new(),
+                cloud_nonce: Vec::new(),
             }),
         );
         let bytes = encode_envelope(&env).expect("encode");

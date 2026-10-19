@@ -639,6 +639,49 @@ impl Ctx<'_> {
     /// Возвращает `None`, если расшифровка невозможна: сообщение остаётся
     /// видимым, но без текста (контролируемая деградация, без обхода проверок).
     async fn decrypt_message(&mut self, message: &proto::Message) -> Option<Payload> {
+        // Облачный режим: содержимое зашифровано ключом аккаунта (его знает
+        // и сервер, и все устройства аккаунта) — расшифровываем симметрично.
+        if !message.cloud_ciphertext.is_empty() {
+            let crypto = match self.inner.crypto.as_ref() {
+                Some(crypto) => crypto.clone(),
+                None => {
+                    warn!(
+                        server_id = message.server_id,
+                        "cloud message but no crypto provider"
+                    );
+                    return None;
+                }
+            };
+            // Ключ облачного чата хранится рядом с чатом в локальной базе.
+            let chat = match self.inner.storage.get_chat(&message.chat_id).await {
+                Ok(Some(chat)) => chat,
+                Ok(None) => {
+                    warn!(server_id = message.server_id, "cloud chat unknown locally");
+                    return None;
+                }
+                Err(error) => {
+                    warn!(error = %error, "cloud chat lookup failed");
+                    return None;
+                }
+            };
+            let key: [u8; 32] = match chat.cloud_key.as_slice().try_into() {
+                Ok(key) => key,
+                Err(_) => {
+                    warn!(server_id = message.server_id, "cloud chat has no key");
+                    return None;
+                }
+            };
+            return match crypto
+                .decrypt_blob(&key, &message.cloud_nonce, &message.cloud_ciphertext)
+                .await
+            {
+                Ok(plaintext) => Some(Payload::decode(&plaintext)),
+                Err(error) => {
+                    warn!(error = %error, server_id = message.server_id, "cloud decrypt failed");
+                    None
+                }
+            };
+        }
         // Групповое сообщение проверяем до режима E2E: содержимое — общий
         // megolm-ciphertext, персональная копия (если есть) несёт ключ сессии.
         // Копии может не быть вовсе — ключ выдан более ранним сообщением.
@@ -1019,6 +1062,12 @@ impl Ctx<'_> {
                     break;
                 }
                 let apply = self.event_to_apply(event).await?;
+                // Чат применяем в хранилище сразу: ключ облачного чата нужен
+                // для расшифровки сообщений этой же страницы, а пакетное
+                // применение случится в её конце.
+                if let SyncApply::UpsertChat { chat, members } = &apply {
+                    self.inner.storage.upsert_chat(chat, members).await?;
+                }
                 if matches!(apply, SyncApply::Skip { .. }) {
                     progress.events_skipped += 1;
                 } else {

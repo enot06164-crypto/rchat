@@ -19,12 +19,14 @@ export interface AvatarInfo {
 }
 
 export type ChatKind = "direct" | "group" | "unspecified";
-export type E2eMode = "olm_v1" | "none_dev" | "unspecified";
+export type E2eMode = "olm_v1" | "none_dev" | "unspecified" | "cloud";
 
 export interface Chat {
   chat_id: string;
   kind: ChatKind;
   e2e_mode: E2eMode;
+  /** Приватность чата: `cloud` — облачный (сервер знает ключ), `private` — E2E. */
+  privacy: ChatPrivacy;
   title: string;
   peer_user_id: string | null;
   created_at_ms: number;
@@ -34,6 +36,18 @@ export interface Chat {
 }
 
 export type MemberRole = "owner" | "member" | "unspecified";
+
+/** Режим чатов по умолчанию: облачный или приватный (E2E). */
+export type ChatPrivacy = "cloud" | "private";
+
+/** Найденное сообщение (поиск по истории в облачном режиме). */
+export interface SearchHit {
+  chat_id: string;
+  server_id: number;
+  body: string;
+  created_at_ms: number;
+  chat_title: string;
+}
 
 export interface ChatMember {
   user_id: string;

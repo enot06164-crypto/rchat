@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use rchat_server::model::*;
-use rchat_server::repo::{Repo, RepoError};
+use rchat_server::repo::{Repo, RepoError, SearchCandidate};
 use rusqlite::{params, OptionalExtension};
 
 use crate::convert::*;
@@ -535,14 +535,15 @@ impl Repo for SqliteRepo {
                 None
             };
             tx.execute(
-                "INSERT INTO chats(chat_id, kind, e2e_mode, name, pair_key, created_at_ms, updated_at_ms, last_server_id)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO chats(chat_id, kind, e2e_mode, name, pair_key, cloud_key, created_at_ms, updated_at_ms, last_server_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     chat.chat_id,
                     chat.kind as i64,
                     chat.e2e_mode as i64,
                     chat.name,
                     pair,
+                    chat.cloud_key,
                     chat.created_at_ms as i64,
                     chat.updated_at_ms as i64,
                     chat.last_server_id as i64
@@ -583,7 +584,7 @@ impl Repo for SqliteRepo {
     ) -> Result<Vec<(ChatRecord, Vec<MemberRecord>)>, RepoError> {
         let user_id = user_id.to_string();
         self.call(move |conn| {
-            let sql = "SELECT c.chat_id, c.kind, c.e2e_mode, c.name, c.created_at_ms, c.updated_at_ms, c.last_server_id
+            let sql = "SELECT c.chat_id, c.kind, c.e2e_mode, c.name, c.created_at_ms, c.updated_at_ms, c.last_server_id, c.cloud_key
                  FROM chats c JOIN chat_members m ON m.chat_id = c.chat_id
                  WHERE m.user_id = ?1 ORDER BY c.updated_at_ms DESC, c.chat_id";
             let mut stmt = conn
@@ -1445,6 +1446,44 @@ impl Repo for SqliteRepo {
                 )
                 .map_err(|e| RepoError::internal(format!("max seq for device: {e}")))?;
             Ok(max.max(0) as u64)
+        })
+        .await
+    }
+
+    async fn search_candidates(
+        &self,
+        user_id: &str,
+        limit: u32,
+    ) -> Result<Vec<SearchCandidate>, RepoError> {
+        let user_id = user_id.to_string();
+        self.call(move |conn| {
+            // Облачные сообщения чатов, где пользователь состоит. Содержимое
+            // отдаётся зашифрованным: расшифровывает его сервер ключом аккаунта.
+            let sql = "SELECT m.chat_id, COALESCE(c.name, ''), m.server_id, m.cloud_ciphertext, \
+                       m.cloud_nonce, COALESCE(c.cloud_key, X''), m.created_at_ms \
+                       FROM messages m \
+                       JOIN chat_members cm ON cm.chat_id = m.chat_id AND cm.user_id = ?1 \
+                       LEFT JOIN chats c ON c.chat_id = m.chat_id \
+                       WHERE m.cloud_ciphertext IS NOT NULL AND length(m.cloud_ciphertext) > 0 \
+                       ORDER BY m.server_id DESC LIMIT ?2";
+            let mut stmt = conn
+                .prepare(sql)
+                .map_err(|e| RepoError::internal(format!("prepare search: {e}")))?;
+            let rows = stmt
+                .query_map(params![user_id, limit as i64], |row| {
+                    Ok(SearchCandidate {
+                        chat_id: row.get(0)?,
+                        chat_title: row.get(1)?,
+                        server_id: row.get::<_, i64>(2)? as u64,
+                        ciphertext: row.get(3)?,
+                        nonce: row.get(4)?,
+                        chat_key: row.get(5)?,
+                        created_at_ms: row.get::<_, i64>(6)? as u64,
+                    })
+                })
+                .map_err(|e| RepoError::internal(format!("query search: {e}")))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| RepoError::internal(format!("rows search: {e}")))
         })
         .await
     }

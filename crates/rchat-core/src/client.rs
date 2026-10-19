@@ -22,7 +22,7 @@ use crate::events::{EventSubscription, UiEvent};
 use crate::payload::{Attachment, Payload};
 use crate::traits::{secret_keys, ClientStore, CryptoProvider, SecretStore, TransportFactory};
 use crate::types::{
-    CallRecord, ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus,
+    CallRecord, ChatMode, ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus,
     OutboxRecord, OutboxState, ReceiptRecord, SyncApply, SyncProgress,
 };
 
@@ -248,6 +248,25 @@ impl Inner {
             .device_id_cache
             .lock()
             .expect("device id cache poisoned") = None;
+    }
+
+    /// Режим чатов по умолчанию (облачный или приватный). Хранится в
+    /// профиле устройства; по умолчанию — облачный.
+    pub(crate) fn default_chat_mode(&self) -> ChatMode {
+        self.secrets
+            .get(secret_keys::DEFAULT_CHAT_MODE)
+            .ok()
+            .flatten()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .and_then(|value| ChatMode::parse(value.trim()))
+            .unwrap_or(ChatMode::DEFAULT)
+    }
+
+    /// Меняет режим чатов по умолчанию.
+    pub(crate) fn set_default_chat_mode(&self, mode: ChatMode) -> Result<(), CoreError> {
+        self.secrets
+            .set(secret_keys::DEFAULT_CHAT_MODE, mode.as_str().as_bytes())?;
+        Ok(())
     }
 }
 
@@ -505,28 +524,84 @@ impl Client {
         Ok(records)
     }
 
+    /// Режим чатов по умолчанию: облачный (`ChatMode::Cloud`) или приватный
+    /// (`ChatMode::Private`). По умолчанию — облачный, как в обычных чатах
+    /// Telegram; меняется в настройках клиента.
+    pub fn default_chat_mode(&self) -> ChatMode {
+        self.inner.default_chat_mode()
+    }
+
+    /// Меняет режим чатов по умолчанию (применяется к новым чатам).
+    pub async fn set_default_chat_mode(&self, mode: ChatMode) -> Result<(), CoreError> {
+        self.inner.set_default_chat_mode(mode)
+    }
+
+    /// Проверяет, что для выбранного режима есть всё необходимое: приватному
+    /// чату нужен крипто-провайдер, облачному — тоже (ключ аккаунта шифрует
+    /// содержимое симметрично).
+    fn require_crypto_for(&self, mode: ChatMode) -> Result<(), CoreError> {
+        match mode {
+            ChatMode::Cloud => {
+                if self.inner.crypto.is_none() {
+                    return Err(CoreError::E2eUnavailable(
+                        "cloud chat requested but no crypto provider configured".into(),
+                    ));
+                }
+                Ok(())
+            }
+            ChatMode::Private => {
+                if self.inner.crypto.is_none() {
+                    return Err(CoreError::E2eUnavailable(
+                        "e2e chat requested but no crypto provider configured".into(),
+                    ));
+                }
+                Ok(())
+            }
+            ChatMode::NoneDev => Ok(()),
+        }
+    }
+
+    /// Ищет по сообщениям аккаунта. Работает в облачном режиме: сервер
+    /// расшифровывает содержимое ключом аккаунта и ищет по нему. В приватных
+    /// чатах поиск по содержимому недоступен — сервер их не видит.
+    pub async fn search_messages(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<proto::SearchHit>, CoreError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let resp = self
+            .request(proto::request::Method::SearchMessages(
+                proto::SearchMessagesRequest {
+                    query: query.to_string(),
+                    limit,
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::SearchMessages(r) => Ok(r.hits),
+            other => Err(unexpected(other)),
+        }
+    }
+
+    /// Создаёт личный чат в заданном режиме: облачный (сервер знает ключ
+    /// аккаунта и умеет искать по истории) или приватный (E2E).
     pub async fn create_direct_chat(
         &self,
         peer_username: &str,
-        e2e: bool,
+        mode: ChatMode,
     ) -> Result<ChatRecord, CoreError> {
-        if e2e && self.inner.crypto.is_none() {
-            return Err(CoreError::E2eUnavailable(
-                "e2e chat requested but no crypto provider configured".into(),
-            ));
-        }
+        self.require_crypto_for(mode)?;
         let username = rchat_proto::validate::username(peer_username)
             .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
-        let mode = if e2e {
-            proto::E2eMode::OlmV1
-        } else {
-            proto::E2eMode::NoneDev
-        };
         let resp = self
             .request(proto::request::Method::CreateDirectChat(
                 proto::CreateDirectChatRequest {
                     peer_username: username,
-                    e2e_mode: mode as i32,
+                    e2e_mode: mode.proto_mode() as i32,
                 },
             ))
             .await?;
@@ -539,20 +614,17 @@ impl Client {
         self.store_chat_snapshot(&chat).await
     }
 
-    /// Создаёт групповой чат. Создатель становится владельцем; приглашённые
-    /// получают немедленное членство. Для E2E-группы все устройства участников
-    /// обязаны иметь ключи (сервер это проверяет).
+    /// Создаёт групповой чат в заданном режиме. Создатель становится
+    /// владельцем; приглашённые получают немедленное членство. Для приватной
+    /// группы все устройства участников обязаны иметь ключи (сервер это
+    /// проверяет).
     pub async fn create_group_chat(
         &self,
         name: &str,
         member_usernames: &[String],
-        e2e: bool,
+        mode: ChatMode,
     ) -> Result<ChatRecord, CoreError> {
-        if e2e && self.inner.crypto.is_none() {
-            return Err(CoreError::E2eUnavailable(
-                "e2e group requested but no crypto provider configured".into(),
-            ));
-        }
+        self.require_crypto_for(mode)?;
         let name = rchat_proto::validate::group_name(name)
             .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
         let mut usernames = Vec::with_capacity(member_usernames.len());
@@ -562,17 +634,12 @@ impl Client {
                     .map_err(|e| CoreError::InvalidInput(e.to_string()))?,
             );
         }
-        let mode = if e2e {
-            proto::E2eMode::OlmV1
-        } else {
-            proto::E2eMode::NoneDev
-        };
         let resp = self
             .request(proto::request::Method::CreateGroupChat(
                 proto::CreateGroupChatRequest {
                     name,
                     member_usernames: usernames,
-                    e2e_mode: mode as i32,
+                    e2e_mode: mode.proto_mode() as i32,
                 },
             ))
             .await?;

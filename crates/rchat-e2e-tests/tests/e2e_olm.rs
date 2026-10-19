@@ -16,6 +16,7 @@ mod common;
 
 use common::*;
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 use rchat_proto::proto;
 
 /// Офлайн-доставка первого E2E-сообщения (prekey), ответ (normal) и
@@ -41,7 +42,7 @@ async fn e2e_offline_delivery_server_stores_only_ciphertext() {
 
     // E2E-чат создаётся, пока получатель офлайн.
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
     assert_eq!(chat.e2e_mode, proto::E2eMode::OlmV1);
@@ -122,7 +123,7 @@ async fn e2e_multi_device_delivers_to_all_devices() {
     // У Alice два устройства: чат создаёт первое, получателей — двое
     // (Bob и второе устройство Alice).
     let chat = alice1
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
     let secret = "многодев. секрет 24680";
@@ -190,7 +191,7 @@ async fn e2e_send_without_keys_is_rejected_without_plaintext_fallback() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
 

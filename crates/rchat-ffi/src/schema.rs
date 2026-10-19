@@ -68,10 +68,30 @@ pub enum Command {
     RefreshChats {},
     /// Участники чата из локального кеша.
     GetChatMembers { chat_id: String },
+    /// Настройки клиента (режим чатов по умолчанию).
+    GetSettings {},
+    /// Сменить режим чатов по умолчанию: `cloud` или `private`.
+    SetDefaultChatMode {
+        /// `cloud` — облачный режим (по умолчанию), `private` — сквозное
+        /// шифрование, `none` — без шифрования (только для разработки).
+        mode: String,
+    },
+    /// Поиск по сообщениям аккаунта (облачный режим: сервер расшифровывает
+    /// содержимое ключом чата).
+    SearchMessages {
+        /// Строка запроса.
+        query: String,
+        /// Ограничение числа ответов; по умолчанию 50.
+        limit: Option<u32>,
+    },
     /// Создать личный чат.
     CreateDirectChat {
         peer_username: String,
-        /// Включить E2E; по умолчанию `true`.
+        /// Режим чата: `cloud`, `private` или `none`. Если не задан — режим
+        /// по умолчанию из настроек.
+        mode: Option<String>,
+        /// Прежний флаг: `true` — приватный чат, `false` — без шифрования.
+        /// Используется, только если не задан `mode`.
         e2e: Option<bool>,
     },
     /// Создать групповой чат.
@@ -79,7 +99,11 @@ pub enum Command {
         name: String,
         /// Username-ы приглашённых; по умолчанию пусто.
         members: Option<Vec<String>>,
-        /// Включить E2E; по умолчанию `true`.
+        /// Режим чата: `cloud`, `private` или `none`. Если не задан — режим
+        /// по умолчанию из настроек.
+        mode: Option<String>,
+        /// Прежний флаг: `true` — приватный чат, `false` — без шифрования.
+        /// Используется, только если не задан `mode`.
         e2e: Option<bool>,
     },
     /// Пригласить пользователей в групповой чат.
@@ -829,6 +853,9 @@ mod tests {
             "get_chats",
             "refresh_chats",
             "get_chat_members",
+            "get_settings",
+            "set_default_chat_mode",
+            "search_messages",
             "create_direct_chat",
             "create_group_chat",
             "invite_to_chat",

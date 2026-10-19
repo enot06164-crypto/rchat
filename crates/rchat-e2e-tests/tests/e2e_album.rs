@@ -6,6 +6,7 @@ mod common;
 use common::*;
 use rchat_core::payload::{Attachment, AttachmentKind};
 use rchat_core::traits::Storage;
+use rchat_core::types::ChatMode;
 
 fn photo(name: &str, byte: u8) -> Attachment {
     Attachment {
@@ -38,7 +39,7 @@ async fn e2e_album_groups_attachments() {
     register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
 
     let chat = alice
-        .create_direct_chat("bob", true)
+        .create_direct_chat("bob", ChatMode::Private)
         .await
         .expect("create e2e chat");
 

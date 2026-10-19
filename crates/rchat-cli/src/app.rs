@@ -10,7 +10,7 @@ use rchat_core::client::{Client, ClientBuilder};
 use rchat_core::config::ClientConfig;
 use rchat_core::events::{EventError, EventSubscription, UiEvent};
 use rchat_core::traits::{secret_keys, SecretStore, Storage};
-use rchat_core::types::{ChatRecord, MessageStatus, SyncProgress};
+use rchat_core::types::{ChatMode, ChatRecord, MessageStatus, SyncProgress};
 use rchat_crypto_provider::VodozemacCryptoProvider;
 use rchat_transport_ws::{TlsTrust, WsTransportConfig, WsTransportFactory};
 use zeroize::Zeroizing;
@@ -193,28 +193,29 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
             }
             Ok(())
         }
-        Command::ChatCreate { peer, e2e } => {
-            let chat = ctx.client.create_direct_chat(&peer, e2e).await?;
-            let mode = if e2e { "E2E (Olm)" } else { "без E2E (dev)" };
-            println!("Создан личный чат с {peer} [{mode}]: {}", chat.chat_id);
+        Command::ChatCreate { peer, mode } => {
+            let mode = resolve_chat_mode(&ctx.client, mode.as_deref())?;
+            let chat = ctx.client.create_direct_chat(&peer, mode).await?;
+            println!(
+                "Создан личный чат с {peer} [{}]: {}",
+                mode_label(mode),
+                chat.chat_id
+            );
             println!("{}", format::chat_line(&chat));
             Ok(())
         }
         Command::GroupCreate {
             name,
             members,
-            no_e2e,
+            mode,
         } => {
-            let chat = ctx
-                .client
-                .create_group_chat(&name, &members, !no_e2e)
-                .await?;
-            let mode = if no_e2e {
-                "без E2E (dev)"
-            } else {
-                "E2E (Megolm)"
-            };
-            println!("Создан групповой чат [{mode}]: {}", chat.chat_id);
+            let mode = resolve_chat_mode(&ctx.client, mode.as_deref())?;
+            let chat = ctx.client.create_group_chat(&name, &members, mode).await?;
+            println!(
+                "Создан групповой чат [{}]: {}",
+                mode_label(mode),
+                chat.chat_id
+            );
             println!("{}", format::chat_line(&chat));
             if members.is_empty() {
                 println!("Участников пока нет: пригласите командой `group invite`.");
@@ -853,6 +854,26 @@ async fn resolve_chat(ctx: &Context, reference: &str) -> Result<ChatRecord> {
 
 /// Читает пароль: stdin (`--password-stdin`), переменная окружения
 /// `RCHAT_PASSWORD` или интерактивный запрос без эха.
+/// Режим чата из аргумента команды; без аргумента — режим по умолчанию из
+/// настроек клиента (по умолчанию облачный).
+fn resolve_chat_mode(client: &Client, mode: Option<&str>) -> Result<ChatMode> {
+    let Some(value) = mode else {
+        return Ok(client.default_chat_mode());
+    };
+    ChatMode::parse(value.trim()).ok_or_else(|| {
+        format!("неизвестный режим `{value}`: ожидается cloud, private или none").into()
+    })
+}
+
+/// Человекочитаемое название режима для вывода в терминал.
+fn mode_label(mode: ChatMode) -> &'static str {
+    match mode {
+        ChatMode::Cloud => "облачный",
+        ChatMode::Private => "приватный (E2E)",
+        ChatMode::NoneDev => "без шифрования (dev)",
+    }
+}
+
 fn read_password(args: &PasswordArgs, confirm: bool) -> Result<Zeroizing<String>> {
     if args.password_stdin {
         let mut line = String::new();
