@@ -94,10 +94,10 @@ async fn migrations_fresh_and_idempotent() {
     let path = dir.path().join("rchat.db");
     {
         let conn = Connection::open(&path).unwrap();
-        migrate_to(&conn, SCHEMA_VERSION).unwrap();
+        migrate_to(&conn, SCHEMA_VERSION, std::path::Path::new("blobs")).unwrap();
         assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
         // Повторный прогон не должен ничего ломать.
-        migrate_to(&conn, SCHEMA_VERSION).unwrap();
+        migrate_to(&conn, SCHEMA_VERSION, std::path::Path::new("blobs")).unwrap();
         assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
     }
     let repo = SqliteRepo::open(&path).unwrap();
@@ -112,7 +112,7 @@ async fn migration_upgrade_preserves_data() {
         // Только первая версия схемы + данные.
         let conn = Connection::open(&path).unwrap();
         conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-        migrate_to(&conn, 1).unwrap();
+        migrate_to(&conn, 1, std::path::Path::new("blobs")).unwrap();
         assert_eq!(schema_version(&conn).unwrap(), 1);
         conn.execute(
             "INSERT INTO users(user_id, username, display_name, password_hash, created_at_ms, updated_at_ms, disabled)
@@ -547,4 +547,49 @@ async fn receipts_are_monotonic() {
         .unwrap();
     assert!(!update.moved);
     assert!(seqs.is_empty());
+}
+
+/// Содержимое блоба лежит на диске, в БД — только метаданные.
+#[tokio::test]
+async fn blob_is_stored_on_disk_not_in_db() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = dir.path().join("server.sqlite3");
+    let repo = SqliteRepo::open(&db).expect("open repo");
+
+    repo.begin_blob("b1", "c1", "u1", 10, 1_000)
+        .await
+        .expect("begin blob");
+    let received = repo
+        .write_blob_part("b1", 0, b"0123456789", 1_000)
+        .await
+        .expect("write part");
+    assert_eq!(received, 10);
+    let token = repo.finish_blob("b1", 10, 1_000).await.expect("finish");
+
+    // Файл на диске.
+    let blob_file = dir.path().join("blobs").join("b1.blob");
+    assert!(blob_file.exists(), "файл блоба должен лежать на диске");
+    assert_eq!(std::fs::read(&blob_file).expect("read"), b"0123456789");
+
+    // В БД — только метаданные.
+    let conn = rusqlite::Connection::open(&db).expect("open db");
+    let (path, total): (String, i64) = conn
+        .query_row(
+            "SELECT path, total_size FROM blobs WHERE blob_id = 'b1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("blob row");
+    assert!(path.ends_with("b1.blob"), "в БД должен быть путь к файлу");
+    assert_eq!(total, 10);
+
+    // Скачивание отдаёт те же байты.
+    let (data, size, eof) = repo
+        .read_blob(&token, 0, 100)
+        .await
+        .expect("read blob")
+        .expect("blob found");
+    assert_eq!(data, b"0123456789");
+    assert_eq!(size, 10);
+    assert!(eof);
 }

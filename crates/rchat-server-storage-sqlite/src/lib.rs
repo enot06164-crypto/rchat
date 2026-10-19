@@ -9,7 +9,7 @@
 //! Схема версионируется таблицей `schema_migrations`; миграции применяются
 //! последовательно и идемпотентно.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rchat_server::repo::{RepoError, RepoError as SqliteError};
@@ -22,36 +22,63 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
     conn: Arc<Mutex<Connection>>,
+    /// Каталог файлов блобов: содержимое файлов лежит на диске, в БД — только
+    /// метаданные (путь, размер, токен, владелец).
+    blob_dir: PathBuf,
 }
 
 impl SqliteRepo {
     /// Открывает (создаёт) файл БД и применяет миграции.
+    ///
+    /// Файлы блобов складываются в каталог `blobs` рядом с базой.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RepoError> {
-        let conn = Connection::open(path.as_ref())
-            .map_err(|e| RepoError::internal(format!("sqlite open: {e}")))?;
-        Self::prepare(conn)
+        let path = path.as_ref();
+        let conn =
+            Connection::open(path).map_err(|e| RepoError::internal(format!("sqlite open: {e}")))?;
+        let blob_dir = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("blobs");
+        Self::prepare(conn, blob_dir)
     }
 
     /// Открывает БД в памяти (тесты, локальные запуски без файла).
     pub fn open_in_memory() -> Result<Self, RepoError> {
         let conn = Connection::open_in_memory()
             .map_err(|e| RepoError::internal(format!("sqlite open: {e}")))?;
-        Self::prepare(conn)
+        let blob_dir = std::env::temp_dir().join(format!(
+            "rchat-blobs-{}-{}",
+            std::process::id(),
+            rchat_proto::now_ms()
+        ));
+        Self::prepare(conn, blob_dir)
     }
 
-    fn prepare(conn: Connection) -> Result<Self, RepoError> {
+    /// Каталог файлов блобов.
+    pub fn blob_dir(&self) -> &Path {
+        &self.blob_dir
+    }
+
+    /// Путь файла блоба на диске.
+    fn blob_path(&self, blob_id: &str) -> PathBuf {
+        self.blob_dir.join(format!("{blob_id}.blob"))
+    }
+
+    fn prepare(conn: Connection, blob_dir: PathBuf) -> Result<Self, RepoError> {
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| RepoError::internal(format!("sqlite pragma: {e}")))?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| RepoError::internal(format!("sqlite pragma: {e}")))?;
-        migrate_to(&conn, SCHEMA_VERSION)?;
+        migrate_to(&conn, SCHEMA_VERSION, &blob_dir)?;
+        ensure_blob_dir(&blob_dir)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            blob_dir,
         })
     }
 
@@ -95,11 +122,16 @@ pub fn schema_version(conn: &Connection) -> Result<u32, RepoError> {
     Ok(version.max(0) as u32)
 }
 
+/// Создаёт каталог файлов блобов (если его ещё нет).
+pub(crate) fn ensure_blob_dir(dir: &Path) -> Result<(), RepoError> {
+    std::fs::create_dir_all(dir).map_err(|e| RepoError::internal(format!("blob dir: {e}")))
+}
+
 /// Применяет миграции до версии `target` (идемпотентно).
 ///
 /// Каждая миграция выполняется в собственной транзакции: сбой оставляет БД
 /// на предыдущей версии, повторный запуск продолжает с неё.
-pub fn migrate_to(conn: &Connection, target: u32) -> Result<(), RepoError> {
+pub fn migrate_to(conn: &Connection, target: u32, blob_dir: &Path) -> Result<(), RepoError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY,
@@ -118,6 +150,12 @@ pub fn migrate_to(conn: &Connection, target: u32) -> Result<(), RepoError> {
         tx_result
             .execute_batch(sql)
             .map_err(|e| RepoError::internal(format!("migration {version}: {e}")))?;
+        if *version == 6 {
+            // Данные блобов переносим из БД на диск: в таблице остаются
+            // только метаданные (путь, размер, токен, владелец).
+            migrate_blobs_to_disk(&tx_result, blob_dir)
+                .map_err(|e| RepoError::internal(format!("migration 6 blobs: {e}")))?;
+        }
         tx_result
             .execute(
                 "INSERT INTO schema_migrations(version, applied_at_ms) VALUES(?1, ?2)",
@@ -127,6 +165,51 @@ pub fn migrate_to(conn: &Connection, target: u32) -> Result<(), RepoError> {
         tx_result
             .commit()
             .map_err(|e| RepoError::internal(format!("commit migration {version}: {e}")))?;
+    }
+    Ok(())
+}
+
+/// Переносит накопленные блобы из таблицы `blob_parts` в файлы на диске.
+fn migrate_blobs_to_disk(
+    tx: &rusqlite::Transaction<'_>,
+    blob_dir: &Path,
+) -> Result<(), rusqlite::Error> {
+    std::fs::create_dir_all(blob_dir).ok();
+    let ids: Vec<String> = {
+        let mut stmt = tx.prepare("SELECT DISTINCT blob_id FROM blob_parts")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<String>, _>>()?
+    };
+    for blob_id in ids {
+        let parts: Vec<(i64, Vec<u8>)> = {
+            let mut stmt = tx.prepare(
+                "SELECT offset, data FROM blob_parts WHERE blob_id = ?1 ORDER BY offset",
+            )?;
+            let rows = stmt.query_map([&blob_id], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })?;
+            rows.collect::<Result<Vec<(i64, Vec<u8>)>, _>>()?
+        };
+        if parts.is_empty() {
+            continue;
+        }
+        let mut buffer = vec![0u8; parts.iter().map(|(_, data)| data.len()).sum()];
+        let mut cursor = 0usize;
+        for (_, data) in &parts {
+            buffer[cursor..cursor + data.len()].copy_from_slice(data);
+            cursor += data.len();
+        }
+        let path = blob_dir.join(format!("{blob_id}.blob"));
+        std::fs::write(&path, &buffer).ok();
+        tx.execute(
+            "UPDATE blobs SET path = ?2, received = ?3, completed = 1 WHERE blob_id = ?1",
+            rusqlite::params![
+                blob_id,
+                path.to_string_lossy().to_string(),
+                buffer.len() as i64
+            ],
+        )?;
+        tx.execute("DELETE FROM blob_parts WHERE blob_id = ?1", [&blob_id])?;
     }
     Ok(())
 }
@@ -264,11 +347,16 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         "#,
     ),
     (
-        5,
+        3,
         r#"
-    -- Альбомы (медиагруппы): сообщения одного альбома делят grouped_id.
-    ALTER TABLE messages ADD COLUMN grouped_id TEXT NOT NULL DEFAULT '';
-    "#,
+        -- Групповые чаты (protocol minor 1): название и роли участников,
+        -- megolm-ciphertext сообщений и вид получательской копии.
+        ALTER TABLE chats ADD COLUMN name TEXT NOT NULL DEFAULT '';
+        ALTER TABLE chat_members ADD COLUMN role INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE messages ADD COLUMN group_ciphertext BLOB;
+        ALTER TABLE messages ADD COLUMN group_session_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE message_recipients ADD COLUMN payload_kind INTEGER NOT NULL DEFAULT 0;
+        "#,
     ),
     (
         4,
@@ -296,16 +384,18 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     "#,
     ),
     (
-        3,
+        5,
         r#"
-        -- Групповые чаты (protocol minor 1): название и роли участников,
-        -- megolm-ciphertext сообщений и вид получательской копии.
-        ALTER TABLE chats ADD COLUMN name TEXT NOT NULL DEFAULT '';
-        ALTER TABLE chat_members ADD COLUMN role INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE messages ADD COLUMN group_ciphertext BLOB;
-        ALTER TABLE messages ADD COLUMN group_session_id TEXT NOT NULL DEFAULT '';
-        ALTER TABLE message_recipients ADD COLUMN payload_kind INTEGER NOT NULL DEFAULT 0;
-        "#,
+    -- Альбомы (медиагруппы): сообщения одного альбома делят grouped_id.
+    ALTER TABLE messages ADD COLUMN grouped_id TEXT NOT NULL DEFAULT '';
+    "#,
+    ),
+    (
+        6,
+        r#"
+    -- Содержимое блобов переносится на диск: в БД остаются метаданные.
+    ALTER TABLE blobs ADD COLUMN path TEXT NOT NULL DEFAULT '';
+    "#,
     ),
 ];
 

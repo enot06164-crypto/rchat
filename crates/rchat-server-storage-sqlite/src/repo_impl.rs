@@ -8,6 +8,7 @@ use rchat_server::repo::{Repo, RepoError};
 use rusqlite::{params, OptionalExtension};
 
 use crate::convert::*;
+use crate::ensure_blob_dir;
 use crate::helpers::*;
 use crate::{map_sql, SqliteRepo};
 
@@ -1214,22 +1215,47 @@ impl Repo for SqliteRepo {
         let blob_id = blob_id.to_string();
         let chat_id = chat_id.to_string();
         let owner_user_id = owner_user_id.to_string();
+        let path = self.blob_path(&blob_id);
+        let blob_dir = self.blob_dir.clone();
         self.call(move |conn| {
+            // Содержимое файла живёт на диске, в БД — только метаданные.
+            ensure_blob_dir(&blob_dir)?;
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .read(true)
+                .open(&path)
+                .map_err(|e| RepoError::internal(format!("begin blob file: {e}")))?;
+            // Файл не обрезаем: begin вызывается на каждый кусок, а части
+            // пишутся по своим смещениям. Обрезаем только если прежняя
+            // загрузка была больше (тот же blob_id перезалит заново).
+            let length = file
+                .metadata()
+                .map_err(|e| RepoError::internal(format!("blob metadata: {e}")))?
+                .len();
+            if length > total_size {
+                file.set_len(0)
+                    .map_err(|e| RepoError::internal(format!("blob truncate: {e}")))?;
+            }
+            drop(file);
             conn.execute(
                 "INSERT INTO blobs(blob_id, token, chat_id, owner_user_id, total_size, received,
-                                   created_at_ms, updated_at_ms, completed)
-                 VALUES(?1, '', ?2, ?3, ?4, 0, ?5, ?5, 0)
+                                   created_at_ms, updated_at_ms, completed, path)
+                 VALUES(?1, '', ?2, ?3, ?4, 0, ?5, ?5, 0, ?6)
                  ON CONFLICT(blob_id) DO UPDATE SET
                      chat_id = excluded.chat_id,
                      owner_user_id = excluded.owner_user_id,
                      total_size = excluded.total_size,
-                     updated_at_ms = excluded.updated_at_ms",
+                     updated_at_ms = excluded.updated_at_ms,
+                     path = excluded.path",
                 params![
                     blob_id,
                     chat_id,
                     owner_user_id,
                     total_size as i64,
-                    now_ms as i64
+                    now_ms as i64,
+                    path.to_string_lossy().to_string()
                 ],
             )
             .map_err(|e| RepoError::internal(format!("begin blob: {e}")))?;
@@ -1247,6 +1273,7 @@ impl Repo for SqliteRepo {
     ) -> Result<u64, RepoError> {
         let blob_id = blob_id.to_string();
         let data = data.to_vec();
+        let path = self.blob_path(&blob_id);
         self.call(move |conn| {
             let existing: i64 = conn
                 .query_row(
@@ -1267,12 +1294,22 @@ impl Repo for SqliteRepo {
             if offset + data.len() as u64 > total.max(0) as u64 {
                 return Err(RepoError::internal("blob part exceeds total size"));
             }
-            conn.execute(
-                "INSERT INTO blob_parts(blob_id, offset, data) VALUES(?1, ?2, ?3)
-                 ON CONFLICT(blob_id, offset) DO UPDATE SET data = excluded.data",
-                params![blob_id, offset as i64, data],
-            )
-            .map_err(|e| RepoError::internal(format!("write blob part: {e}")))?;
+            // Пишем часть в файл на диске по её смещению (докачка с места
+            // обрыва — та же операция, что и обычная загрузка).
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .read(true)
+                .open(&path)
+                .map_err(|e| RepoError::internal(format!("open blob file: {e}")))?;
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|e| RepoError::internal(format!("seek blob file: {e}")))?;
+            file.write_all(&data)
+                .map_err(|e| RepoError::internal(format!("write blob file: {e}")))?;
+            file.sync_all()
+                .map_err(|e| RepoError::internal(format!("sync blob file: {e}")))?;
             let new_received = received.max(offset + data.len() as u64);
             conn.execute(
                 "UPDATE blobs SET received = ?2, updated_at_ms = ?3 WHERE blob_id = ?1",
@@ -1324,14 +1361,14 @@ impl Repo for SqliteRepo {
     ) -> Result<Option<(Vec<u8>, u64, bool)>, RepoError> {
         let blob_ref = blob_ref.to_string();
         self.call(move |conn| {
-            let row: Option<(String, i64, i64)> = conn
+            let row: Option<(i64, i64, String)> = conn
                 .query_row(
-                    "SELECT blob_id, total_size, completed FROM blobs WHERE token = ?1",
+                    "SELECT total_size, completed, path FROM blobs WHERE token = ?1",
                     params![blob_ref],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .ok();
-            let Some((blob_id, total_size, completed)) = row else {
+            let Some((total_size, completed, path)) = row else {
                 return Ok(None);
             };
             if completed == 0 {
@@ -1340,33 +1377,17 @@ impl Repo for SqliteRepo {
             let total = total_size.max(0) as u64;
             let start = offset.min(total);
             let end = (offset + length as u64).min(total);
-            let mut out = Vec::with_capacity((end - start) as usize);
+            let mut out = Vec::new();
             if start < end {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT offset, data FROM blob_parts
-                         WHERE blob_id = ?1 AND offset < ?2 ORDER BY offset",
-                    )
-                    .map_err(|e| RepoError::internal(format!("blob parts: {e}")))?;
-                let parts = stmt
-                    .query_map(params![blob_id, end as i64], |row| {
-                        Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
-                    })
-                    .map_err(|e| RepoError::internal(format!("blob parts query: {e}")))?;
-                for part in parts {
-                    let (part_offset, part_data) =
-                        part.map_err(|e| RepoError::internal(format!("blob part row: {e}")))?;
-                    let part_start = part_offset.max(0) as u64;
-                    let part_end = part_start + part_data.len() as u64;
-                    if part_end <= start {
-                        continue;
-                    }
-                    let from = start.saturating_sub(part_start) as usize;
-                    let to = (end.saturating_sub(part_start) as usize).min(part_data.len());
-                    if from < to {
-                        out.extend_from_slice(&part_data[from..to]);
-                    }
-                }
+                use std::io::{Read, Seek, SeekFrom};
+                let mut file = std::fs::File::open(&path)
+                    .map_err(|e| RepoError::internal(format!("open blob file: {e}")))?;
+                file.seek(SeekFrom::Start(start))
+                    .map_err(|e| RepoError::internal(format!("seek blob file: {e}")))?;
+                let want = (end - start) as usize;
+                out.resize(want, 0);
+                file.read_exact(&mut out)
+                    .map_err(|e| RepoError::internal(format!("read blob file: {e}")))?;
             }
             let eof = end >= total;
             Ok(Some((out, total, eof)))
@@ -1392,6 +1413,7 @@ impl Repo for SqliteRepo {
     async fn abort_blob(&self, blob_id: &str, owner_user_id: &str) -> Result<(), RepoError> {
         let blob_id = blob_id.to_string();
         let owner_user_id = owner_user_id.to_string();
+        let path = self.blob_path(&blob_id);
         self.call(move |conn| {
             let owner: Option<String> = conn
                 .query_row(
@@ -1403,13 +1425,10 @@ impl Repo for SqliteRepo {
             if owner.as_deref() != Some(owner_user_id.as_str()) {
                 return Err(RepoError::forbidden("not the blob owner"));
             }
-            conn.execute(
-                "DELETE FROM blob_parts WHERE blob_id = ?1",
-                params![blob_id],
-            )
-            .map_err(|e| RepoError::internal(format!("abort blob parts: {e}")))?;
             conn.execute("DELETE FROM blobs WHERE blob_id = ?1", params![blob_id])
                 .map_err(|e| RepoError::internal(format!("abort blob: {e}")))?;
+            // Незавершённый файл с диска — тоже под нож.
+            let _ = std::fs::remove_file(&path);
             Ok(())
         })
         .await

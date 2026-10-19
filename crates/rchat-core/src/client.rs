@@ -1058,9 +1058,15 @@ impl Client {
                 ))
                 .await?;
             if !matches!(response, proto::response::Result::UploadBlob(_)) {
-                return Err(CoreError::Protocol(
-                    "unexpected upload_blob response".into(),
-                ));
+                let detail = match &response {
+                    proto::response::Result::Error(error) => {
+                        format!("error {}: {}", error.code, error.message)
+                    }
+                    other => format!("{:?}", std::mem::discriminant(other)),
+                };
+                return Err(CoreError::Protocol(format!(
+                    "unexpected upload_blob response: {detail}"
+                )));
             }
             offset = end;
         }
