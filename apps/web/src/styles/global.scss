@@ -955,11 +955,12 @@ textarea {
   }
 }
 
-// Хвостик (WebK .bubble-tail): слой ПОД пузырём, сдвиг 8.4px наружу и
-// зеркалирование для исходящих — ровно как в Telegram WebK.
+// Хвостик (слой ПОД пузырём: скруглённый угол «дорисовывается» хвостиком).
+// Форма наша — по мотивам Telegram WebK, где угол на стороне хвостика
+// прямой, а кривую даёт сам хвостик.
 .bubble-row--own .bubble__tail {
   right: -8.4px;
-  transform: translateY(1px) scaleX(-1);
+  transform: scaleX(-1);
 
   path {
     fill: $bubble-out-end;
@@ -968,7 +969,6 @@ textarea {
 
 .bubble-row--in .bubble__tail {
   left: -8.4px;
-  transform: translateY(1px);
 
   path {
     fill: $bubble-in;
