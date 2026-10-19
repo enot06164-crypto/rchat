@@ -190,6 +190,16 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
     "#,
     ),
     (
+        4,
+        r#"
+    -- Файлы едут отдельным блобом: в сообщении лежат ссылка на блоб и ключ
+    -- шифрования, а содержимое (attachment_data) — локальный кэш.
+    ALTER TABLE messages ADD COLUMN attachment_blob_ref TEXT;
+    ALTER TABLE messages ADD COLUMN attachment_key BLOB;
+    ALTER TABLE messages ADD COLUMN attachment_nonce BLOB;
+    "#,
+    ),
+    (
         3,
         r#"
     -- Вложения сообщений (файл/фото/видео/голос): байты лежат локально,

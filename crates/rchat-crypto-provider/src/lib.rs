@@ -12,6 +12,8 @@
 //!
 //! [vodozemac]: https://github.com/matrix-org/vodozemac
 
+use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -338,6 +340,52 @@ impl CryptoProvider for VodozemacCryptoProvider {
             .await
             .map_err(state_error)?;
         Ok(())
+    }
+
+    // ---------------------------------------------------------------
+    // Файлы (блобы): симметричное шифрование XChaCha20-Poly1305.
+    // Ключ случайный, едет внутри зашифрованного сообщения — сервер
+    // видит только шифротекст файла (как в Telegram).
+    // ---------------------------------------------------------------
+    async fn encrypt_blob(
+        &self,
+        key: &[u8; 32],
+        plaintext: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
+        let cipher = XChaCha20Poly1305::new_from_slice(key)
+            .map_err(|_| CryptoError::Internal("invalid blob key".into()))?;
+        let mut nonce = [0u8; 24];
+        getrandom::fill(&mut nonce)
+            .map_err(|e| CryptoError::Internal(format!("blob nonce: {e}")))?;
+        let nonce_bytes: [u8; 24] = nonce
+            .as_slice()
+            .try_into()
+            .map_err(|_| CryptoError::Internal("invalid blob nonce".into()))?;
+        let nonce = XNonce::from(nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(&nonce, plaintext)
+            .map_err(|_| CryptoError::Internal("blob encryption failed".into()))?;
+        Ok((ciphertext, nonce.to_vec()))
+    }
+
+    async fn decrypt_blob(
+        &self,
+        key: &[u8; 32],
+        nonce: &[u8],
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
+        if nonce.len() != 24 {
+            return Err(CryptoError::Internal("invalid blob nonce".into()));
+        }
+        let cipher = XChaCha20Poly1305::new_from_slice(key)
+            .map_err(|_| CryptoError::Internal("invalid blob key".into()))?;
+        let nonce_bytes: [u8; 24] = nonce
+            .try_into()
+            .map_err(|_| CryptoError::Internal("invalid blob nonce".into()))?;
+        let nonce = XNonce::from(nonce_bytes);
+        cipher
+            .decrypt(&nonce, ciphertext)
+            .map_err(|_| CryptoError::Internal("blob decryption failed".into()))
     }
 
     async fn group_encrypt(

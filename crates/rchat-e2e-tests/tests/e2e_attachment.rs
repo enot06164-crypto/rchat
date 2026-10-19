@@ -15,6 +15,9 @@ fn attachment(kind: AttachmentKind, name: &str, mime: &str, data: &[u8]) -> Atta
         name: name.to_string(),
         mime: mime.to_string(),
         size: data.len() as u64,
+        blob_ref: None,
+        key: None,
+        nonce: None,
         data: data.to_vec(),
     }
 }
@@ -55,7 +58,8 @@ async fn e2e_attachment_is_encrypted_end_to_end() {
 
     wait_sent(&alice_storage, &local_id).await;
 
-    // Локально вложение сохранилось целиком.
+    // Локально у отправителя — только метаданные и ссылка на блоб:
+    // содержимое файла лежит в хранилище блобов, а не в записи сообщения.
     let stored = alice_storage
         .get_message(&local_id)
         .await
@@ -65,7 +69,15 @@ async fn e2e_attachment_is_encrypted_end_to_end() {
     let stored_attachment = stored.attachment.expect("attachment stored");
     assert_eq!(stored_attachment.kind, AttachmentKind::Photo);
     assert_eq!(stored_attachment.name, "pic.png");
-    assert_eq!(stored_attachment.data, photo_bytes);
+    assert!(
+        stored_attachment.blob_ref.is_some(),
+        "должна быть ссылка на блоб"
+    );
+    assert!(stored_attachment.key.is_some(), "должен быть ключ файла");
+    assert!(
+        stored_attachment.data.is_empty(),
+        "файл не дублируется в сообщении"
+    );
 
     // Сервер не видит ни текст, ни содержимое файла.
     let (messages, recipients) = assert_server_has_no_plaintext(harness.db_path(), secret_text);
@@ -81,7 +93,13 @@ async fn e2e_attachment_is_encrypted_end_to_end() {
     assert_eq!(received_attachment.name, "pic.png");
     assert_eq!(received_attachment.mime, "image/png");
     assert_eq!(received_attachment.size, photo_bytes.len() as u64);
-    assert_eq!(received_attachment.data, photo_bytes);
+    // Содержимое получатель скачивает блоб и расшифровывает ключом из сообщения.
+    let content = bob
+        .attachment_content(received.server_id.expect("server id"))
+        .await
+        .expect("attachment content")
+        .expect("attachment");
+    assert_eq!(content.data, photo_bytes, "файл должен совпасть побитово");
 
     // Голосовое без подписи: content_kind = voice, текст пустой.
     let voice_bytes = vec![7u8; 512];
@@ -101,7 +119,13 @@ async fn e2e_attachment_is_encrypted_end_to_end() {
     assert_eq!(received_voice.body.as_deref(), Some(""));
     let voice = received_voice.attachment.expect("voice attachment");
     assert_eq!(voice.kind, AttachmentKind::Voice);
-    assert_eq!(voice.data, voice_bytes);
+    // Голосовое тоже лежит в блобе: содержимое тянется по ссылке.
+    let voice_content = bob
+        .attachment_content(received_voice.server_id.expect("server id"))
+        .await
+        .expect("voice content")
+        .expect("voice");
+    assert_eq!(voice_content.data, voice_bytes);
     assert_server_has_no_bytes(harness.db_path(), &voice_bytes);
 }
 

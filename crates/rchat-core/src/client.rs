@@ -83,6 +83,16 @@ pub(crate) enum Command {
     },
 }
 
+/// Размер части файла при загрузке/скачивании блоба (байт).
+const BLOB_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Случайный hex-идентификатор (для blob_id).
+fn random_hex(bytes: usize) -> Result<String, CoreError> {
+    let mut buffer = vec![0u8; bytes];
+    getrandom::fill(&mut buffer).map_err(|e| CoreError::Internal(format!("random id: {e}")))?;
+    Ok(buffer.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 pub(crate) struct Inner {
     pub config: ClientConfig,
     pub transport: Arc<dyn TransportFactory>,
@@ -868,12 +878,157 @@ impl Client {
         if text.is_empty() && attachment.data.is_empty() {
             return Err(CoreError::InvalidInput("empty message".into()));
         }
-        self.send_payload(
-            chat_id,
-            Payload::with_attachment(text, attachment),
-            reply_to,
-        )
-        .await
+        // Файл уходит отдельным блобом: клиент шифрует его случайным ключом,
+        // сервер видит только шифротекст, а ключ едет внутри сообщения.
+        let (blob_ref, key, nonce) = self.upload_blob(chat_id, &attachment.data).await?;
+        let payload = Payload::with_attachment(
+            text,
+            Attachment {
+                blob_ref: Some(blob_ref),
+                key: Some(key),
+                nonce: Some(nonce),
+                data: Vec::new(),
+                ..attachment
+            },
+        );
+        self.send_payload(chat_id, payload, reply_to).await
+    }
+
+    /// Содержимое вложения сообщения: из локального кэша или скачиванием
+    /// блоба с расшифровкой.
+    pub async fn attachment_content(
+        &self,
+        server_id: u64,
+    ) -> Result<Option<Attachment>, CoreError> {
+        let Some(message) = self.message_by_server_id(server_id).await? else {
+            return Ok(None);
+        };
+        let Some(attachment) = message.attachment else {
+            return Ok(None);
+        };
+        if !attachment.data.is_empty() {
+            return Ok(Some(attachment));
+        }
+        let (Some(blob_ref), Some(key), Some(nonce)) = (
+            attachment.blob_ref.clone(),
+            attachment.key.clone(),
+            attachment.nonce.clone(),
+        ) else {
+            return Ok(Some(attachment));
+        };
+        let data = self.download_blob(&blob_ref, &key, &nonce).await?;
+        Ok(Some(Attachment { data, ..attachment }))
+    }
+
+    /// Загружает файл в хранилище сервера (зашифрованным) и возвращает
+    /// (ссылка на блоб, ключ, nonce).
+    async fn upload_blob(
+        &self,
+        chat_id: &str,
+        data: &[u8],
+    ) -> Result<(String, Vec<u8>, Vec<u8>), CoreError> {
+        let crypto = self
+            .inner
+            .crypto
+            .as_ref()
+            .ok_or_else(|| CoreError::E2eUnavailable("no crypto provider".into()))?
+            .clone();
+        let mut key = [0u8; 32];
+        getrandom::fill(&mut key).map_err(|e| CoreError::Internal(format!("blob key: {e}")))?;
+        let (ciphertext, nonce) = crypto.encrypt_blob(&key, data).await?;
+        let blob_id = random_hex(16)?;
+
+        let mut offset = 0usize;
+        while offset < ciphertext.len() {
+            let end = (offset + BLOB_CHUNK_BYTES).min(ciphertext.len());
+            let response = self
+                .request(proto::request::Method::UploadBlob(
+                    proto::UploadBlobRequest {
+                        blob_id: blob_id.clone(),
+                        chat_id: chat_id.to_string(),
+                        offset: offset as u64,
+                        total_size: ciphertext.len() as u32,
+                        data: ciphertext[offset..end].to_vec(),
+                    },
+                ))
+                .await?;
+            if !matches!(response, proto::response::Result::UploadBlob(_)) {
+                return Err(CoreError::Protocol(
+                    "unexpected upload_blob response".into(),
+                ));
+            }
+            offset = end;
+        }
+
+        let response = self
+            .request(proto::request::Method::FinishBlob(
+                proto::FinishBlobRequest {
+                    blob_id: blob_id.clone(),
+                    chat_id: chat_id.to_string(),
+                    total_size: ciphertext.len() as u32,
+                },
+            ))
+            .await?;
+        match response {
+            proto::response::Result::FinishBlob(result) => {
+                Ok((result.blob_ref, key.to_vec(), nonce))
+            }
+            _ => Err(CoreError::Protocol(
+                "unexpected finish_blob response".into(),
+            )),
+        }
+    }
+
+    /// Скачивает блоб с сервера и расшифровывает его ключом из сообщения.
+    async fn download_blob(
+        &self,
+        blob_ref: &str,
+        key: &[u8],
+        nonce: &[u8],
+    ) -> Result<Vec<u8>, CoreError> {
+        let crypto = self
+            .inner
+            .crypto
+            .as_ref()
+            .ok_or_else(|| CoreError::E2eUnavailable("no crypto provider".into()))?
+            .clone();
+        let key: [u8; 32] = key
+            .try_into()
+            .map_err(|_| CoreError::InvalidInput("invalid blob key".into()))?;
+        let mut ciphertext: Vec<u8> = Vec::new();
+        let mut offset = 0u64;
+        loop {
+            let response = self
+                .request(proto::request::Method::DownloadBlob(
+                    proto::DownloadBlobRequest {
+                        blob_ref: blob_ref.to_string(),
+                        offset,
+                        length: BLOB_CHUNK_BYTES as u32,
+                    },
+                ))
+                .await?;
+            let proto::response::Result::DownloadBlob(result) = response else {
+                let detail = match &response {
+                    proto::response::Result::Error(error) => {
+                        format!("error {}: {}", error.code, error.message)
+                    }
+                    other => format!("{:?}", std::mem::discriminant(other)),
+                };
+                return Err(CoreError::Protocol(format!(
+                    "unexpected download_blob response: {detail}"
+                )));
+            };
+            let received = result.data.len() as u64;
+            ciphertext.extend_from_slice(&result.data);
+            offset += received;
+            if result.eof || received == 0 {
+                break;
+            }
+        }
+        crypto
+            .decrypt_blob(&key, nonce, &ciphertext)
+            .await
+            .map_err(CoreError::Crypto)
     }
 
     /// Общая часть отправки: собирает и шифрует payload, ставит его в outbox.

@@ -138,6 +138,10 @@ impl From<RepoError> for ServerError {
                 tracing::error!(detail = %detail, "repo: internal error");
                 ServerError::internal("internal storage error")
             }
+            RepoError::Forbidden(detail) => {
+                tracing::debug!(detail = %detail, "repo: forbidden");
+                ServerError::forbidden("forbidden")
+            }
         }
     }
 }

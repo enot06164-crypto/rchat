@@ -22,7 +22,7 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
@@ -262,6 +262,31 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         CREATE INDEX sync_events_created_idx ON sync_events(created_at_ms);
         CREATE INDEX sync_events_device_seq_idx ON sync_events(device_id, seq);
         "#,
+    ),
+    (
+        4,
+        r#"
+    -- Файлы (блобы). Сервер хранит только шифротекст: ключ шифрования
+    -- файла едет внутри сообщения, поэтому содержимое серверу неизвестно.
+    CREATE TABLE blobs (
+        blob_id TEXT NOT NULL PRIMARY KEY,
+        token TEXT NOT NULL DEFAULT '',
+        chat_id TEXT NOT NULL,
+        owner_user_id TEXT NOT NULL,
+        total_size INTEGER NOT NULL,
+        received INTEGER NOT NULL DEFAULT 0,
+        completed INTEGER NOT NULL DEFAULT 0,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+    );
+    CREATE INDEX blobs_token_idx ON blobs(token);
+    CREATE TABLE blob_parts (
+        blob_id TEXT NOT NULL,
+        offset INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        PRIMARY KEY (blob_id, offset)
+    );
+    "#,
     ),
     (
         3,

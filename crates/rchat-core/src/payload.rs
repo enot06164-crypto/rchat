@@ -12,14 +12,13 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde_json::{json, Value};
 
-/// Максимальный размер вложения в одном сообщении (байт).
+/// Максимальный размер вложения (байт).
 ///
-/// Вложение едет внутри зашифрованного payload, поэтому ограничено лимитом
-/// кадра сервера (`max_message_bytes`, по умолчанию 256 КиБ) с учётом
-/// base64-раздутия (×4/3) и накладных расходов шифрования.
-pub const MAX_ATTACHMENT_BYTES: usize = 128 * 1024;
+/// Файл едет отдельным блобом (зашифрованным), поэтому размер больше не
+/// ограничен кадром сообщения; ограничение — практическое.
+pub const MAX_ATTACHMENT_BYTES: usize = 16 * 1024 * 1024;
 
-/// Максимальная длина имени файла (байт).
+/// Максимальный размер имени файла (байт).
 pub const MAX_ATTACHMENT_NAME_BYTES: usize = 255;
 
 /// Вид вложения.
@@ -59,6 +58,10 @@ impl AttachmentKind {
 }
 
 /// Вложение сообщения.
+///
+/// Файл хранится на сервере отдельным блобом: клиент шифрует его случайным
+/// ключом (как в Telegram), а в сообщение кладёт только ссылку на блоб и ключ.
+/// Сервер видит лишь шифротекст файла.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attachment {
     /// Вид вложения.
@@ -69,13 +72,26 @@ pub struct Attachment {
     pub mime: String,
     /// Размер в байтах.
     pub size: u64,
-    /// Содержимое файла.
+    /// Ссылка на блоб в хранилище сервера.
+    pub blob_ref: Option<String>,
+    /// Ключ шифрования файла (внутри конверта; сервер его не видит).
+    pub key: Option<Vec<u8>>,
+    /// Nonce симметричного шифра файла.
+    pub nonce: Option<Vec<u8>>,
+    /// Содержимое файла: только для сообщений, отправленных до появления
+    /// канала блобов (файл ехал внутри сообщения).
     pub data: Vec<u8>,
 }
 
 impl Attachment {
     /// Проверка вложения перед отправкой.
     pub fn validate(&self) -> Result<(), String> {
+        if self.size as usize > MAX_ATTACHMENT_BYTES {
+            return Err(format!(
+                "attachment too large: {} > {MAX_ATTACHMENT_BYTES} bytes",
+                self.size
+            ));
+        }
         if self.data.len() > MAX_ATTACHMENT_BYTES {
             return Err(format!(
                 "attachment too large: {} > {MAX_ATTACHMENT_BYTES} bytes",
@@ -137,7 +153,18 @@ impl Payload {
             attachment.insert("n".into(), json!(item.name));
             attachment.insert("m".into(), json!(item.mime));
             attachment.insert("s".into(), json!(item.size));
-            attachment.insert("d".into(), json!(BASE64.encode(&item.data)));
+            if let Some(reference) = &item.blob_ref {
+                attachment.insert("b".into(), json!(reference));
+            }
+            if let Some(key) = &item.key {
+                attachment.insert("key".into(), json!(BASE64.encode(key)));
+            }
+            if let Some(nonce) = &item.nonce {
+                attachment.insert("nonce".into(), json!(BASE64.encode(nonce)));
+            }
+            if !item.data.is_empty() {
+                attachment.insert("d".into(), json!(BASE64.encode(&item.data)));
+            }
         }
         let mut body = serde_json::Map::new();
         body.insert("t".into(), json!(self.text));
@@ -183,6 +210,15 @@ impl Payload {
                 .unwrap_or_default()
                 .to_string();
             let size = item.get("s").and_then(Value::as_u64).unwrap_or(0);
+            let blob_ref = item.get("b").and_then(Value::as_str).map(str::to_string);
+            let key = item
+                .get("key")
+                .and_then(Value::as_str)
+                .map(|raw| BASE64.decode(raw).unwrap_or_default());
+            let nonce = item
+                .get("nonce")
+                .and_then(Value::as_str)
+                .map(|raw| BASE64.decode(raw).unwrap_or_default());
             let data = item
                 .get("d")
                 .and_then(Value::as_str)
@@ -193,6 +229,9 @@ impl Payload {
                 name,
                 mime,
                 size,
+                blob_ref,
+                key,
+                nonce,
                 data,
             })
         });
@@ -220,6 +259,9 @@ mod tests {
             name: "pic.png".into(),
             mime: "image/png".into(),
             size: 3,
+            blob_ref: None,
+            key: None,
+            nonce: None,
             data: vec![1, 2, 3],
         };
         let payload = Payload::with_attachment("смотри", attachment.clone());

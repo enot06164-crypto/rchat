@@ -7,6 +7,7 @@
 //   30..=39 — прочие операции;
 //   40..=49 — групповые чаты и участники;
 //   50..=59 — сигнализация звонков;
+//   60..=69 — файлы (блобы);
 //   100     — общая ошибка ответа;
 //   >=200   — зарезервировано.
 
@@ -20,6 +21,7 @@ import "rchat/v1/chat.proto";
 import "rchat/v1/message.proto";
 import "rchat/v1/sync.proto";
 import "rchat/v1/call.proto";
+import "rchat/v1/blob.proto";
 
 message Envelope {
   // Идентификатор запроса для сопоставления ответа. Для push/hello может быть 0.
@@ -101,6 +103,11 @@ message Request {
     CallAcceptRequest call_accept = 51;
     CallDeclineRequest call_decline = 52;
     CallEndRequest call_end = 53;
+
+    UploadBlobRequest upload_blob = 60;
+    FinishBlobRequest finish_blob = 61;
+    DownloadBlobRequest download_blob = 62;
+    AbortBlobRequest abort_blob = 63;
   }
 }
 
@@ -139,6 +146,11 @@ message Response {
     CallAcceptResponse call_accept = 51;
     CallDeclineResponse call_decline = 52;
     CallEndResponse call_end = 53;
+
+    UploadBlobResponse upload_blob = 60;
+    FinishBlobResponse finish_blob = 61;
+    DownloadBlobResponse download_blob = 62;
+    AbortBlobResponse abort_blob = 63;
 
     Error error = 100;
   }

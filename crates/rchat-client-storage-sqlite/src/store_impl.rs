@@ -712,7 +712,7 @@ fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), 
         None => None,
     };
     conn.execute(
-        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"),
+        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)"),
         rusqlite::params![
             message.local_id,
             opt_to_sql_u64(message.server_id),
@@ -731,6 +731,9 @@ fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), 
             message.attachment.as_ref().map(|a| a.mime.as_str()),
             attachment_size,
             message.attachment.as_ref().map(|a| a.data.as_slice()),
+            message.attachment.as_ref().and_then(|a| a.blob_ref.as_deref()),
+            message.attachment.as_ref().and_then(|a| a.key.as_deref()),
+            message.attachment.as_ref().and_then(|a| a.nonce.as_deref()),
         ],
     )
     .map_err(|e| map_sql("insert_message", e))?;
@@ -885,7 +888,7 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
             tx.execute(
                 &format!(
                     "INSERT INTO messages({MESSAGE_COLUMNS})
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
                      ON CONFLICT DO NOTHING"
                 ),
                 rusqlite::params![
@@ -906,6 +909,9 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                     message.attachment.as_ref().map(|a| a.mime.as_str()),
                     attachment_size,
                     message.attachment.as_ref().map(|a| a.data.as_slice()),
+                    message.attachment.as_ref().and_then(|a| a.blob_ref.as_deref()),
+                    message.attachment.as_ref().and_then(|a| a.key.as_deref()),
+                    message.attachment.as_ref().and_then(|a| a.nonce.as_deref()),
                 ],
             )
             .map_err(|e| map_sql("sync insert_message", e))?;
@@ -944,6 +950,9 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                      attachment_mime = COALESCE(?7, attachment_mime),
                      attachment_size = COALESCE(?8, attachment_size),
                      attachment_data = COALESCE(?9, attachment_data),
+                     attachment_blob_ref = COALESCE(?10, attachment_blob_ref),
+                     attachment_key = COALESCE(?11, attachment_key),
+                     attachment_nonce = COALESCE(?12, attachment_nonce),
                      edited_at_ms = ?4
                  WHERE server_id = ?1",
                 rusqlite::params![
@@ -956,6 +965,9 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                     attachment.as_ref().map(|a| a.mime.as_str()),
                     attachment_size,
                     attachment.as_ref().map(|a| a.data.as_slice()),
+                    attachment.as_ref().and_then(|a| a.blob_ref.as_deref()),
+                    attachment.as_ref().and_then(|a| a.key.as_deref()),
+                    attachment.as_ref().and_then(|a| a.nonce.as_deref()),
                 ],
             )
             .map_err(|e| map_sql("sync edit_message", e))?;

@@ -338,6 +338,21 @@ pub trait CryptoProvider: Send + Sync {
     async fn rotate_group_session(&self, chat_id: &str) -> Result<(), CryptoError>;
     /// Удаляет сессию (отзыв устройства).
     async fn remove_session(&self, device_id: &str) -> Result<(), CryptoError>;
+    /// Симметричное шифрование файла (блоба): как в Telegram — файл шифруется
+    /// случайным ключом, ключ едет внутри зашифрованного сообщения, а сервер
+    /// видит только шифротекст. Возвращает (шифротекст, nonce).
+    async fn encrypt_blob(
+        &self,
+        key: &[u8; 32],
+        plaintext: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>), CryptoError>;
+    /// Расшифровка файла (блоба) симметричным ключом из сообщения.
+    async fn decrypt_blob(
+        &self,
+        key: &[u8; 32],
+        nonce: &[u8],
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, CryptoError>;
     /// Полностью удаляет локальное криптографическое состояние.
     async fn wipe(&self) -> Result<(), CryptoError>;
 }

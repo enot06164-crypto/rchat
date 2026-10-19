@@ -31,11 +31,18 @@ pub enum RepoError {
     /// Внутренняя ошибка (детали только в логах).
     #[error("internal: {0}")]
     Internal(String),
+    /// Отказ по правам (например, не владелец блоба).
+    #[error("forbidden: {0}")]
+    Forbidden(String),
 }
 
 impl RepoError {
     pub fn internal(error: impl std::fmt::Display) -> Self {
         Self::Internal(error.to_string())
+    }
+
+    pub fn forbidden(error: impl std::fmt::Display) -> Self {
+        Self::Forbidden(error.to_string())
     }
 }
 
@@ -306,4 +313,43 @@ pub trait Repo: Send + Sync {
 
     /// Максимальный seq журнала устройства (0, если журнал пуст).
     async fn max_seq_for_device(&self, device_id: &str) -> Result<u64, RepoError>;
+
+    // --- файлы (блобы) ---
+    // Загрузка идёт частями: сервер принимает шифротекст, не зная ключа.
+    /// Регистрирует незавершённую загрузку (или обновляет её чат/владельца).
+    async fn begin_blob(
+        &self,
+        blob_id: &str,
+        chat_id: &str,
+        owner_user_id: &str,
+        total_size: u64,
+        now_ms: u64,
+    ) -> Result<(), RepoError>;
+    /// Принимает часть файла по смещению; повтор той же части идемпотентна.
+    /// Возвращает, сколько байт уже принято.
+    async fn write_blob_part(
+        &self,
+        blob_id: &str,
+        offset: u64,
+        data: &[u8],
+        now_ms: u64,
+    ) -> Result<u64, RepoError>;
+    /// Фиксирует загрузку и выдаёт непрозрачную ссылку на блоб.
+    async fn finish_blob(
+        &self,
+        blob_id: &str,
+        total_size: u64,
+        now_ms: u64,
+    ) -> Result<String, RepoError>;
+    /// Читает часть блоба по ссылке: (данные, полный размер, признак конца).
+    async fn read_blob(
+        &self,
+        blob_ref: &str,
+        offset: u64,
+        length: u32,
+    ) -> Result<Option<(Vec<u8>, u64, bool)>, RepoError>;
+    /// Удаляет незавершённую загрузку (только её владелец).
+    async fn abort_blob(&self, blob_id: &str, owner_user_id: &str) -> Result<(), RepoError>;
+    /// Чат, к которому привязан блоб (по его ссылке) — для проверки прав.
+    async fn blob_chat(&self, blob_ref: &str) -> Result<Option<String>, RepoError>;
 }

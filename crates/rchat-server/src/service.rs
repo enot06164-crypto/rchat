@@ -258,6 +258,22 @@ impl Server {
                 let auth = self.authed(state)?;
                 self.handle_call_decline(&auth, request).await?
             }
+            M::UploadBlob(request) => {
+                let auth = self.authed(state)?;
+                self.handle_upload_blob(&auth, request).await?
+            }
+            M::FinishBlob(request) => {
+                let auth = self.authed(state)?;
+                self.handle_finish_blob(&auth, request).await?
+            }
+            M::DownloadBlob(request) => {
+                let auth = self.authed(state)?;
+                self.handle_download_blob(&auth, request).await?
+            }
+            M::AbortBlob(request) => {
+                let auth = self.authed(state)?;
+                self.handle_abort_blob(&auth, request).await?
+            }
             M::CallEnd(request) => {
                 let auth = self.authed(state)?;
                 self.handle_call_end(&auth, request).await?
@@ -2056,6 +2072,100 @@ impl Server {
                 message: Some(view),
             },
         ))
+    }
+
+    // -----------------------------------------------------------------
+    // Файлы (блобы): сервер принимает и отдаёт шифротекст, не зная ключа.
+    // -----------------------------------------------------------------
+    async fn handle_upload_blob(
+        &self,
+        auth: &AuthContext,
+        request: proto::UploadBlobRequest,
+    ) -> Result<response::Result, ServerError> {
+        let (_, members, _) = self.members_and_devices(&request.chat_id).await?;
+        if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+            return Err(ServerError::forbidden("not a member of this chat"));
+        }
+        if request.blob_id.is_empty() {
+            return Err(ServerError::invalid_request("blob_id is required"));
+        }
+        let now = rchat_proto::now_ms();
+        self.repo
+            .begin_blob(
+                &request.blob_id,
+                &request.chat_id,
+                &auth.user.user_id,
+                request.total_size as u64,
+                now,
+            )
+            .await?;
+        let received = self
+            .repo
+            .write_blob_part(&request.blob_id, request.offset, &request.data, now)
+            .await?;
+        Ok(response::Result::UploadBlob(proto::UploadBlobResponse {
+            received,
+        }))
+    }
+
+    async fn handle_finish_blob(
+        &self,
+        auth: &AuthContext,
+        request: proto::FinishBlobRequest,
+    ) -> Result<response::Result, ServerError> {
+        let (_, members, _) = self.members_and_devices(&request.chat_id).await?;
+        if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+            return Err(ServerError::forbidden("not a member of this chat"));
+        }
+        let now = rchat_proto::now_ms();
+        let token = self
+            .repo
+            .finish_blob(&request.blob_id, request.total_size as u64, now)
+            .await?;
+        Ok(response::Result::FinishBlob(proto::FinishBlobResponse {
+            blob_ref: token,
+            size: request.total_size,
+        }))
+    }
+
+    async fn handle_download_blob(
+        &self,
+        auth: &AuthContext,
+        request: proto::DownloadBlobRequest,
+    ) -> Result<response::Result, ServerError> {
+        let Some((data, total_size, eof)) = self
+            .repo
+            .read_blob(&request.blob_ref, request.offset, request.length)
+            .await?
+        else {
+            return Err(ServerError::not_found("blob not found"));
+        };
+        // Скачать файл может только участник чата, к которому файл привязан.
+        let blob_chat = self.repo.blob_chat(&request.blob_ref).await?;
+        if let Some(chat_id) = blob_chat {
+            let (_, members, _) = self.members_and_devices(&chat_id).await?;
+            if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+                return Err(ServerError::forbidden("not a member of this chat"));
+            }
+        }
+        Ok(response::Result::DownloadBlob(
+            proto::DownloadBlobResponse {
+                data,
+                total_size: total_size as u32,
+                eof,
+            },
+        ))
+    }
+
+    async fn handle_abort_blob(
+        &self,
+        auth: &AuthContext,
+        request: proto::AbortBlobRequest,
+    ) -> Result<response::Result, ServerError> {
+        self.repo
+            .abort_blob(&request.blob_id, &auth.user.user_id)
+            .await?;
+        Ok(response::Result::AbortBlob(proto::AbortBlobResponse {}))
     }
 
     async fn handle_mark_receipt(

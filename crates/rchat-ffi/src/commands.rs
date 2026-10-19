@@ -153,17 +153,18 @@ pub(crate) async fn dispatch(
         }
         "download_attachment" => {
             let server_id = u64_field(request, "server_id")?;
-            let message = handle
+            // Ядро само скачивает блоб с сервера и расшифровывает его ключом
+            // из сообщения (файл едет отдельным блобом, как в Telegram).
+            let attachment = handle
                 .client
-                .message_by_server_id(server_id)
+                .attachment_content(server_id)
                 .await?
-                .ok_or_else(|| FfiError::new("not_found", format!("message {server_id}")))?;
-            let attachment = message.attachment.ok_or_else(|| {
-                FfiError::new(
-                    "not_found",
-                    format!("message {server_id} has no attachment"),
-                )
-            })?;
+                .ok_or_else(|| {
+                    FfiError::new(
+                        "not_found",
+                        format!("message {server_id} has no attachment"),
+                    )
+                })?;
             Ok(json!({
                 "kind": attachment.kind.as_str(),
                 "name": attachment.name,
@@ -388,6 +389,9 @@ fn parse_attachment(item: &Value) -> Result<Attachment, FfiError> {
         name,
         mime,
         size,
+        blob_ref: None,
+        key: None,
+        nonce: None,
         data,
     };
     attachment.validate().map_err(FfiError::invalid)?;

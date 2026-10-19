@@ -1,0 +1,66 @@
+// Канал файлов (блобов), аналог загрузки файлов в Telegram.
+//
+// Файл шифруется клиентом **до** загрузки (случайный симметричный ключ),
+// поэтому сервер хранит только шифротекст, а ключ едет внутри сообщения.
+// Загрузка идёт частями, чтобы не упираться в лимит кадра.
+
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+// Загрузка части файла. `blob_id` выбирает клиент: он же используется как
+// ключ докачки (повторная загрузка той же части идемпотентна).
+message UploadBlobRequest {
+  // Идентификатор загрузки на стороне клиента.
+  string blob_id = 1;
+  // Чат, для которого предназначен файл (проверяется при скачивании).
+  string chat_id = 2;
+  // Смещение в файле, с которого начинается эта часть.
+  uint64 offset = 3;
+  // Полный размер файла (известен сразу).
+  uint32 total_size = 4;
+  // Часть (шифротекста) файла.
+  bytes data = 5;
+}
+
+message UploadBlobResponse {
+  // Сколько байт сервер уже принял (ack для докачки).
+  uint64 received = 1;
+}
+
+// Завершение загрузки: сервер фиксирует размер и выдаёт ссылку на блоб.
+message FinishBlobRequest {
+  string blob_id = 1;
+  string chat_id = 2;
+  uint32 total_size = 3;
+}
+
+message FinishBlobResponse {
+  // Непрозрачная ссылка на блоб (без неё файл не скачать).
+  string blob_ref = 1;
+  // Размер файла в байтах.
+  uint32 size = 2;
+}
+
+// Скачивание части файла.
+message DownloadBlobRequest {
+  string blob_ref = 1;
+  uint64 offset = 2;
+  uint32 length = 3;
+}
+
+message DownloadBlobResponse {
+  // Часть (шифротекста) файла.
+  bytes data = 1;
+  // Полный размер файла.
+  uint32 total_size = 2;
+  // Прочитан весь файл.
+  bool eof = 3;
+}
+
+// Отмена незавершённой загрузки.
+message AbortBlobRequest {
+  string blob_id = 1;
+}
+
+message AbortBlobResponse {}

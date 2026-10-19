@@ -1199,6 +1199,222 @@ impl Repo for SqliteRepo {
         .await
     }
 
+    // ------------------------------------------------------------------
+    // Файлы (блобы): сервер хранит только шифротекст, ключ остаётся в
+    // сообщении. Части докачиваются по смещению.
+    // ------------------------------------------------------------------
+    async fn begin_blob(
+        &self,
+        blob_id: &str,
+        chat_id: &str,
+        owner_user_id: &str,
+        total_size: u64,
+        now_ms: u64,
+    ) -> Result<(), RepoError> {
+        let blob_id = blob_id.to_string();
+        let chat_id = chat_id.to_string();
+        let owner_user_id = owner_user_id.to_string();
+        self.call(move |conn| {
+            conn.execute(
+                "INSERT INTO blobs(blob_id, token, chat_id, owner_user_id, total_size, received,
+                                   created_at_ms, updated_at_ms, completed)
+                 VALUES(?1, '', ?2, ?3, ?4, 0, ?5, ?5, 0)
+                 ON CONFLICT(blob_id) DO UPDATE SET
+                     chat_id = excluded.chat_id,
+                     owner_user_id = excluded.owner_user_id,
+                     total_size = excluded.total_size,
+                     updated_at_ms = excluded.updated_at_ms",
+                params![
+                    blob_id,
+                    chat_id,
+                    owner_user_id,
+                    total_size as i64,
+                    now_ms as i64
+                ],
+            )
+            .map_err(|e| RepoError::internal(format!("begin blob: {e}")))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn write_blob_part(
+        &self,
+        blob_id: &str,
+        offset: u64,
+        data: &[u8],
+        now_ms: u64,
+    ) -> Result<u64, RepoError> {
+        let blob_id = blob_id.to_string();
+        let data = data.to_vec();
+        self.call(move |conn| {
+            let existing: i64 = conn
+                .query_row(
+                    "SELECT received FROM blobs WHERE blob_id = ?1",
+                    params![blob_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| RepoError::internal(format!("blob state: {e}")))?;
+            let total: i64 = conn
+                .query_row(
+                    "SELECT total_size FROM blobs WHERE blob_id = ?1",
+                    params![blob_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| RepoError::internal(format!("blob size: {e}")))?;
+            let received = existing.max(0) as u64;
+            // Часть за пределами объявленного размера — ошибка протокола.
+            if offset + data.len() as u64 > total.max(0) as u64 {
+                return Err(RepoError::internal("blob part exceeds total size"));
+            }
+            conn.execute(
+                "INSERT INTO blob_parts(blob_id, offset, data) VALUES(?1, ?2, ?3)
+                 ON CONFLICT(blob_id, offset) DO UPDATE SET data = excluded.data",
+                params![blob_id, offset as i64, data],
+            )
+            .map_err(|e| RepoError::internal(format!("write blob part: {e}")))?;
+            let new_received = received.max(offset + data.len() as u64);
+            conn.execute(
+                "UPDATE blobs SET received = ?2, updated_at_ms = ?3 WHERE blob_id = ?1",
+                params![blob_id, new_received as i64, now_ms as i64],
+            )
+            .map_err(|e| RepoError::internal(format!("update blob: {e}")))?;
+            Ok(new_received)
+        })
+        .await
+    }
+
+    async fn finish_blob(
+        &self,
+        blob_id: &str,
+        total_size: u64,
+        now_ms: u64,
+    ) -> Result<String, RepoError> {
+        let blob_id = blob_id.to_string();
+        self.call(move |conn| {
+            let received: i64 = conn
+                .query_row(
+                    "SELECT received FROM blobs WHERE blob_id = ?1",
+                    params![blob_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| RepoError::internal(format!("blob state: {e}")))?;
+            if received.max(0) as u64 != total_size {
+                return Err(RepoError::internal(format!(
+                    "blob upload incomplete: {received} of {total_size}"
+                )));
+            }
+            // Ссылка непрозрачная: без неё файл не достать.
+            let token = format!("{}.{}", blob_id, total_size);
+            conn.execute(
+                "UPDATE blobs SET token = ?2, completed = 1, updated_at_ms = ?3 WHERE blob_id = ?1",
+                params![blob_id, token, now_ms as i64],
+            )
+            .map_err(|e| RepoError::internal(format!("finish blob: {e}")))?;
+            Ok(token)
+        })
+        .await
+    }
+
+    async fn read_blob(
+        &self,
+        blob_ref: &str,
+        offset: u64,
+        length: u32,
+    ) -> Result<Option<(Vec<u8>, u64, bool)>, RepoError> {
+        let blob_ref = blob_ref.to_string();
+        self.call(move |conn| {
+            let row: Option<(String, i64, i64)> = conn
+                .query_row(
+                    "SELECT blob_id, total_size, completed FROM blobs WHERE token = ?1",
+                    params![blob_ref],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .ok();
+            let Some((blob_id, total_size, completed)) = row else {
+                return Ok(None);
+            };
+            if completed == 0 {
+                return Ok(None);
+            }
+            let total = total_size.max(0) as u64;
+            let start = offset.min(total);
+            let end = (offset + length as u64).min(total);
+            let mut out = Vec::with_capacity((end - start) as usize);
+            if start < end {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT offset, data FROM blob_parts
+                         WHERE blob_id = ?1 AND offset < ?2 ORDER BY offset",
+                    )
+                    .map_err(|e| RepoError::internal(format!("blob parts: {e}")))?;
+                let parts = stmt
+                    .query_map(params![blob_id, end as i64], |row| {
+                        Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+                    })
+                    .map_err(|e| RepoError::internal(format!("blob parts query: {e}")))?;
+                for part in parts {
+                    let (part_offset, part_data) =
+                        part.map_err(|e| RepoError::internal(format!("blob part row: {e}")))?;
+                    let part_start = part_offset.max(0) as u64;
+                    let part_end = part_start + part_data.len() as u64;
+                    if part_end <= start {
+                        continue;
+                    }
+                    let from = start.saturating_sub(part_start) as usize;
+                    let to = (end.saturating_sub(part_start) as usize).min(part_data.len());
+                    if from < to {
+                        out.extend_from_slice(&part_data[from..to]);
+                    }
+                }
+            }
+            let eof = end >= total;
+            Ok(Some((out, total, eof)))
+        })
+        .await
+    }
+
+    async fn blob_chat(&self, blob_ref: &str) -> Result<Option<String>, RepoError> {
+        let blob_ref = blob_ref.to_string();
+        self.call(move |conn| {
+            let chat_id: Option<String> = conn
+                .query_row(
+                    "SELECT chat_id FROM blobs WHERE token = ?1",
+                    params![blob_ref],
+                    |row| row.get(0),
+                )
+                .ok();
+            Ok(chat_id)
+        })
+        .await
+    }
+
+    async fn abort_blob(&self, blob_id: &str, owner_user_id: &str) -> Result<(), RepoError> {
+        let blob_id = blob_id.to_string();
+        let owner_user_id = owner_user_id.to_string();
+        self.call(move |conn| {
+            let owner: Option<String> = conn
+                .query_row(
+                    "SELECT owner_user_id FROM blobs WHERE blob_id = ?1",
+                    params![blob_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            if owner.as_deref() != Some(owner_user_id.as_str()) {
+                return Err(RepoError::forbidden("not the blob owner"));
+            }
+            conn.execute(
+                "DELETE FROM blob_parts WHERE blob_id = ?1",
+                params![blob_id],
+            )
+            .map_err(|e| RepoError::internal(format!("abort blob parts: {e}")))?;
+            conn.execute("DELETE FROM blobs WHERE blob_id = ?1", params![blob_id])
+                .map_err(|e| RepoError::internal(format!("abort blob: {e}")))?;
+            Ok(())
+        })
+        .await
+    }
+
     async fn max_seq_for_device(&self, device_id: &str) -> Result<u64, RepoError> {
         let device_id = device_id.to_string();
         self.call(move |conn| {

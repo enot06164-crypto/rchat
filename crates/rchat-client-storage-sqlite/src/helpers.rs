@@ -75,16 +75,25 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
     let attachment_mime: Option<String> = row.get(14)?;
     let attachment_size: Option<i64> = row.get(15)?;
     let attachment_data: Option<Vec<u8>> = row.get(16)?;
-    let attachment = match (attachment_kind, attachment_data) {
-        (Some(kind), Some(data)) => Some(Attachment {
-            kind: AttachmentKind::parse(&kind).unwrap_or(AttachmentKind::File),
-            name: attachment_name.unwrap_or_default(),
-            mime: attachment_mime.unwrap_or_default(),
-            size: attachment_size
-                .map(from_sql_u64)
-                .unwrap_or(data.len() as u64),
-            data,
-        }),
+    let attachment_blob_ref: Option<String> = row.get(17)?;
+    let attachment_key: Option<Vec<u8>> = row.get(18)?;
+    let attachment_nonce: Option<Vec<u8>> = row.get(19)?;
+    let attachment = match (attachment_kind, attachment_data, attachment_blob_ref) {
+        (Some(kind), data, blob_ref) => {
+            let data = data.unwrap_or_default();
+            Some(Attachment {
+                kind: AttachmentKind::parse(&kind).unwrap_or(AttachmentKind::File),
+                name: attachment_name.unwrap_or_default(),
+                mime: attachment_mime.unwrap_or_default(),
+                size: attachment_size
+                    .map(from_sql_u64)
+                    .unwrap_or(data.len() as u64),
+                blob_ref,
+                key: attachment_key,
+                nonce: attachment_nonce,
+                data,
+            })
+        }
         _ => None,
     };
     Ok(MessageRecord {
@@ -107,7 +116,8 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
 pub(crate) const MESSAGE_COLUMNS: &str = "local_id, server_id, chat_id, sender_user_id, \
      sender_device_id, content_kind, body, reply_to_server_id, status, created_at_ms, \
      edited_at_ms, deleted_at_ms, attachment_kind, attachment_name, attachment_mime, \
-     attachment_size, attachment_data";
+     attachment_size, attachment_data, attachment_blob_ref, attachment_key, \
+     attachment_nonce";
 
 /// Строка `outbox` → доменная запись. Позиции колонок фиксированы
 /// константой [`OUTBOX_COLUMNS`].
