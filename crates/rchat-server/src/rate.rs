@@ -100,6 +100,14 @@ impl RateLimiter {
             Duration::from_secs(60),
         )
     }
+
+    pub fn call_invite_allowed(&self, user_id: &str) -> bool {
+        self.check(
+            &format!("call-invite:{user_id}"),
+            self.limits.call_invite_per_minute,
+            Duration::from_secs(60),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -112,6 +120,7 @@ mod tests {
             register_per_hour: 2,
             login_per_5min: 2,
             send_per_minute: 2,
+            call_invite_per_minute: 2,
         });
         let now = Instant::now();
         assert!(limiter.check_at("k", 2, Duration::from_secs(60), now));

@@ -4,6 +4,7 @@
 use rchat_proto::proto;
 use rchat_proto::proto::sync_event;
 
+use crate::calls::{ActiveCall, CallState};
 use crate::error::ServerError;
 use crate::model::{
     ChatRecord, DeviceRecord, MemberRecord, MessageRecord, ReceiptRecord, RecipientRecord,
@@ -248,6 +249,41 @@ pub fn push_presence(user_id: &str, online: bool, updated_at_ms: u64) -> proto::
                         updated_at_ms,
                     },
                 )),
+            })),
+        })),
+    }
+}
+
+pub fn call_to_proto(call: &ActiveCall) -> proto::Call {
+    proto::Call {
+        call_id: call.call_id.clone(),
+        chat_id: call.chat_id.clone(),
+        caller_user_id: call.caller_user_id.clone(),
+        callee_user_id: call.callee_user_id.clone(),
+        state: match call.state {
+            CallState::Ringing => proto::CallState::Ringing as i32,
+            CallState::Active => proto::CallState::Active as i32,
+        },
+        created_at_ms: call.created_at_ms,
+        accepted_at_ms: call.accepted_at_ms,
+    }
+}
+
+/// Envelope с transient-событием звонка.
+pub fn push_call_event(
+    call: &ActiveCall,
+    kind: proto::CallEventKind,
+    at_ms: u64,
+) -> proto::Envelope {
+    proto::Envelope {
+        request_id: 0,
+        body: Some(proto::envelope::Body::Push(proto::Push {
+            event: Some(proto::push::Event::Transient(proto::TransientEvent {
+                event: Some(proto::transient_event::Event::Call(proto::CallEvent {
+                    call: Some(call_to_proto(call)),
+                    kind: kind as i32,
+                    at_ms,
+                })),
             })),
         })),
     }

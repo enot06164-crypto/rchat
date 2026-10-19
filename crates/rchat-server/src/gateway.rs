@@ -60,6 +60,7 @@ pub const SERVER_CAPABILITIES: &[&str] = &[
     rchat_proto::caps::SNAPSHOT,
     rchat_proto::caps::E2E_OLM_V1,
     rchat_proto::caps::GROUPS,
+    rchat_proto::caps::CALLS,
 ];
 
 /// Результат согласования протокола.
@@ -185,6 +186,9 @@ pub async fn run_connection(server: Arc<Server>, mut conn: Box<dyn ServerConn>, 
                     server
                         .broadcast_presence(&old_user, false, Some(&old_device))
                         .await;
+                    if !server.connections().is_online(&old_user) {
+                        server.end_calls_for_user(&old_user);
+                    }
                 }
                 let (id, rx) = server.connections().register(&key.0, &key.1, 64);
                 conn_id = Some(id);
@@ -200,6 +204,9 @@ pub async fn run_connection(server: Arc<Server>, mut conn: Box<dyn ServerConn>, 
                 }
                 push_rx = None;
                 server.broadcast_presence(&user, false, Some(&device)).await;
+                if !server.connections().is_online(&user) {
+                    server.end_calls_for_user(&user);
+                }
             }
         }
         conn_state.just_authenticated = false;
@@ -213,6 +220,7 @@ pub async fn run_connection(server: Arc<Server>, mut conn: Box<dyn ServerConn>, 
     if let Some((user, device)) = registered.take() {
         if !server.connections().is_online(&user) {
             server.broadcast_presence(&user, false, Some(&device)).await;
+            server.end_calls_for_user(&user);
         }
     }
     let _ = conn.close("connection closed").await;

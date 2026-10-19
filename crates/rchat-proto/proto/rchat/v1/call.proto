@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package rchat.proto.v1;
+
+// ---------------------------------------------------------------------------
+// Сигнализация звонков (без медиа).
+//
+// Сервер только хранит состояние звонка в памяти и пересылает события
+// участникам личного чата: приглашение, принятие, отклонение, завершение.
+// Медиа (WebRTC и т.п.) и групповые звонки в v1 не поддерживаются.
+//
+// Calls are ephemeral: состояние не журналируется и не переживает рестарт
+// сервера. Приглашение возможно, только если абонент в сети; события
+// доставляются best-effort всем активным устройствам участника.
+// ---------------------------------------------------------------------------
+
+enum CallState {
+  CALL_STATE_UNSPECIFIED = 0;
+  CALL_STATE_RINGING = 1;
+  CALL_STATE_ACTIVE = 2;
+}
+
+enum CallEventKind {
+  CALL_EVENT_KIND_UNSPECIFIED = 0;
+  CALL_EVENT_KIND_INVITED = 1;
+  CALL_EVENT_KIND_ACCEPTED = 2;
+  CALL_EVENT_KIND_DECLINED = 3;
+  CALL_EVENT_KIND_ENDED = 4;
+}
+
+message Call {
+  string call_id = 1;
+  string chat_id = 2;
+  string caller_user_id = 3;
+  string callee_user_id = 4;
+  CallState state = 5;
+  uint64 created_at_ms = 6;
+  // 0, пока звонок не принят.
+  uint64 accepted_at_ms = 7;
+}
+
+message CallInviteRequest {
+  // Только личный чат; в группах сигнализация звонков не поддерживается.
+  string chat_id = 1;
+}
+
+message CallInviteResponse {
+  Call call = 1;
+}
+
+message CallAcceptRequest {
+  string call_id = 1;
+}
+
+message CallAcceptResponse {
+  Call call = 1;
+}
+
+message CallDeclineRequest {
+  string call_id = 1;
+}
+
+message CallDeclineResponse {
+  Call call = 1;
+}
+
+message CallEndRequest {
+  string call_id = 1;
+}
+
+message CallEndResponse {
+  Call call = 1;
+}
+
+// Transient push-событие звонка. В журнал синхронизации не попадает: если
+// устройство офлайн, событие теряется (состояние звонка всё равно живёт на
+// сервере до завершения/таймаута).
+message CallEvent {
+  Call call = 1;
+  CallEventKind kind = 2;
+  uint64 at_ms = 3;
+}

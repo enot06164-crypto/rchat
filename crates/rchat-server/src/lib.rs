@@ -4,6 +4,7 @@
 //! (SQLite-реализация — `rchat-server-storage-sqlite`). Сеть (TLS/WebSocket)
 //! живёт в бинарнике сервера; gateway работает через [`gateway::ServerConn`].
 
+pub mod calls;
 pub mod config;
 pub mod delivery;
 pub mod error;
@@ -15,6 +16,7 @@ pub mod rate;
 pub mod repo;
 pub mod service;
 
+pub use calls::{ActiveCall, CallError, CallRegistry, CallState};
 pub use config::{Argon2Params, RateLimits, ServerConfig};
 pub use delivery::Connections;
 pub use error::ServerError;

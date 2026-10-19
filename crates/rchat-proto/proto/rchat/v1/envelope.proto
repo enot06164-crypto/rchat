@@ -6,6 +6,7 @@
 //   20..=29 — синхронизация;
 //   30..=39 — прочие операции;
 //   40..=49 — групповые чаты и участники;
+//   50..=59 — сигнализация звонков;
 //   100     — общая ошибка ответа;
 //   >=200   — зарезервировано.
 
@@ -18,6 +19,7 @@ import "rchat/v1/auth.proto";
 import "rchat/v1/chat.proto";
 import "rchat/v1/message.proto";
 import "rchat/v1/sync.proto";
+import "rchat/v1/call.proto";
 
 message Envelope {
   // Идентификатор запроса для сопоставления ответа. Для push/hello может быть 0.
@@ -94,6 +96,11 @@ message Request {
     LeaveChatRequest leave_chat = 42;
     RemoveChatMemberRequest remove_chat_member = 43;
     RenameChatRequest rename_chat = 44;
+
+    CallInviteRequest call_invite = 50;
+    CallAcceptRequest call_accept = 51;
+    CallDeclineRequest call_decline = 52;
+    CallEndRequest call_end = 53;
   }
 }
 
@@ -127,6 +134,11 @@ message Response {
     LeaveChatResponse leave_chat = 42;
     RemoveChatMemberResponse remove_chat_member = 43;
     RenameChatResponse rename_chat = 44;
+
+    CallInviteResponse call_invite = 50;
+    CallAcceptResponse call_accept = 51;
+    CallDeclineResponse call_decline = 52;
+    CallEndResponse call_end = 53;
 
     Error error = 100;
   }

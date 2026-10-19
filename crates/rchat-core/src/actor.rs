@@ -419,11 +419,37 @@ impl Ctx<'_> {
         match push.event {
             Some(push::Event::SyncEvent(event)) => self.handle_sync_event(event).await,
             Some(push::Event::Transient(transient)) => {
-                if let Some(transient_event::Event::Presence(presence)) = transient.event {
-                    self.inner.emit(UiEvent::PresenceChanged {
-                        user_id: presence.user_id,
-                        online: presence.online,
-                    });
+                match transient.event {
+                    Some(transient_event::Event::Presence(presence)) => {
+                        self.inner.emit(UiEvent::PresenceChanged {
+                            user_id: presence.user_id,
+                            online: presence.online,
+                        });
+                    }
+                    Some(transient_event::Event::Call(event)) => {
+                        let Some(call) = event.call.as_ref() else {
+                            return Ok(());
+                        };
+                        let call = convert::call_from_proto(call);
+                        match proto::CallEventKind::try_from(event.kind) {
+                            Ok(proto::CallEventKind::Invited) => {
+                                self.inner.emit(UiEvent::CallInvited(call));
+                            }
+                            Ok(proto::CallEventKind::Accepted) => {
+                                self.inner.emit(UiEvent::CallAccepted(call));
+                            }
+                            Ok(proto::CallEventKind::Declined) => {
+                                self.inner.emit(UiEvent::CallDeclined(call));
+                            }
+                            Ok(proto::CallEventKind::Ended) => {
+                                self.inner.emit(UiEvent::CallEnded(call));
+                            }
+                            _ => {
+                                warn!(kind = event.kind, "unknown call event kind; ignored");
+                            }
+                        }
+                    }
+                    None => {}
                 }
                 Ok(())
             }
@@ -1949,6 +1975,8 @@ fn client_capabilities(inner: &Inner) -> Vec<String> {
         rchat_proto::caps::MULTI_DEVICE.to_string(),
         rchat_proto::caps::HISTORY.to_string(),
         rchat_proto::caps::SNAPSHOT.to_string(),
+        rchat_proto::caps::GROUPS.to_string(),
+        rchat_proto::caps::CALLS.to_string(),
     ];
     if inner.crypto.is_some() {
         caps.push(rchat_proto::caps::E2E_OLM_V1.to_string());

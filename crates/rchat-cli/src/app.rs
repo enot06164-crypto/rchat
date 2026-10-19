@@ -8,14 +8,14 @@ use std::time::Duration;
 use rchat_client_storage_sqlite::{ClientSqliteStorage, EncryptedFileSecretStore};
 use rchat_core::client::{Client, ClientBuilder};
 use rchat_core::config::ClientConfig;
-use rchat_core::events::{EventError, UiEvent};
+use rchat_core::events::{EventError, EventSubscription, UiEvent};
 use rchat_core::traits::{secret_keys, SecretStore, Storage};
 use rchat_core::types::{ChatRecord, MessageStatus, SyncProgress};
 use rchat_crypto_provider::VodozemacCryptoProvider;
 use rchat_transport_ws::{TlsTrust, WsTransportConfig, WsTransportFactory};
 use zeroize::Zeroizing;
 
-use crate::cli::{Cli, Command, GroupCommand, PasswordArgs};
+use crate::cli::{CallCommand, Cli, Command, GroupCommand, PasswordArgs};
 use crate::format;
 
 /// Ошибки CLI: сообщения уже сформулированы для человека, поэтому
@@ -222,6 +222,7 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Group { command } => group(ctx, command).await,
+        Command::Call { command } => call(ctx, command).await,
         Command::Send {
             chat,
             text,
@@ -442,6 +443,99 @@ async fn group(ctx: &Context, command: GroupCommand) -> Result<()> {
     }
 }
 
+/// Сигнализация звонка: медиа нет, сервер лишь пересылает события.
+async fn call(ctx: &Context, command: CallCommand) -> Result<()> {
+    match command {
+        CallCommand::Invite { chat, wait } => {
+            let chat = resolve_chat(ctx, &chat).await?;
+            if chat.kind != rchat_proto::proto::ChatKind::Direct {
+                return Err(format!(
+                    "чат {} — {}; звонки поддерживаются только в личных чатах",
+                    chat.chat_id,
+                    format::chat_kind(chat.kind)
+                )
+                .into());
+            }
+            // Подписка до запроса: иначе быстрый accept мог бы прийти
+            // раньше, чем мы начнём слушать.
+            let events = wait.then(|| ctx.client.subscribe());
+            let call = ctx.client.call_invite(&chat.chat_id).await?;
+            println!(
+                "Звонок {}: приглашение отправлено в «{}».",
+                call.call_id, chat.title
+            );
+            if !wait {
+                println!(
+                    "Это только сигнализация (медиа нет). Ответ: call accept {} или call decline {}.\n\
+                     Без --wait процесс завершится и звонок будет снят.",
+                    call.call_id, call.call_id
+                );
+                return Ok(());
+            }
+            println!(
+                "Ожидаю ответа (Ctrl+C — завершить звонок). Принять: call accept {}.",
+                call.call_id
+            );
+            wait_for_call(ctx, &call.call_id, events.expect("subscription for --wait")).await
+        }
+        CallCommand::Accept { call_id } => {
+            let call = ctx.client.call_accept(&call_id).await?;
+            println!("Звонок принят: {}", format::call_line(&call));
+            Ok(())
+        }
+        CallCommand::Decline { call_id } => {
+            let call = ctx.client.call_decline(&call_id).await?;
+            println!("Звонок отклонён: {}", format::call_line(&call));
+            Ok(())
+        }
+        CallCommand::End { call_id } => {
+            let call = ctx.client.call_end(&call_id).await?;
+            println!("Звонок завершён: {}", format::call_line(&call));
+            Ok(())
+        }
+    }
+}
+
+/// Ожидает ответа на приглашение, удерживая соединение (сигнализация).
+async fn wait_for_call(ctx: &Context, call_id: &str, mut events: EventSubscription) -> Result<()> {
+    let mut deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                let _ = ctx.client.call_end(call_id).await;
+                println!("Звонок завершён.");
+                return Ok(());
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                let _ = ctx.client.call_end(call_id).await;
+                println!("Нет ответа; звонок завершён.");
+                return Ok(());
+            }
+            event = events.next() => match event {
+                Ok(UiEvent::CallAccepted(call)) if call.call_id == call_id => {
+                    println!("[звонок] принят: {}", format::call_line(&call));
+                    println!("Сигнализация установлена (медиа нет). Ctrl+C — завершить.");
+                    // Активный звонок не ограничен кольцевым таймаутом.
+                    deadline = tokio::time::Instant::now() + Duration::from_secs(4 * 60 * 60);
+                }
+                Ok(UiEvent::CallDeclined(call)) if call.call_id == call_id => {
+                    println!("[звонок] отклонён: {}", format::call_line(&call));
+                    return Ok(());
+                }
+                Ok(UiEvent::CallEnded(call)) if call.call_id == call_id => {
+                    println!("[звонок] завершён: {}", format::call_line(&call));
+                    return Ok(());
+                }
+                Ok(_) => {}
+                Err(EventError::Lagged(missed)) => {
+                    println!("[события] пропущено {missed}; состояние звонка на сервере");
+                }
+                Err(EventError::Closed) => return Err("поток событий закрыт".into()),
+            }
+        }
+    }
+}
+
 /// Находит групповой чат и проверяет, что это действительно группа.
 async fn resolve_group(ctx: &Context, reference: &str) -> Result<ChatRecord> {
     let chat = resolve_chat(ctx, reference).await?;
@@ -646,6 +740,22 @@ fn print_event(event: &UiEvent) {
                     "не в сети"
                 }
             );
+        }
+        UiEvent::CallInvited(call) => {
+            println!("[звонок] входящий: {}", format::call_line(call));
+            println!(
+                "          принять: call accept {} / отклонить: call decline {}",
+                call.call_id, call.call_id
+            );
+        }
+        UiEvent::CallAccepted(call) => {
+            println!("[звонок] принят: {}", format::call_line(call));
+        }
+        UiEvent::CallDeclined(call) => {
+            println!("[звонок] отклонён: {}", format::call_line(call));
+        }
+        UiEvent::CallEnded(call) => {
+            println!("[звонок] завершён: {}", format::call_line(call));
         }
         UiEvent::SyncProgress(progress) => print_sync(*progress),
         UiEvent::ResyncPerformed { up_to_seq } => {

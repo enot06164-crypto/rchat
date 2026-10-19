@@ -7,7 +7,8 @@
 use tokio::sync::broadcast;
 
 use crate::types::{
-    ChatRecord, ConnectionState, MessageRecord, OutboxState, ReceiptRecord, SyncProgress,
+    CallRecord, ChatRecord, ConnectionState, MessageRecord, OutboxState, ReceiptRecord,
+    SyncProgress,
 };
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,15 @@ pub enum UiEvent {
         user_id: String,
         online: bool,
     },
+    /// Входящий звонок (ringing; только сигнализация).
+    CallInvited(CallRecord),
+    /// Звонок принят (ringing → active); событие видят все устройства
+    /// участников, включая принявшего.
+    CallAccepted(CallRecord),
+    /// Звонок отклонён callee.
+    CallDeclined(CallRecord),
+    /// Звонок завершён (явно, по таймауту или из-за ухода в офлайн).
+    CallEnded(CallRecord),
     SyncProgress(SyncProgress),
     /// Выполнен snapshot после `ResyncRequired`.
     ResyncPerformed {

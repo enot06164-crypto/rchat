@@ -7,10 +7,11 @@
 
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
 
 use rchat_testkit::TestServer;
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdout, Command};
 
 /// Поднимает сервер на указанном каталоге БД (для рестартов с той же БД).
 async fn start_server_in(db_dir: &Path) -> TestServer {
@@ -66,6 +67,68 @@ fn assert_ok(code: i32, stdout: &str, stderr: &str, context: &str) {
         code, 0,
         "{context}: код {code}\nstdout: {stdout}\nstderr: {stderr}"
     );
+}
+
+/// Запускает `watch` с захватом stdout для чтения событий по строкам.
+async fn spawn_watch(data_dir: &Path, port: u16) -> Child {
+    Command::new(env!("CARGO_BIN_EXE_rchat-cli"))
+        .arg("--server")
+        .arg(format!("ws://127.0.0.1:{port}"))
+        .arg("--data-dir")
+        .arg(data_dir)
+        .arg("watch")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn watch")
+}
+
+/// Запускает `call invite --wait` с захватом stdout.
+async fn spawn_call_invite(data_dir: &Path, port: u16, chat_id: &str) -> Child {
+    Command::new(env!("CARGO_BIN_EXE_rchat-cli"))
+        .arg("--server")
+        .arg(format!("ws://127.0.0.1:{port}"))
+        .arg("--data-dir")
+        .arg(data_dir)
+        .args(["call", "invite", chat_id, "--wait"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn call invite")
+}
+
+/// Читает строки до первой, содержащей `needle` (с общим таймаутом).
+async fn read_until_line(
+    reader: &mut BufReader<ChildStdout>,
+    needle: &str,
+    context: &str,
+) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let mut seen = String::new();
+    loop {
+        let mut line = String::new();
+        match tokio::time::timeout_at(deadline, reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => panic!("{context}: EOF, ждали {needle:?}; получено:\n{seen}"),
+            Ok(Ok(_)) => {
+                seen.push_str(&line);
+                if line.contains(needle) {
+                    return line;
+                }
+            }
+            Ok(Err(error)) => panic!("{context}: ошибка чтения {error}; получено:\n{seen}"),
+            Err(_) => panic!("{context}: таймаут, ждали {needle:?}; получено:\n{seen}"),
+        }
+    }
+}
+
+/// Достаёт 32-символьный hex-идентификатор звонка из строки вывода.
+fn call_id_from_line(line: &str) -> String {
+    line.split_whitespace()
+        .find(|token| token.len() == 32 && token.chars().all(|ch| ch.is_ascii_hexdigit()))
+        .unwrap_or_else(|| panic!("нет call_id в строке: {line:?}"))
+        .to_string()
 }
 
 /// Регистрирует пользователя и выполняет вход (пароль — через stdin).
@@ -780,4 +843,111 @@ async fn accounts_profiles_are_isolated() {
     let (code, stdout, stderr) = cli(&data, server.port(), &["accounts"], None).await;
     assert_ok(code, &stdout, &stderr, "accounts after delete");
     assert!(!stdout.contains(" bob —"), "stdout: {stdout}");
+}
+
+/// Сигнализация звонка в CLI: `call invite --wait` держит соединение,
+/// `watch` показывает входящее событие, второе устройство принимает и
+/// завершает звонок; отклонение и запрет звонков в группах.
+#[tokio::test(flavor = "multi_thread")]
+async fn call_signaling_lifecycle() {
+    let server = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+    let bob2_dir = root.path().join("bob2");
+
+    register(&alice_dir, server.port(), "alice", "pw-alice-1").await;
+    register(&bob_dir, server.port(), "bob", "pw-bob-1").await;
+    let (code, stdout, stderr) = cli(
+        &bob2_dir,
+        server.port(),
+        &["login", "bob", "--password-stdin"],
+        Some("pw-bob-1\n"),
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "login bob2");
+
+    let chat_id = create_chat(&alice_dir, server.port(), "bob").await;
+
+    // Bob остаётся online в watch; второе устройство принимает звонок.
+    let mut watch = spawn_watch(&bob_dir, server.port()).await;
+    let mut watch_out = BufReader::new(watch.stdout.take().expect("watch stdout"));
+    read_until_line(&mut watch_out, "Слушаю события", "watch online").await;
+
+    // Приглашение: caller удерживает соединение флагом --wait.
+    let mut invite = spawn_call_invite(&alice_dir, server.port(), &chat_id).await;
+    let mut invite_out = BufReader::new(invite.stdout.take().expect("invite stdout"));
+    read_until_line(&mut invite_out, "Ожидаю ответа", "invite waiting").await;
+    let incoming = read_until_line(&mut watch_out, "[звонок] входящий:", "bob invited").await;
+    let call_id = call_id_from_line(&incoming);
+
+    let (code, stdout, stderr) = cli(
+        &bob2_dir,
+        server.port(),
+        &["call", "accept", &call_id],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "call accept");
+    assert!(stdout.contains("принят"), "stdout: {stdout}");
+    read_until_line(&mut invite_out, "[звонок] принят:", "alice sees accept").await;
+    read_until_line(&mut watch_out, "[звонок] принят:", "bob watch sees accept").await;
+
+    // Завершение: caller получает событие и выходит из --wait.
+    let (code, stdout, stderr) =
+        cli(&bob2_dir, server.port(), &["call", "end", &call_id], None).await;
+    assert_ok(code, &stdout, &stderr, "call end");
+    read_until_line(&mut invite_out, "[звонок] завершён:", "alice sees end").await;
+    let status = invite.wait().await.expect("wait invite");
+    assert!(status.success(), "caller exit: {status:?}");
+    read_until_line(&mut watch_out, "[звонок] завершён:", "bob watch sees end").await;
+
+    // Отклонение: приглашение и decline вторым устройством.
+    let mut invite = spawn_call_invite(&alice_dir, server.port(), &chat_id).await;
+    let mut invite_out = BufReader::new(invite.stdout.take().expect("invite stdout 2"));
+    read_until_line(&mut invite_out, "Ожидаю ответа", "invite 2 waiting").await;
+    let incoming = read_until_line(&mut watch_out, "[звонок] входящий:", "bob invited 2").await;
+    let call_id = call_id_from_line(&incoming);
+    let (code, stdout, stderr) = cli(
+        &bob2_dir,
+        server.port(),
+        &["call", "decline", &call_id],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "call decline");
+    read_until_line(&mut invite_out, "[звонок] отклонён:", "alice sees decline").await;
+    let status = invite.wait().await.expect("wait invite 2");
+    assert!(status.success(), "caller exit: {status:?}");
+
+    // Групповой чат: звонки запрещены.
+    let (code, stdout, stderr) = cli(
+        &alice_dir,
+        server.port(),
+        &["group-create", "Группа", "--members", "bob", "--no-e2e"],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "group-create");
+    let group_id = stdout
+        .lines()
+        .next()
+        .expect("group id line")
+        .rsplit(": ")
+        .next()
+        .expect("group id")
+        .trim()
+        .to_string();
+    let (code, _stdout, stderr) = cli(
+        &alice_dir,
+        server.port(),
+        &["call", "invite", &group_id],
+        None,
+    )
+    .await;
+    assert_ne!(code, 0, "звонок в группе должен быть запрещён");
+    assert!(stderr.contains("только в личных"), "stderr: {stderr}");
+
+    watch.kill().await.expect("kill watch");
+    let _ = watch.wait().await;
 }

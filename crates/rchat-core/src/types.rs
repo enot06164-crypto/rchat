@@ -26,6 +26,29 @@ pub struct ChatRecord {
     pub last_server_id: u64,
 }
 
+/// Состояние звонка (сигнализация; медиа в v1 нет).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallState {
+    Ringing,
+    Active,
+    /// Значение из будущей версии протокола.
+    Unknown,
+}
+
+/// Активный звонок, полученный от сервера. Не хранится локально: звонки
+/// эфемерны и живут только в памяти сервера/клиента.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallRecord {
+    pub call_id: String,
+    pub chat_id: String,
+    pub caller_user_id: String,
+    pub callee_user_id: String,
+    pub state: CallState,
+    pub created_at_ms: u64,
+    /// 0, пока звонок не принят.
+    pub accepted_at_ms: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberRecord {
     pub user_id: String,

@@ -34,6 +34,9 @@ pub mod caps {
     /// Групповые чаты: создание/приглашения/выход/исключение и события
     /// chat_updated. Содержимое E2E-групп шифруется Megolm.
     pub const GROUPS: &str = "groups";
+    /// Сигнализация звонков (приглашение/принятие/отклонение/завершение
+    /// transient-событиями). Медиа не передаётся.
+    pub const CALLS: &str = "calls";
 }
 
 /// Жёсткие лимиты протокола. Значения по умолчанию конфигурируемы на сервере
@@ -63,6 +66,8 @@ pub mod limits {
     pub const CONTENT_KIND_MAX: usize = 32;
     pub const CLIENT_MESSAGE_ID_MAX: usize = 64;
     pub const CHAT_ID_MAX: usize = 64;
+    /// Идентификатор звонка (генерируется сервером).
+    pub const CALL_ID_MAX: usize = 64;
     pub const USER_ID_MAX: usize = 64;
     pub const MAX_CAPABILITIES: usize = 32;
     /// Максимум получателей в одном сообщении (все устройства всех участников).
@@ -133,6 +138,8 @@ pub mod validate {
         ClientMessageIdInvalid,
         #[error("chat id must be 1..={} chars", limits::CHAT_ID_MAX)]
         ChatIdInvalid,
+        #[error("call id must be 1..={} chars", limits::CALL_ID_MAX)]
+        CallIdInvalid,
         #[error(
             "group name length must be {}..={}",
             limits::GROUP_NAME_MIN,
@@ -236,6 +243,14 @@ pub mod validate {
         let len = raw.chars().count();
         if len == 0 || len > limits::CHAT_ID_MAX {
             return Err(ValidationError::ChatIdInvalid);
+        }
+        Ok(())
+    }
+
+    pub fn call_id(raw: &str) -> Result<(), ValidationError> {
+        let len = raw.chars().count();
+        if len == 0 || len > limits::CALL_ID_MAX {
+            return Err(ValidationError::CallIdInvalid);
         }
         Ok(())
     }

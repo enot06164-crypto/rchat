@@ -76,6 +76,14 @@ export RCHAT_TLS_FINGERPRINT=<sha256-отпечаток из лога>   # ':' �
 ./target/debug/rchat-cli --data-dir /tmp/rchat/alice send <chat_id> Всем привет
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob sync
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob group info <chat_id>
+
+# 7. Звонок — только сигнализация, без медиа. Bob слушает события в watch;
+#    Alice приглашает и удерживает соединение флагом --wait (в другом
+#    терминале). call_id печатается в обоих окнах.
+./target/debug/rchat-cli --data-dir /tmp/rchat/bob watch
+./target/debug/rchat-cli --data-dir /tmp/rchat/alice call invite <chat_id> --wait
+# В watch у Bob: call accept <call_id> или call decline <call_id>
+# (удобно вторым устройством/профилем); call end <call_id> — любой участник.
 ```
 
 Сервер можно перезапускать с тем же `--db`: сессии, история и журнал
@@ -159,7 +167,10 @@ RCHAT_ACCOUNT=home ./target/debug/rchat-cli --data-dir /tmp/rchat register bob
 `send <чат> <текст>... [--reply-to <server_id>] [--wait N]`,
 `history <чат> [--from-server] [--before <server_id>] [--limit N]`,
 `edit <чат> <server_id> <текст>`, `delete <чат> <server_id>`,
-`read <чат> [<server_id>]`, `receipts <чат>`, `sync`, `watch`.
+`read <чат> [<server_id>]`, `receipts <чат>`, `sync`, `watch`,
+`call invite <чат> [--wait]`, `call accept|decline|end <call_id>`
+(только личные чаты, без медиа; `--wait` удерживает соединение и ждёт
+ответа — без него процесс завершается и звонок снимается).
 Группу можно указывать по `chat_id` или по имени (если оно однозначно).
 
 Полная справка — `rchat-cli --help` и `rchat-cli <команда> --help`.
@@ -195,6 +206,9 @@ Docker). Что именно покрывают тесты и как польз�
 - распространение ключей устройств — trust on first use: подмена
   обнаруживается только сверкой отпечатков по независимому каналу;
 - presence — best-effort и транзиентен (в памяти одного процесса);
+- звонки — только сигнализация (invite/accept/decline/end), без медиа и
+  WebRTC; только личные чаты, состояние в памяти сервера, callee должен быть
+  в сети, события transient и могут теряться при офлайне;
 - удаление — только «для всех» (tombstone); уже расшифрованные копии не
   отзываются;
 - сервер — один процесс: реестр соединений и rate-limit в памяти;

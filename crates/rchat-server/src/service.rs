@@ -14,6 +14,7 @@ use rchat_proto::proto;
 use rchat_proto::proto::{request, response};
 use sha2::{Digest, Sha256};
 
+use crate::calls::{ActiveCall, CallError, CallRegistry};
 use crate::config::ServerConfig;
 use crate::delivery::Connections;
 use crate::error::ServerError;
@@ -72,6 +73,8 @@ pub struct Server {
     hasher: Arc<dyn PasswordHasher>,
     connections: Arc<Connections>,
     limiter: Arc<RateLimiter>,
+    /// Активные звонки (только сигнализация; in-memory, не журналируются).
+    calls: CallRegistry,
     /// Монотонный счётчик server_id (единственный экземпляр сервера).
     next_server_id: AtomicU64,
 }
@@ -90,6 +93,7 @@ impl Server {
             config,
             hasher,
             connections: Arc::new(Connections::new()),
+            calls: CallRegistry::new(),
             next_server_id: AtomicU64::new(max_id),
         })
     }
@@ -109,6 +113,7 @@ impl Server {
             config,
             hasher,
             connections,
+            calls: CallRegistry::new(),
             next_server_id: AtomicU64::new(next_server_id),
         }
     }
@@ -240,6 +245,22 @@ impl Server {
             M::RenameChat(request) => {
                 let auth = self.authed(state)?;
                 self.handle_rename_chat(&auth, request).await?
+            }
+            M::CallInvite(request) => {
+                let auth = self.authed(state)?;
+                self.handle_call_invite(&auth, request).await?
+            }
+            M::CallAccept(request) => {
+                let auth = self.authed(state)?;
+                self.handle_call_accept(&auth, request).await?
+            }
+            M::CallDecline(request) => {
+                let auth = self.authed(state)?;
+                self.handle_call_decline(&auth, request).await?
+            }
+            M::CallEnd(request) => {
+                let auth = self.authed(state)?;
+                self.handle_call_end(&auth, request).await?
             }
             M::Sync(request) => {
                 let auth = self.authed(state)?;
@@ -1326,6 +1347,160 @@ impl Server {
     }
 
     // -----------------------------------------------------------------
+    // Сигнализация звонков (медиа нет)
+    // -----------------------------------------------------------------
+
+    async fn handle_call_invite(
+        &self,
+        auth: &AuthContext,
+        request: proto::CallInviteRequest,
+    ) -> Result<response::Result, ServerError> {
+        if !self.limiter.call_invite_allowed(&auth.user.user_id) {
+            return Err(ServerError::rate_limited());
+        }
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if chat.kind != proto::ChatKind::Direct as i32 {
+            return Err(ServerError::invalid_request(
+                "calls are supported only in direct chats",
+            ));
+        }
+        if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+            return Err(ServerError::forbidden("not a member of this chat"));
+        }
+        let callee = members
+            .iter()
+            .find(|m| m.user_id != auth.user.user_id)
+            .ok_or_else(|| ServerError::invalid_request("direct chat has no peer"))?;
+        if !self.connections.is_online(&callee.user_id) {
+            return Err(ServerError::conflict("peer is offline"));
+        }
+
+        self.expire_calls();
+        let call_id = random_id()?;
+        let now = rchat_proto::now_ms();
+        let call = self
+            .calls
+            .invite(
+                &call_id,
+                &chat.chat_id,
+                &auth.user.user_id,
+                &callee.user_id,
+                now,
+            )
+            .map_err(call_error)?;
+        // Соединение callee могло закрыться между проверкой и вставкой в
+        // реестр; тогда звонок некому доставить. Гонку с уходом в офлайн
+        // после этой проверки закрывает gateway (end_calls_for_user).
+        if !self.connections.is_online(&callee.user_id) {
+            let _ = self.calls.end(&call.call_id, &auth.user.user_id);
+            return Err(ServerError::conflict("peer is offline"));
+        }
+        self.push_call_to(
+            &call,
+            proto::CallEventKind::Invited,
+            &[&call.callee_user_id],
+        );
+        Ok(response::Result::CallInvite(proto::CallInviteResponse {
+            call: Some(p::call_to_proto(&call)),
+        }))
+    }
+
+    async fn handle_call_accept(
+        &self,
+        auth: &AuthContext,
+        request: proto::CallAcceptRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::call_id(&request.call_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        self.expire_calls();
+        let now = rchat_proto::now_ms();
+        let call = self
+            .calls
+            .accept(&request.call_id, &auth.user.user_id, now)
+            .map_err(call_error)?;
+        self.push_call(&call, proto::CallEventKind::Accepted);
+        Ok(response::Result::CallAccept(proto::CallAcceptResponse {
+            call: Some(p::call_to_proto(&call)),
+        }))
+    }
+
+    async fn handle_call_decline(
+        &self,
+        auth: &AuthContext,
+        request: proto::CallDeclineRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::call_id(&request.call_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        self.expire_calls();
+        let call = self
+            .calls
+            .decline(&request.call_id, &auth.user.user_id)
+            .map_err(call_error)?;
+        self.push_call(&call, proto::CallEventKind::Declined);
+        Ok(response::Result::CallDecline(proto::CallDeclineResponse {
+            call: Some(p::call_to_proto(&call)),
+        }))
+    }
+
+    async fn handle_call_end(
+        &self,
+        auth: &AuthContext,
+        request: proto::CallEndRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::call_id(&request.call_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        self.expire_calls();
+        let call = self
+            .calls
+            .end(&request.call_id, &auth.user.user_id)
+            .map_err(call_error)?;
+        self.push_call(&call, proto::CallEventKind::Ended);
+        Ok(response::Result::CallEnd(proto::CallEndResponse {
+            call: Some(p::call_to_proto(&call)),
+        }))
+    }
+
+    /// Завершает звонки пользователя, ушедшего в офлайн (нет соединений).
+    pub fn end_calls_for_user(&self, user_id: &str) {
+        for call in self.calls.end_for_user(user_id) {
+            self.push_call(&call, proto::CallEventKind::Ended);
+        }
+    }
+
+    /// Удаляет истёкшие звонки и уведомляет участников (best-effort).
+    fn expire_calls(&self) {
+        for call in self.calls.expire(rchat_proto::now_ms()) {
+            self.push_call(&call, proto::CallEventKind::Ended);
+        }
+    }
+
+    /// Рассылает transient-событие звонка всем устройствам обоих участников.
+    fn push_call(&self, call: &ActiveCall, kind: proto::CallEventKind) {
+        self.push_call_to(call, kind, &[&call.caller_user_id, &call.callee_user_id]);
+    }
+
+    /// Рассылает transient-событие звонка указанным пользователям.
+    fn push_call_to(&self, call: &ActiveCall, kind: proto::CallEventKind, users: &[&str]) {
+        let envelope = p::push_call_event(call, kind, rchat_proto::now_ms());
+        let frame = match rchat_proto::encode_message(&envelope) {
+            Ok(frame) => frame,
+            Err(error) => {
+                tracing::error!(%error, "failed to encode call event");
+                return;
+            }
+        };
+        for user_id in users {
+            self.connections.deliver_user(user_id, frame.clone());
+        }
+    }
+
+    // -----------------------------------------------------------------
     // Сообщения
     // -----------------------------------------------------------------
 
@@ -2257,6 +2432,15 @@ fn validate_group_name(raw: &str) -> Result<String, ServerError> {
 
 fn validate_password(raw: &str) -> Result<(), ServerError> {
     rchat_proto::validate::password(raw).map_err(|e| ServerError::invalid_request(e.to_string()))
+}
+
+fn call_error(error: CallError) -> ServerError {
+    match error {
+        CallError::Busy => ServerError::conflict("user is busy"),
+        CallError::NotFound => ServerError::not_found("call not found"),
+        CallError::Forbidden => ServerError::forbidden("not a participant of this call"),
+        CallError::NotRinging => ServerError::conflict("call is not ringing"),
+    }
 }
 
 fn validate_prekey(key: &proto::PreKey) -> Result<PreKeyRecord, ServerError> {

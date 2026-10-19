@@ -149,6 +149,36 @@ impl Connections {
         delivered
     }
 
+    /// Best-effort доставка кадра всем активным устройствам пользователя
+    /// (например, transient-события звонка). Неуспешные каналы удаляются.
+    pub fn deliver_user(&self, user_id: &str, frame: Vec<u8>) -> bool {
+        let mut inner = self.inner.lock().expect("connections poisoned");
+        let Some(conns) = inner.by_user.get_mut(user_id) else {
+            return false;
+        };
+        let mut delivered = false;
+        let mut dead: Vec<ConnId> = Vec::new();
+        for (conn_id, entry) in conns.iter() {
+            match entry.tx.try_send(frame.clone()) {
+                Ok(()) => delivered = true,
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    tracing::warn!(conn_id = *conn_id, "push queue full; dropping connection");
+                    dead.push(*conn_id);
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    dead.push(*conn_id);
+                }
+            }
+        }
+        for conn_id in dead {
+            conns.remove(&conn_id);
+        }
+        if conns.is_empty() {
+            inner.by_user.remove(user_id);
+        }
+        delivered
+    }
+
     /// Принудительно закрывает соединения конкретного устройства
     /// (например, после отзыва устройства). Возвращает число закрытых.
     pub fn disconnect_device(&self, user_id: &str, device_id: &str) -> usize {
@@ -205,5 +235,16 @@ mod tests {
         let (_id2, _rx2) = conns.register("u1", "d2", 2);
         assert_eq!(conns.disconnect_device("u1", "d1"), 1);
         assert_eq!(conns.connected_devices("u1"), vec!["d2".to_string()]);
+    }
+
+    #[test]
+    fn deliver_user_reaches_all_devices() {
+        let conns = Connections::new();
+        let (_id1, mut rx1) = conns.register("u1", "d1", 4);
+        let (_id2, mut rx2) = conns.register("u1", "d2", 4);
+        assert!(conns.deliver_user("u1", vec![7, 8]));
+        assert_eq!(rx1.try_recv().unwrap(), vec![7, 8]);
+        assert_eq!(rx2.try_recv().unwrap(), vec![7, 8]);
+        assert!(!conns.deliver_user("u2", vec![9]));
     }
 }

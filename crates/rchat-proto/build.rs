@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "proto/rchat/v1/chat.proto",
         "proto/rchat/v1/message.proto",
         "proto/rchat/v1/sync.proto",
+        "proto/rchat/v1/call.proto",
     ];
     println!("cargo:rerun-if-changed=proto");
     let mut config = prost_build::Config::new();

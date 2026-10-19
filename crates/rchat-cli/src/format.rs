@@ -1,8 +1,8 @@
 //! Форматирование записей и событий для терминала.
 
 use rchat_core::types::{
-    ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus, OutboxState,
-    ReceiptRecord,
+    CallRecord, CallState, ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus,
+    OutboxState, ReceiptRecord,
 };
 use rchat_proto::proto;
 
@@ -180,5 +180,25 @@ pub fn receipt_line(receipt: &ReceiptRecord) -> String {
         receipt.delivered_up_to,
         receipt.read_up_to,
         timestamp(receipt.updated_at_ms)
+    )
+}
+
+pub fn call_state(state: CallState) -> &'static str {
+    match state {
+        CallState::Ringing => "звонит",
+        CallState::Active => "активен",
+        CallState::Unknown => "неизвестно",
+    }
+}
+
+/// Строка звонка: id, чат, участники и состояние.
+pub fn call_line(call: &CallRecord) -> String {
+    format!(
+        "{} — чат {}, {} → {}, {}",
+        call.call_id,
+        call.chat_id,
+        call.caller_user_id,
+        call.callee_user_id,
+        call_state(call.state)
     )
 }

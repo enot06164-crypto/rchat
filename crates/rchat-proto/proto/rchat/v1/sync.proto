@@ -5,6 +5,7 @@ package rchat.proto.v1;
 import "rchat/v1/common.proto";
 import "rchat/v1/chat.proto";
 import "rchat/v1/message.proto";
+import "rchat/v1/call.proto";
 
 // ---------------------------------------------------------------------------
 // Журнал событий синхронизации.
@@ -96,6 +97,7 @@ message PresenceEvent {
 message TransientEvent {
   oneof event {
     PresenceEvent presence = 1;
+    CallEvent call = 2;
   }
 }
 

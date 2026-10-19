@@ -35,6 +35,8 @@ pub struct RateLimits {
     pub login_per_5min: u32,
     /// Отправок сообщений на пользователя в минуту.
     pub send_per_minute: u32,
+    /// Приглашений на звонок на пользователя в минуту.
+    pub call_invite_per_minute: u32,
 }
 
 impl Default for RateLimits {
@@ -43,6 +45,7 @@ impl Default for RateLimits {
             register_per_hour: 10,
             login_per_5min: 10,
             send_per_minute: 120,
+            call_invite_per_minute: 30,
         }
     }
 }

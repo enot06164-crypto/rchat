@@ -4,7 +4,9 @@ use rchat_proto::proto;
 
 use crate::error::CoreError;
 use crate::traits::{OneTimeKey, PeerDevice};
-use crate::types::{ChatRecord, DeviceRecord, MemberRecord, MessageRecord, UserRecord};
+use crate::types::{
+    CallRecord, CallState, ChatRecord, DeviceRecord, MemberRecord, MessageRecord, UserRecord,
+};
 
 /// Пакеты ключей из ответа сервера в доменные дескрипторы устройств.
 pub fn peer_devices_from_bundles(bundles: &[proto::DeviceBundle]) -> Vec<PeerDevice> {
@@ -160,5 +162,23 @@ pub fn message_from_proto(message: &proto::Message, body: Option<String>) -> Mes
         } else {
             Some(message.deleted_at_ms)
         },
+    }
+}
+
+/// Конвертирует звонок из протокола. Неизвестное состояние сохраняется как
+/// `CallState::Unknown`, чтобы будущие версии не роняли клиент.
+pub fn call_from_proto(call: &proto::Call) -> CallRecord {
+    CallRecord {
+        call_id: call.call_id.clone(),
+        chat_id: call.chat_id.clone(),
+        caller_user_id: call.caller_user_id.clone(),
+        callee_user_id: call.callee_user_id.clone(),
+        state: match proto::CallState::try_from(call.state) {
+            Ok(proto::CallState::Ringing) => CallState::Ringing,
+            Ok(proto::CallState::Active) => CallState::Active,
+            _ => CallState::Unknown,
+        },
+        created_at_ms: call.created_at_ms,
+        accepted_at_ms: call.accepted_at_ms,
     }
 }

@@ -15,8 +15,10 @@ workspace.
 | Сквозные E2E (реальный Olm) | `crates/rchat-e2e-tests/tests/e2e_olm.rs`, `message_edit_delete.rs` | Настоящий сервер (loopback-TCP, без TLS) и настоящие клиенты с **vodozemac**: сессии, прекей-сообщения, мультиустройство, правка/удаление, квитанции, отсутствие plaintext на сервере. |
 | Сквозные E2E групп (реальный Megolm) | `crates/rchat-e2e-tests/tests/group_e2e.rs` | Групповой чат: выдача ключа сессии, инкрементальная рассылка, ротация при исключении, недоступность ранних сообщений приглашённому, мультиустройство, запрет dev-групп. |
 | Сквозные E2E мультиаккаунта | `crates/rchat-e2e-tests/tests/multi_account.rs` | Три аккаунта в одном процессе: независимые личности и устройства, параллельная отправка, отсутствие утечки чатов между аккаунтами. |
+| Серверные сценарии звонков | `crates/rchat-server-storage-sqlite/tests/call_signaling.rs` | Только личные чаты, роли accept/decline/end, busy, offline, transient push-события, неизвестный call_id. |
+| Сквозные E2E звонков | `crates/rchat-e2e-tests/tests/call_signaling.rs` | Реальные клиенты: invite → accept → end, decline, busy, запрет групп, доставка событий всем устройствам участника. |
 | Сквозные сценарии сбоев («мок-стек») | `crates/rchat-e2e-tests/tests/mock_stack.rs` | Outbox и синхронизация при разрывах/задержках/дублях/битых кадрах; реальный сервер, но канал в памяти и in-memory хранилище из testkit. |
-| CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`), профили аккаунтов (`--account`, `accounts`, `account-delete`). |
+| CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`), профили аккаунтов (`--account`, `accounts`, `account-delete`), звонки (`call invite --wait`, `watch`, accept/decline/end). |
 | Тесты testkit | `crates/rchat-testkit/tests/testkit.rs` | Транзакционность `MockStorage` (включая инъекцию сбоя) и порядок применения помех транспорта. |
 
 ## 2. Как запускать
@@ -226,6 +228,39 @@ kill $SERVER_PID
 читает сообщения после выхода (ротация megolm-сессии) и не может писать;
 `accounts` показывает профили, `account-delete` убирает только выбранный
 профиль. То же самое для TLS-режима — команды из README.
+
+### Звонки вручную
+
+Звонок живёт, пока caller удерживает соединение (`call invite --wait`), а
+callee находится в сети. Скрипт выше их не автоматизирует — нужны
+одновременно несколько окон (и для удобства второе устройство callee).
+В примерах ниже подставьте `WORK`, `CHAT` и `CALL_ID` из скрипта/watch:
+
+```bash
+# Терминал 1: Bob слушает события и остаётся online.
+./target/debug/rchat-cli --data-dir "$WORK/bob" watch
+
+# Терминал 2: Alice приглашает и ждёт; печатается call_id.
+./target/debug/rchat-cli --data-dir "$WORK/alice" call invite "$CHAT" --wait
+
+# В watch у Bob появляется `[звонок] входящий: <call_id>`.
+# CALL_ID=<call_id>. Второе устройство Bob принимает звонок:
+RCHAT_PASSWORD=secret-bob ./target/debug/rchat-cli \
+    --data-dir "$WORK/bob2" login bob
+./target/debug/rchat-cli --data-dir "$WORK/bob2" call accept "$CALL_ID"
+
+# Alice и watch у Bob печатают `[звонок] принят`; медиа нет.
+# Завершает любой участник; caller выходит из --wait:
+./target/debug/rchat-cli --data-dir "$WORK/bob2" call end "$CALL_ID"
+
+# Отклонение: повторить invite --wait и выполнить call decline "$CALL_ID".
+# В групповом чате приглашение отклоняется: call invite "$GROUP" → ошибка.
+```
+
+Проверяются: transient-события у обоих участников и всех устройств,
+роли (accept/decline — только callee, end — любой участник), запрет
+групповых звонков, завершение звонка при выходе caller из `--wait`.
+Автоматически это покрыто серверными и E2E-тестами звонков (см. §3).
 
 ## 7. Особенности
 

@@ -21,8 +21,8 @@ use crate::error::CoreError;
 use crate::events::{EventSubscription, UiEvent};
 use crate::traits::{secret_keys, ClientStore, CryptoProvider, SecretStore, TransportFactory};
 use crate::types::{
-    ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus, OutboxRecord,
-    OutboxState, ReceiptRecord, SyncApply, SyncProgress,
+    CallRecord, ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus,
+    OutboxRecord, OutboxState, ReceiptRecord, SyncApply, SyncProgress,
 };
 
 /// Короткое окно ожидания сети перед сборкой сообщения: клиент, только что
@@ -682,6 +682,71 @@ impl Client {
         Ok(self.inner.storage.chat_members(chat_id).await?)
     }
 
+    /// Приглашает собеседника на звонок в личном чате (только сигнализация,
+    /// медиа нет). Приглашение возможно, только если собеседник в сети;
+    /// состояние звонка живёт на сервере и не журналируется.
+    pub async fn call_invite(&self, chat_id: &str) -> Result<CallRecord, CoreError> {
+        rchat_proto::validate::chat_id(chat_id)
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        let resp = self
+            .request(proto::request::Method::CallInvite(
+                proto::CallInviteRequest {
+                    chat_id: chat_id.to_string(),
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::CallInvite(r) => call_record(r.call),
+            other => Err(unexpected(other)),
+        }
+    }
+
+    /// Принимает входящий звонок (только callee).
+    pub async fn call_accept(&self, call_id: &str) -> Result<CallRecord, CoreError> {
+        validate_call_id(call_id)?;
+        let resp = self
+            .request(proto::request::Method::CallAccept(
+                proto::CallAcceptRequest {
+                    call_id: call_id.to_string(),
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::CallAccept(r) => call_record(r.call),
+            other => Err(unexpected(other)),
+        }
+    }
+
+    /// Отклоняет входящий ringing-звонок (только callee).
+    pub async fn call_decline(&self, call_id: &str) -> Result<CallRecord, CoreError> {
+        validate_call_id(call_id)?;
+        let resp = self
+            .request(proto::request::Method::CallDecline(
+                proto::CallDeclineRequest {
+                    call_id: call_id.to_string(),
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::CallDecline(r) => call_record(r.call),
+            other => Err(unexpected(other)),
+        }
+    }
+
+    /// Завершает звонок (любой участник: caller или callee).
+    pub async fn call_end(&self, call_id: &str) -> Result<CallRecord, CoreError> {
+        validate_call_id(call_id)?;
+        let resp = self
+            .request(proto::request::Method::CallEnd(proto::CallEndRequest {
+                call_id: call_id.to_string(),
+            }))
+            .await?;
+        match resp {
+            proto::response::Result::CallEnd(r) => call_record(r.call),
+            other => Err(unexpected(other)),
+        }
+    }
+
     /// Сохраняет снимок чата из ответа сервера и обновляет кеш устройств.
     async fn store_chat_snapshot(&self, chat: &proto::Chat) -> Result<ChatRecord, CoreError> {
         let session = self.require_session()?;
@@ -1192,6 +1257,16 @@ pub(crate) fn unexpected(response: proto::response::Result) -> CoreError {
         proto::response::Result::Error(error) => crate::error::rejected_from(&error),
         other => CoreError::Protocol(format!("unexpected response: {other:?}")),
     }
+}
+
+fn validate_call_id(call_id: &str) -> Result<(), CoreError> {
+    rchat_proto::validate::call_id(call_id)
+        .map_err(|error| CoreError::InvalidInput(error.to_string()))
+}
+
+fn call_record(call: Option<proto::Call>) -> Result<CallRecord, CoreError> {
+    call.map(|call| convert::call_from_proto(&call))
+        .ok_or_else(|| CoreError::Protocol("call response without call".into()))
 }
 
 /// Состояние, разделяемое актором между итерациями цикла соединения.
