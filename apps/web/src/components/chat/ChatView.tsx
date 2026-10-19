@@ -68,62 +68,63 @@ export function ChatView() {
           }}
         >
           <div class="chat-view__center">
-            <header
-              class="chat-view__header"
-              onClick={() => setInfoOpen((open) => !open)}
-            >
-              <Avatar info={current.avatar} size={42} />
-              <div class="chat-view__title-col">
-                <span class="chat-view__title">{current.title}</span>
-                <span
-                  classList={{
-                    "chat-view__subtitle": true,
-                    "is-online": isOnline(),
-                  }}
-                >
-                  {subtitle()}
-                </span>
-              </div>
-              <div
-                class="chat-view__actions"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <button
-                  class="icon-button"
-                  title="Поиск по чату (скоро)"
-                  aria-label="Поиск по чату"
-                >
-                  <Search size={20} />
-                </button>
-                <button
-                  class="icon-button"
-                  title="Позвонить (скоро)"
-                  aria-label="Позвонить"
-                >
-                  <Phone size={20} />
-                </button>
-                <button
-                  classList={{
-                    "icon-button": true,
-                    "is-active": infoOpen(),
-                  }}
-                  title="Информация о чате"
-                  aria-label="Информация о чате"
-                  onClick={() => setInfoOpen((open) => !open)}
-                >
-                  <PanelRight size={20} />
-                </button>
-                <button
-                  class="icon-button"
-                  title="Ещё (скоро)"
-                  aria-label="Ещё"
-                >
-                  <EllipsisVertical size={20} />
-                </button>
-              </div>
-            </header>
-
+            {/* Лента, шапка и ввод — центральная колонка 720px (как в Telegram) */}
             <div class="chat-main">
+              <header
+                class="chat-view__header"
+                onClick={() => setInfoOpen((open) => !open)}
+              >
+                <Avatar info={current.avatar} size={42} />
+                <div class="chat-view__title-col">
+                  <span class="chat-view__title">{current.title}</span>
+                  <span
+                    classList={{
+                      "chat-view__subtitle": true,
+                      "is-online": isOnline(),
+                    }}
+                  >
+                    {subtitle()}
+                  </span>
+                </div>
+                <div
+                  class="chat-view__actions"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <button
+                    class="icon-button"
+                    title="Поиск по чату (скоро)"
+                    aria-label="Поиск по чату"
+                  >
+                    <Search size={20} />
+                  </button>
+                  <button
+                    class="icon-button"
+                    title="Позвонить (скоро)"
+                    aria-label="Позвонить"
+                  >
+                    <Phone size={20} />
+                  </button>
+                  <button
+                    classList={{
+                      "icon-button": true,
+                      "is-active": infoOpen(),
+                    }}
+                    title="Информация о чате"
+                    aria-label="Информация о чате"
+                    onClick={() => setInfoOpen((open) => !open)}
+                  >
+                    <PanelRight size={20} />
+                  </button>
+                  <button
+                    class="icon-button"
+                    title="Ещё (скоро)"
+                    aria-label="Ещё"
+                  >
+                    <EllipsisVertical size={20} />
+                  </button>
+                </div>
+              </header>
+
               <MessageList chatId={current.chat_id} />
               <MessageInput chatId={current.chat_id} />
             </div>

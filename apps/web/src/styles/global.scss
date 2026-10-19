@@ -1,10 +1,10 @@
 @use "./variables" as *;
 
 // ---------------------------------------------------------------------------
-// Обои чата в стиле Telegram: контурный «дудл»-паттерн (heart, star, sparkle,
-// paper plane, speech bubble, plus, wave) + аметистовое свечение.
+// Обои чата в стиле Telegram: плотный контурный «дудл»-паттерн в трёх
+// оттенках (фиолетовый/голубой/розовый) поверх глубокого фона.
 // ---------------------------------------------------------------------------
-$chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.07' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M32 52c0-9 11-13 16-6 5-7 16-3 16 6 0 11-16 20-16 20S32 63 32 52Z'/%3E%3Cpath d='M150 22c1.6 8.4 4.6 11.4 13 13-8.4 1.6-11.4 4.6-13 13-1.6-8.4-4.6-11.4-13-13 8.4-1.6 11.4-4.6 13-13Z'/%3E%3Cpath d='M246 30l30 16-30 16 8-16-8-16Z'/%3E%3Cpath d='M44 120h26a8 8 0 0 1 8 8v10a8 8 0 0 1-8 8H62l-10 8v-8h-8a8 8 0 0 1-8-8v-10a8 8 0 0 1 8-8Z'/%3E%3Cpath d='M150 104l6.6 13.4 14.8 2.2-10.7 10.4 2.5 14.7-13.2-6.9-13.2 6.9 2.5-14.7-10.7-10.4 14.8-2.2L150 104Z'/%3E%3Ccircle cx='266' cy='132' r='18' stroke-dasharray='4 8'/%3E%3Cpath d='M30 232h26M43 219v26'/%3E%3Cpath d='M120 236c8-8 16 8 24 0s16 8 24 0'/%3E%3Cpath d='M244 226l-8 18h9l-6 16 18-22h-10l7-12h-10Z'/%3E%3Ccircle cx='262' cy='272' r='10'/%3E%3Ccircle cx='52' cy='284' r='5'/%3E%3Ccircle cx='286' cy='88' r='4'/%3E%3Ccircle cx='96' cy='76' r='4'/%3E%3Cpath d='M180 268h34a8 8 0 0 1 8 8v6a8 8 0 0 1-8 8h-12l-8 7v-7h-14a8 8 0 0 1-8-8v-6a8 8 0 0 1 8-8Z'/%3E%3C/g%3E%3C/svg%3E");
+$chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='none' stroke='%238774e1' stroke-opacity='0.2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M26 44c0-8 10-12 14-5 4-7 14-3 14 5 0 10-14 18-14 18S26 54 26 44Z'/%3E%3Cpath d='M118 14c1.4 7.6 4 10.2 11.6 11.6-7.6 1.4-10.2 4-11.6 11.6-1.4-7.6-4-10.2-11.6-11.6C114 24.2 116.6 21.6 118 14Z'/%3E%3Cpath d='M112 92l5.6 11.4 12.6 1.8-9.1 8.9 2.1 12.5-11.2-5.9-11.2 5.9 2.1-12.5-9.1-8.9 12.6-1.8L112 92Z'/%3E%3Cpath d='M26 196h20M36 186v20'/%3E%3Cpath d='M186 44c8-8 16 8 24 0'/%3E%3Ccircle cx='58' cy='104' r='4'/%3E%3C/g%3E%3Cg fill='none' stroke='%2365aadd' stroke-opacity='0.16' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M196 16l22 11-22 11 6-11-6-11Z'/%3E%3Cpath d='M30 124h20a6 6 0 0 1 6 6v7a6 6 0 0 1-6 6H40l-7 6v-6h-3a6 6 0 0 1-6-6v-7a6 6 0 0 1 6-6Z'/%3E%3Cpath d='M86 208c6-6 12 6 18 0s12 6 18 0'/%3E%3Ccircle cx='206' cy='118' r='13' stroke-dasharray='3 6'/%3E%3Cpath d='M150 152c8 6 14 6 22 0'/%3E%3C/g%3E%3Cg fill='none' stroke='%23e17076' stroke-opacity='0.13' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M196 176l-6 13h7l-5 12 14-16h-8l5-9h-7Z'/%3E%3Ccircle cx='190' cy='200' r='7'/%3E%3Ccircle cx='76' cy='64' r='3'/%3E%3Ccircle cx='160' cy='74' r='3'/%3E%3Cpath d='M96 108h30a6 6 0 0 1 6 6v6a6 6 0 0 1-6 6h-9l-6 5v-5h-15a6 6 0 0 1-6-6v-6a6 6 0 0 1 6-6Z'/%3E%3C/g%3E%3C/svg%3E");
 
 /* ------------------------------------------------------------------------- */
 /* Сброс и базовая типографика (Telegram WebK base.scss)                       */
@@ -604,15 +604,19 @@ textarea {
     box-shadow: 0px 0px 4px 0px rgba(0, 0, 0, 0.24);
   }
 
-  // Шапка чата (.topbar WebK)
+  // Шапка чата (.topbar WebK) — та же плашка, что и поле ввода: та же
+  // ширина, те же скругления и отступы, парящая над обоями.
   &__header {
     height: 56px;
     flex: none;
     display: flex;
     align-items: center;
     gap: 12px;
+    width: calc(100% - 16px);
+    margin: 8px 8px 0;
     padding: 0 12px;
     background: $bg-surface;
+    border-radius: $radius-bubble;
     cursor: pointer;
     transition: background-color $transition-fast;
 
@@ -657,7 +661,7 @@ textarea {
   }
 }
 
-/* Центральный столб ленты и ввода */
+/* Центральный столб ленты и ввода (720px, как в Telegram) */
 .chat-main {
   flex: 1;
   min-height: 0;
@@ -666,7 +670,6 @@ textarea {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  padding: 0 8px;
 }
 
 /* Лента */
@@ -1085,9 +1088,10 @@ textarea {
 /* ------------------------------------------------------------------------- */
 /* Строка ввода (WebK .chat-input-wrapper + .new-message-wrapper)               */
 /* ------------------------------------------------------------------------- */
+/* Плашка ввода — в колонке 720px, как у плашки шапки */
 .composer-wrap {
   flex: none;
-  padding-bottom: 12px;
+  padding: 0 8px 12px;
 }
 
 .composer-error {
