@@ -244,10 +244,8 @@ textarea {
 /* Левая колонка (#column-left)                                                */
 /* ------------------------------------------------------------------------- */
 .sidebar {
-  background-color: $bg-page;
-  // Обои видны и за списком чатов — как в Telegram
-  background-image: $chat-pattern;
-  background-size: 180px 180px;
+  // Плоский серый фон колонки (без обоев — обои только в области чата)
+  background: $bg-sidebar;
   border-radius: $radius-bubble;
   display: flex;
   flex-direction: column;
@@ -271,8 +269,7 @@ textarea {
     position: relative;
   }
 
-  // Поле поиска (.input-search WebK: 42px, радиус 21px) — полупрозрачное
-  // поле поверх обоев, как в Telegram.
+  // Поле поиска (.input-search WebK: 42px, радиус 21px)
   &__search {
     flex: 1;
     min-width: 0;
@@ -281,17 +278,15 @@ textarea {
     gap: 8px;
     height: 42px;
     padding: 0 12px;
-    background: rgba(0, 0, 0, 0.42);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: $bg-surface;
+    border: 1px solid #2f2f2f;
     border-radius: 21px;
     color: $text-secondary;
     transition: border-color $transition-fast, background-color $transition-fast;
 
     &.is-focused {
       border-color: $accent-purple;
-      background: rgba(0, 0, 0, 0.55);
+      background: transparent;
     }
 
     input {
@@ -335,7 +330,7 @@ textarea {
     width: 54px;
     height: 54px;
     border-radius: 50%;
-    background: $accent-fill;
+    background: $accent-purple;
     color: #fff;
     display: flex;
     align-items: center;
@@ -346,7 +341,7 @@ textarea {
     z-index: 3;
 
     &:hover {
-      background: $accent-fill-hover;
+      background: $accent-purple-hover;
       transform: scale(1.05);
     }
 
@@ -482,28 +477,28 @@ textarea {
     background: $bg-surface-hover;
   }
 
-  // Активный чат — светлая лавандовая плашка с тёмным текстом (как в Telegram)
+  // Активный чат — насыщенно-фиолетовая плашка с белым текстом
   &--active,
   &--active:hover {
-    background: $accent-fill;
+    background: $accent-purple;
 
     .chat-item__title,
     .chat-item__time,
     .chat-item__preview {
-      color: $text-on-accent;
+      color: #fff;
     }
 
     .chat-item__preview {
-      opacity: 0.72;
+      opacity: 0.85;
     }
 
     .chat-item__sender {
-      color: $text-on-accent !important;
+      color: #fff !important;
     }
 
     .chat-item__badge {
-      background: rgba(0, 0, 0, 0.22);
-      color: $text-on-accent;
+      background: rgba(255, 255, 255, 0.28);
+      color: #fff;
     }
   }
 
@@ -572,7 +567,7 @@ textarea {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: $badge-unread;
+    background: $accent-purple;
     color: #fff;
     font-size: 12px;
     font-weight: 500;
@@ -1244,7 +1239,7 @@ textarea {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: $accent-fill;
+    background: $accent-purple;
     color: #fff;
     display: flex;
     align-items: center;
@@ -1253,7 +1248,7 @@ textarea {
     transition: background-color $transition-fast, transform $transition-fast;
 
     &:hover:not(:disabled) {
-      background: $accent-fill-hover;
+      background: $accent-purple-hover;
     }
 
     &:active:not(:disabled) {
