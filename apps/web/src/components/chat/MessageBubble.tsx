@@ -89,6 +89,29 @@ export function MessageBubble(props: {
 
   // Контекстное меню (ПКМ по пузырю); закрывается кликом вне меню.
   const [menuPos, setMenuPos] = createSignal<MenuPos | null>(null);
+
+  // Кнопка быстрого ответа показывается при наведении на пузырь. Кнопка живёт
+  // за пределами пузыря, поэтому наведения на строку недостаточно: курсор
+  // на долю секунды покидает пузырь, :hover теряется, кнопка гаснет и уже не
+  // ловит курсор. Поэтому показом управляем из JS с задержкой скрытия.
+  const [hovered, setHovered] = createSignal(false);
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const showReply = (): void => {
+    if (hideTimer !== undefined) {
+      clearTimeout(hideTimer);
+      hideTimer = undefined;
+    }
+    setHovered(true);
+  };
+  const hideReply = (): void => {
+    if (hideTimer !== undefined) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => setHovered(false), 260);
+  };
+  onCleanup(() => {
+    if (hideTimer !== undefined) clearTimeout(hideTimer);
+  });
+
   const openMenu = (event: MouseEvent): void => {
     event.preventDefault();
     setMenuPos({
@@ -122,6 +145,8 @@ export function MessageBubble(props: {
         "bubble-row--group-last": lastInGroup(),
         "bubble-row--with-avatar": !own() && props.isGroup,
       }}
+      onMouseEnter={showReply}
+      onMouseLeave={hideReply}
     >
       <Show when={!own() && props.isGroup}>
         <div class="bubble-row__avatar-slot">
@@ -148,10 +173,19 @@ export function MessageBubble(props: {
       >
         <Show when={!deleted()}>
           <button
-            class="bubble__hover-reply"
+            classList={{
+              "bubble__hover-reply": true,
+              "is-visible": hovered(),
+            }}
             title="Ответить"
             aria-label="Ответить"
-            onClick={() => setReplyTo(props.message)}
+            onMouseEnter={showReply}
+            onMouseLeave={hideReply}
+            onClick={() => {
+              // Клик по невидимой кнопке (курсор в поле мимо пузыря) — игнор.
+              if (!hovered()) return;
+              setReplyTo(props.message);
+            }}
           >
             <Reply size={16} />
           </button>
