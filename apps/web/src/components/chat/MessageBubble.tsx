@@ -54,11 +54,11 @@ interface MenuPos {
 }
 
 /**
- * Пузырь сообщения Telegram WebK (Amethyst Dark):
+ * Пузырь сообщения в стиле Telegram WebK (Amethyst Dark):
  * - Группировка последовательных сообщений одного автора (`.bubble--group-first`,
- *   `.bubble--group-last`) со скруглениями 15px / 5px из `_chatVariables.scss`.
- * - Оригинальный SVG-хвостик `#message-tail-filled` (`11×20`) из `Telegram-web-k/index.html`
- *   на последнем сообщении группы.
+ *   `.bubble--group-last`) со скруглениями 15px / 5px (по мотивам WebK).
+ * - Собственный SVG-хвостик (`11×20`) у последнего сообщения группы: угол
+ *   пузыря на стороне хвостика прямой, скругление даёт сам хвостик.
  * - Обтекаемый штамп времени и галочек (`.bubble__meta`) внутри `.bubble__body`.
  * - Двойной клик — быстрый реплай; ПКМ — контекстное меню с `backdrop-filter: blur(25px)`.
  */

@@ -3,12 +3,11 @@ import { Mic, Paperclip, SendHorizontal, Smile, X } from "lucide-solid";
 import { clearReply, sendCurrentText, state } from "../../services/store";
 
 /**
- * Строка ввода Telegram WebK (`.chat-input-wrapper` + `.new-message-wrapper`):
- * порядок кнопок как в `Telegram-web-k/src/components/chat/input.ts` —
+ * Строка ввода в стиле Telegram WebK: порядок кнопок как в оригинале —
  * скрепка слева, текстовое поле по центру, смайлик справа от поля и
  * круглая кнопка отправки (40px) последней.
  * Иконки микрофона и самолётика живут в DOM одновременно и плавно
- * сменяют друг друга (`grow-icon` / `hide-icon` из WebK).
+ * сменяют друг друга (`grow-icon` из WebK).
  * Над строкой — блок ответа (`.reply-wrapper`): иконка, автор, текст, отмена.
  */
 export function MessageInput(props: { chatId: string }) {
