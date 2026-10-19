@@ -18,15 +18,18 @@ $border-subtle: rgba(255, 255, 255, 0.07);
 // Пузыри сообщений
 $bubble-in: #212121;              // Входящие пузыри WebK Night
 $bubble-in-border: rgba(255, 255, 255, 0.05);
-$bubble-out-start: #5b4598;       // Исходящие: благородный аметистовый градиент WebK
-$bubble-out-end: #765ec4;
-$bubble-reply-bar: #8774e1;       // Вертикальная полоса реплая/цитаты
+$bubble-out-start: #b3a7f1;       // Исходящие: светлая лаванда (акцент темы)
+$bubble-out-end: #9b8ee9;
+$bubble-reply-bar: #a396ec;       // Вертикальная полоса реплая/цитаты
 
-// Акцент темы (Telegram WebK Night Purple / Amethyst)
-$accent-purple: #8774e1;          // Главный фиолетовый акцент (--primary-color)
-$accent-purple-hover: #7b68d4;    // --dark-primary-color при наведении
+// Акцент темы (Telegram WebK Night / Amethyst)
+$accent-purple: #8774e1;          // Акцент для текста/подчёркиваний
+$accent-purple-hover: #7b68d4;
 $accent-purple-light: rgba(135, 116, 225, 0.14);
-$badge-unread: #8774e1;           // Круглый/овальный бейдж непрочитанных
+$accent-fill: #a396ec;            // Заливка активных поверхностей (плашки, кнопки)
+$accent-fill-hover: #b0a4f0;      // Наведение на заливку
+$text-on-accent: #12121a;         // Текст на светлой лавандовой плашке
+$badge-unread: #a396ec;           // Круглый/овальный бейдж непрочитанных
 $badge-muted: #363636;            // Серый бейдж без звука
 
 // Текст

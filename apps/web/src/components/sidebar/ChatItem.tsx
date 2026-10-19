@@ -61,6 +61,22 @@ export function ChatItem(props: { chat: Chat }): JSX.Element {
     return last;
   };
 
+  // Имя отправителя в превью (в группах — как в Telegram, цветом палитры ядра).
+  const senderLabel = () => {
+    const last = lastMessage();
+    if (last === undefined) return null;
+    if (props.chat.kind !== "group") return null;
+    if (state.session !== null && last.sender_user_id === state.session.user_id) {
+      return null;
+    }
+    const member = state.members[props.chat.chat_id]?.[last.sender_user_id];
+    if (member === undefined) return null;
+    return {
+      name: member.display_name || member.username,
+      color: member.avatar.color_hex,
+    };
+  };
+
   const activate = (): void => {
     void openChat(props.chat.chat_id);
   };
@@ -91,6 +107,15 @@ export function ChatItem(props: { chat: Chat }): JSX.Element {
                 serverId={previewStatus()!.server_id}
                 readUpTo={readUpToFor(props.chat.chat_id)}
               />
+            </Show>
+            <Show when={senderLabel() !== null}>
+              <span
+                class="chat-item__sender"
+                style={{ color: senderLabel()!.color }}
+              >
+                {senderLabel()!.name}
+              </span>
+              {": "}
             </Show>
             {previewPrefix()}
             {preview()}
