@@ -25,6 +25,7 @@ mod config;
 mod error;
 mod event;
 mod json;
+pub mod schema;
 
 use std::cell::RefCell;
 use std::ffi::{c_char, CStr, CString};

@@ -29,7 +29,7 @@ E2E-состояние (сессии Olm). Первый клиент — CLI; я
 | `rchat-testkit` | тестовые инструменты: реальный сервер на TCP-петле и каналах в памяти, in-memory `Storage`/`SecretStore`, транспорт с управляемыми помехами, фикстуры | `rchat-core`, `rchat-server`, `rchat-server-storage-sqlite`, `tokio`, `tempfile` |
 | `rchat-e2e-tests` | кросс-крейтовые end-to-end сценарии (реальный Olm и «мок-стек») | testkit, транспорты, хранилища |
 | `rchat-cli` | composition root CLI: собирает ядро с конкретными адаптерами | `rchat-core`, `rchat-transport-ws`, `rchat-client-storage-sqlite`, `clap`, `rpassword`, `directories` |
-| `rchat-ffi` | composition root для встраивания: C-ABI, JSON-запросы/ответы, очередь событий; `cdylib`/`staticlib` | `rchat-core`, `rchat-transport-ws`, `rchat-client-storage-sqlite`, `rchat-crypto-provider`, `serde_json` |
+| `rchat-ffi` | composition root для встраивания: C-ABI, JSON-запросы/ответы, очередь событий, экспорт JSON Schema; `cdylib`/`staticlib` | `rchat-core`, `rchat-transport-ws`, `rchat-client-storage-sqlite`, `rchat-crypto-provider`, `serde_json`, `schemars` |
 
 Направление зависимостей — только «вниз»: адаптеры знают о ядре, ядро об
 адаптерах — нет. Правило закреплено тестом
@@ -44,8 +44,11 @@ E2E-состояние (сессии Olm). Первый клиент — CLI; я
 несколько handle в процессе полностью изолированы. `rchat_send_json`
 синхронно выполняет JSON-команду, `rchat_receive_json` читает очередь
 `UiEvent`; C-ABI не пропускает Rust-unwind через границу, проверяет UTF-8 и
-освобождает строки только через `rchat_free_string`. Схема —
-`docs/ffi.md`.
+освобождает строки только через `rchat_free_string`. Контракт — `docs/ffi.md`,
+а `schema/rchat.schema.json` генерируется из типов
+`crates/rchat-ffi/src/schema.rs` для типизированных UI-клиентов.
+Детерминированные инициалы и цвет аватара считает чистая функция ядра
+(`rchat-core/src/avatar.rs`); FFI только добавляет объект `avatar` в JSON.
 
 ## 3. Протокол
 
@@ -466,5 +469,10 @@ cargo run -p rchat-cli -- --data-dir /tmp/alice group rename <chat_id> Прое�
   accept/decline/end).
 - C-ABI проверяется прямыми вызовами экспортированных функций
   (`rchat-ffi/tests/ffi.rs`): настоящий сервер, два независимых handle,
-  E2E-сообщение, transient-события звонка, ошибки JSON и освобождение строк.
+  E2E-сообщение, transient-события звонка, ошибки JSON и освобождение строк,
+  наличие и детерминированность `avatar`.
+- `schema/rchat.schema.json` проверяется `rchat-ffi/tests/schema.rs`:
+  валидный JSON, все 34 команды и 18 событий, совпадение с Rust-типами.
+- Аватары покрыты unit-тестами ядра (`rchat-core/src/avatar.rs`) на
+  кириллицу, латиницу, CJK, эмодзи, пустые строки и стабильность цвета.
 - Детали, команды и ручной smoke — в `docs/testing.md`.

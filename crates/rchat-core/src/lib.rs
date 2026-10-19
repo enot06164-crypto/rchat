@@ -5,6 +5,7 @@
 //! трейтами (`traits`) и подключаются приложением. Допустимые зависимости
 //! ядра и обоснование выбора — `docs/architecture.md`.
 
+pub mod avatar;
 pub mod backoff;
 pub mod client;
 pub mod config;

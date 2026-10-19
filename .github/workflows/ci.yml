@@ -37,6 +37,9 @@ jobs:
       - name: Тесты
         run: cargo test --locked --workspace
 
+      - name: Проверка JSON Schema
+        run: cargo run --locked -p rchat-ffi --bin export_schema -- --check
+
       - name: Сборка исполняемых целей
         run: cargo build --locked --bin rchat-server --bin rchat-cli
 

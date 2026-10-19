@@ -107,16 +107,25 @@ for event in client.events():
 
 ### Модели
 
-`Chat`, `Message`, `Call`, `Session` и `Event` — dataclass-модели и
-одновременно подклассы `dict`. Это позволяет писать и так:
+`Chat`, `Message`, `Call`, `Session`, `Event` и `AvatarInfo` — dataclass-модели
+и одновременно подклассы `dict`. Это позволяет писать и так:
 
 ```python
 chat = client.create_direct_chat("bob")
 print(chat.chat_id, chat["chat_id"], chat.title)
+
+print(chat.avatar.initials, chat.avatar.color_hex)
+print(chat["avatar"]["initials"], chat["avatar"]["color_index"])
 ```
 
+`avatar` содержит `initials`, `color_index` (`0..=7`) и `color_hex`; цвет
+детерминирован по `user_id`/`chat_id`, инициалы безопасно считаются по
+Unicode-имени. У `Message` поле `avatar` необязательное (FFI пока не
+прикладывает его к сообщениям; зарезервировано для будущих версий).
+
 Неизвестные поля из будущих версий FFI игнорируются; `to_dict()` возвращает
-обычный `dict`.
+обычный `dict`. Формальная схема всех запросов/ответов/событий —
+`schema/rchat.schema.json` (см. `docs/ffi.md` §11).
 
 ### Ошибки
 

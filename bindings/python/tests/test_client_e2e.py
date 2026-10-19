@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rchat import Event, Message, RChatClient, ffi  # noqa: E402
+from rchat import AvatarInfo, Event, Message, RChatClient, ffi  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -118,12 +118,23 @@ class ClientE2ETests(unittest.TestCase):
                     assert alice_session is not None and bob_session is not None
                     self.assertTrue(alice_session.active)
                     self.assertTrue(bob_session.active)
+                    self.assertIsInstance(alice_session.avatar, AvatarInfo)
+                    assert alice_session.avatar is not None
+                    self.assertEqual(alice_session.avatar.initials, "AL")
+                    self.assertEqual(alice_session["avatar"]["initials"], "AL")
+                    self.assertIn(alice_session.avatar.color_index, range(8))
+                    self.assertRegex(alice_session.avatar.color_hex, r"^#[0-9A-F]{6}$")
 
                     chat = alice.create_direct_chat("bob", e2e=True)
                     self.assertIsInstance(chat, dict)
                     self.assertEqual(chat.kind, "direct")
                     self.assertEqual(chat["kind"], "direct")
                     self.assertEqual(chat.e2e_mode, "olm_v1")
+                    self.assertIsInstance(chat.avatar, AvatarInfo)
+                    assert chat.avatar is not None
+                    self.assertEqual(chat.avatar.initials, "BO")
+                    self.assertEqual(chat["avatar"]["initials"], "BO")
+                    self.assertIn(chat.avatar.color_index, range(8))
                     chat_id = chat.chat_id
 
                     local_id = alice.send_message(chat_id, text)
@@ -151,14 +162,23 @@ class ClientE2ETests(unittest.TestCase):
                     self.assertEqual(received.event, "message_received")
 
                     messages = bob.get_messages(chat_id)
-                    self.assertTrue(
-                        any(
-                            isinstance(message, Message)
-                            and message.body == text
+                    received_message = next(
+                        (
+                            message
                             for message in messages
+                            if isinstance(message, Message)
+                            and message.body == text
                         ),
+                        None,
+                    )
+                    self.assertIsNotNone(
+                        received_message,
                         "message is absent from Bob's local history",
                     )
+                    assert received_message is not None
+                    # FFI пока не прикладывает avatar к сообщению; модель
+                    # поддерживает поле для будущих версий.
+                    self.assertIsNone(received_message.avatar)
 
                 self.assertTrue(alice.closed)
                 self.assertTrue(bob.closed)

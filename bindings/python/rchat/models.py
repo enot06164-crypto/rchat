@@ -8,6 +8,7 @@ Unknown JSON fields are ignored for forward compatibility.
 
 from __future__ import annotations
 
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, fields
 from typing import Any, Dict, Mapping, Optional
 
@@ -28,6 +29,33 @@ class _Model(dict):
 
 
 @dataclass(eq=False)
+class AvatarInfo(_Model):
+    """Детерминированные инициалы и цвет аватара из FFI."""
+
+    initials: str
+    color_index: int
+    color_hex: str
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "AvatarInfo":
+        return cls(
+            initials=str(data.get("initials") or ""),
+            color_index=int(data["color_index"]),
+            color_hex=str(data["color_hex"]),
+        )
+
+
+def _avatar(value: Any) -> Optional[AvatarInfo]:
+    """Разбирает необязательный объект avatar, не ломая старые ответы FFI."""
+    if not isinstance(value, MappingABC):
+        return None
+    try:
+        return AvatarInfo.from_dict(value)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+@dataclass(eq=False)
 class Chat(_Model):
     chat_id: str
     kind: str
@@ -37,6 +65,7 @@ class Chat(_Model):
     updated_at_ms: int
     last_server_id: int
     peer_user_id: Optional[str] = None
+    avatar: Optional[AvatarInfo] = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Chat":
@@ -49,6 +78,7 @@ class Chat(_Model):
             updated_at_ms=int(data["updated_at_ms"]),
             last_server_id=int(data["last_server_id"]),
             peer_user_id=data.get("peer_user_id"),
+            avatar=_avatar(data.get("avatar")),
         )
 
 
@@ -66,6 +96,7 @@ class Message(_Model):
     reply_to_server_id: Optional[int] = None
     edited_at_ms: Optional[int] = None
     deleted_at_ms: Optional[int] = None
+    avatar: Optional[AvatarInfo] = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Message":
@@ -82,6 +113,7 @@ class Message(_Model):
             reply_to_server_id=data.get("reply_to_server_id"),
             edited_at_ms=data.get("edited_at_ms"),
             deleted_at_ms=data.get("deleted_at_ms"),
+            avatar=_avatar(data.get("avatar")),
         )
 
 
@@ -115,6 +147,7 @@ class Session(_Model):
     username: str
     display_name: str
     device_id: Optional[str] = None
+    avatar: Optional[AvatarInfo] = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Session":
@@ -124,6 +157,7 @@ class Session(_Model):
             username=data["username"],
             display_name=data["display_name"],
             device_id=data.get("device_id"),
+            avatar=_avatar(data.get("avatar")),
         )
 
 

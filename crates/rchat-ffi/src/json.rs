@@ -4,6 +4,7 @@
 //! hex: JSON не предназначен для передачи секретов, а открытые identity-ключи
 //! и так публичны.
 
+use rchat_core::avatar::Avatar;
 use rchat_core::events::UiEvent;
 use rchat_core::types::{
     CallRecord, CallState, ChatRecord, ConnectionState, DeviceRecord, LocalAccount, MemberRecord,
@@ -82,6 +83,16 @@ fn hex(bytes: &[u8]) -> String {
     text
 }
 
+/// Вложенный объект `avatar` для пользователей и чатов.
+pub(crate) fn avatar(id: &str, display_name: &str, fallback: &str) -> Value {
+    let avatar = Avatar::new(id, display_name, fallback);
+    json!({
+        "initials": avatar.initials,
+        "color_index": avatar.color_index,
+        "color_hex": avatar.color_hex,
+    })
+}
+
 pub(crate) fn chat(chat: &ChatRecord) -> Value {
     json!({
         "chat_id": chat.chat_id,
@@ -92,6 +103,7 @@ pub(crate) fn chat(chat: &ChatRecord) -> Value {
         "created_at_ms": chat.created_at_ms,
         "updated_at_ms": chat.updated_at_ms,
         "last_server_id": chat.last_server_id,
+        "avatar": avatar(&chat.chat_id, &chat.title, &chat.title),
     })
 }
 
@@ -102,6 +114,7 @@ pub(crate) fn member(member: &MemberRecord) -> Value {
         "display_name": member.display_name,
         "role": member_role(member.role),
         "joined_at_ms": member.joined_at_ms,
+        "avatar": avatar(&member.user_id, &member.display_name, &member.username),
     })
 }
 
@@ -173,6 +186,7 @@ pub(crate) fn account(account: &LocalAccount) -> Value {
         "username": account.username,
         "display_name": account.display_name,
         "device_id": account.device_id,
+        "avatar": avatar(&account.user_id, &account.display_name, &account.username),
     })
 }
 

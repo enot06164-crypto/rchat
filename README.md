@@ -16,8 +16,10 @@
 устройство — в `docs/architecture.md` §7.5, оговорки — в
 `docs/threat-model.md`. Также добавлены мультиаккаунтные профили CLI,
 сигнализация звонков, встраиваемый **C-ABI/JSON-интерфейс** (`rchat-ffi`,
-стиль tdjson) и официальный **Python SDK** (`bindings/python`, только
-стандартная библиотека).
+стиль tdjson), детерминированные метаданные аватаров (инициалы и цвет в
+JSON), официальный **Python SDK** (`bindings/python`, только стандартная
+библиотека) и экспорт **JSON Schema** (`schema/rchat.schema.json`) для
+генерации типизированных клиентов.
 
 [vodozemac]: https://github.com/matrix-org/vodozemac
 
@@ -35,7 +37,7 @@
 | `rchat-testkit` | тестовые инструменты: `TestServer`, `MockStorage`, транспорт с управляемыми помехами |
 | `rchat-e2e-tests` | сквозные сценарии (реальный Olm/Megolm и «мок-стек») |
 | `rchat-cli` | CLI — composition root: собирает ядро с конкретными адаптерами |
-| `rchat-ffi` | C-ABI/JSON-интерфейс для встраивания (cdylib/staticlib), один handle — один профиль |
+| `rchat-ffi` | C-ABI/JSON-интерфейс для встраивания (cdylib/staticlib), один handle — один профиль; экспорт `schema/rchat.schema.json` |
 
 Направление зависимостей — только «вниз»: ядро не знает об адаптерах.
 Правило закреплено тестом `crates/rchat-core/tests/dependency_rules.rs`.
@@ -239,6 +241,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --bin rchat-server --bin rchat-cli
 cargo build -p rchat-ffi
+cargo run -p rchat-ffi --bin export_schema -- --check
 python3 -m unittest discover -s bindings/python/tests
 ```
 
@@ -252,7 +255,8 @@ Docker). Что именно покрывают тесты и как польз�
 - `docs/protocol.md` — протокол обмена (кадры, методы, синхронизация, версии);
 - `docs/group-e2e.md` — отдельная спецификация группового E2E (Megolm);
 - `docs/testing.md` — слои тестов, testkit, сценарии сбоев, ручной smoke;
-- `docs/ffi.md` — C-ABI/JSON: конфигурация, команды, события, ошибки, сборка;
+- `docs/ffi.md` — C-ABI/JSON: конфигурация, команды, события, аватары, ошибки, сборка;
+- `schema/rchat.schema.json` — JSON Schema всех команд, ответов и событий;
 - `bindings/python/README.md` — Python SDK: установка, примеры, тесты;
 - `docs/threat-model.md` — модель угроз, гарантии и ограничения;
 - `docs/extension-guide.md` — как расширять: транспорт, хранилище, UI,

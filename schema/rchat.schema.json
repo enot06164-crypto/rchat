@@ -1,0 +1,2269 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "rchat-ffi JSON protocol",
+  "description": "Запросы, ответы и события C-ABI/JSON rchat (стиль tdjson), API version 1.",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/Command"
+    },
+    {
+      "$ref": "#/definitions/OkResponse"
+    },
+    {
+      "$ref": "#/definitions/ErrorResponse"
+    },
+    {
+      "$ref": "#/definitions/Event"
+    }
+  ],
+  "definitions": {
+    "Account": {
+      "description": "Локальный аккаунт (объект пользователя).",
+      "type": "object",
+      "required": [
+        "avatar",
+        "device_id",
+        "display_name",
+        "user_id",
+        "username"
+      ],
+      "properties": {
+        "avatar": {
+          "$ref": "#/definitions/Avatar"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      }
+    },
+    "Avatar": {
+      "description": "Визуальные метаданные аватара.",
+      "type": "object",
+      "required": [
+        "color_hex",
+        "color_index",
+        "initials"
+      ],
+      "properties": {
+        "color_hex": {
+          "description": "HEX-код цвета, например `#65AADD`.",
+          "type": "string"
+        },
+        "color_index": {
+          "description": "Индекс цвета в палитре из 8 цветов (`0..=7`).",
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 7.0,
+          "minimum": 0.0
+        },
+        "initials": {
+          "description": "1–2 буквы в верхнем регистре; пустая строка, если букв нет.",
+          "type": "string",
+          "maxLength": 2
+        }
+      }
+    },
+    "Call": {
+      "description": "Сигнализация звонка (медиа в v1 нет).",
+      "type": "object",
+      "required": [
+        "call_id",
+        "callee_user_id",
+        "caller_user_id",
+        "chat_id",
+        "created_at_ms",
+        "state"
+      ],
+      "properties": {
+        "accepted_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "callee_user_id": {
+          "type": "string"
+        },
+        "caller_user_id": {
+          "type": "string"
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "created_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "state": {
+          "$ref": "#/definitions/CallState"
+        }
+      }
+    },
+    "CallAcceptedEvent": {
+      "description": "Звонок принят.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Call"
+        },
+        "event": {
+          "$ref": "#/definitions/CallAcceptedName"
+        }
+      }
+    },
+    "CallAcceptedName": {
+      "description": "Звонок принят.",
+      "type": "string",
+      "enum": [
+        "call_accepted"
+      ]
+    },
+    "CallDeclinedEvent": {
+      "description": "Звонок отклонён.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Call"
+        },
+        "event": {
+          "$ref": "#/definitions/CallDeclinedName"
+        }
+      }
+    },
+    "CallDeclinedName": {
+      "description": "Звонок отклонён.",
+      "type": "string",
+      "enum": [
+        "call_declined"
+      ]
+    },
+    "CallEndedEvent": {
+      "description": "Звонок завершён.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Call"
+        },
+        "event": {
+          "$ref": "#/definitions/CallEndedName"
+        }
+      }
+    },
+    "CallEndedName": {
+      "description": "Звонок завершён.",
+      "type": "string",
+      "enum": [
+        "call_ended"
+      ]
+    },
+    "CallInvitedEvent": {
+      "description": "Входящий звонок (только callee).",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Call"
+        },
+        "event": {
+          "$ref": "#/definitions/CallInvitedName"
+        }
+      }
+    },
+    "CallInvitedName": {
+      "description": "Входящий звонок (только callee).",
+      "type": "string",
+      "enum": [
+        "call_invited"
+      ]
+    },
+    "CallState": {
+      "description": "Состояние звонка.",
+      "type": "string",
+      "enum": [
+        "ringing",
+        "active",
+        "unknown"
+      ]
+    },
+    "Chat": {
+      "description": "Объект чата.",
+      "type": "object",
+      "required": [
+        "avatar",
+        "chat_id",
+        "created_at_ms",
+        "e2e_mode",
+        "kind",
+        "last_server_id",
+        "title",
+        "updated_at_ms"
+      ],
+      "properties": {
+        "avatar": {
+          "$ref": "#/definitions/Avatar"
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "created_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "e2e_mode": {
+          "$ref": "#/definitions/E2eMode"
+        },
+        "kind": {
+          "$ref": "#/definitions/ChatKind"
+        },
+        "last_server_id": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "peer_user_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "updated_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ChatKind": {
+      "description": "Тип чата.",
+      "type": "string",
+      "enum": [
+        "unspecified",
+        "direct",
+        "group"
+      ]
+    },
+    "ChatMember": {
+      "description": "Участник чата.",
+      "type": "object",
+      "required": [
+        "avatar",
+        "display_name",
+        "joined_at_ms",
+        "role",
+        "user_id",
+        "username"
+      ],
+      "properties": {
+        "avatar": {
+          "$ref": "#/definitions/Avatar"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "joined_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "role": {
+          "$ref": "#/definitions/MemberRole"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      }
+    },
+    "ChatUpsertedEvent": {
+      "description": "Чат создан или обновлён.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Chat"
+        },
+        "event": {
+          "$ref": "#/definitions/ChatUpsertedName"
+        }
+      }
+    },
+    "ChatUpsertedName": {
+      "description": "Чат создан или обновлён.",
+      "type": "string",
+      "enum": [
+        "chat_upserted"
+      ]
+    },
+    "Command": {
+      "description": "Входящая команда. Поле `@type` — дискриминатор.",
+      "oneOf": [
+        {
+          "description": "Проверка связи без сети.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "ping"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Запустить фоновый актор.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "start"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Текущее состояние соединения.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_connection_state"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Дождаться состояния `connected`.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "wait_online"
+              ]
+            },
+            "timeout_ms": {
+              "description": "Тайм-аут в миллисекундах, по умолчанию 5000, максимум 600000.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "maximum": 600000.0,
+              "minimum": 0.0
+            }
+          }
+        },
+        {
+          "description": "Текущая сессия или `null`.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_session"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Локальный аккаунт или `null`.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_account"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Сводный статус клиента.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_status"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Регистрация и вход.",
+          "type": "object",
+          "required": [
+            "@type",
+            "password",
+            "username"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "register"
+              ]
+            },
+            "display_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "password": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Вход в существующий аккаунт.",
+          "type": "object",
+          "required": [
+            "@type",
+            "password",
+            "username"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "login"
+              ]
+            },
+            "password": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Выход; `wipe` удаляет и локальные данные.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "logout"
+              ]
+            },
+            "wipe": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Чаты из локального кеша.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_chats"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Чаты с сервера (сеть).",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "refresh_chats"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Участники чата из локального кеша.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_chat_members"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Создать личный чат.",
+          "type": "object",
+          "required": [
+            "@type",
+            "peer_username"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "create_direct_chat"
+              ]
+            },
+            "e2e": {
+              "description": "Включить E2E; по умолчанию `true`.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "peer_username": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Создать групповой чат.",
+          "type": "object",
+          "required": [
+            "@type",
+            "name"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "create_group_chat"
+              ]
+            },
+            "e2e": {
+              "description": "Включить E2E; по умолчанию `true`.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "members": {
+              "description": "Username-ы приглашённых; по умолчанию пусто.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Пригласить пользователей в групповой чат.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id",
+            "usernames"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "invite_to_chat"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "usernames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "description": "Покинуть чат.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "leave_chat"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Удалить участника (владелец группы).",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id",
+            "user_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "remove_chat_member"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Переименовать групповой чат.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id",
+            "name"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "rename_chat"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Поставить текстовое сообщение в outbox.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id",
+            "text"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "send_message"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "reply_to_server_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "text": {
+              "description": "Непустой текст (пробельные строки отклоняются).",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Локальная история сообщений.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_messages"
+              ]
+            },
+            "before_server_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "limit": {
+              "description": "1..=100, по умолчанию 50.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "maximum": 100.0,
+              "minimum": 1.0
+            }
+          }
+        },
+        {
+          "description": "История с сервера.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "fetch_history"
+              ]
+            },
+            "before_server_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "limit": {
+              "description": "1..=100, по умолчанию 50.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "maximum": 100.0,
+              "minimum": 1.0
+            }
+          }
+        },
+        {
+          "description": "Изменить текст сообщения.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id",
+            "server_id",
+            "text"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "edit_message"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "server_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "text": {
+              "description": "Непустой текст.",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Удалить сообщение.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id",
+            "server_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "delete_message"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "server_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        },
+        {
+          "description": "Отметить прочитанным до `up_to_server_id` (или до последнего в чате).",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "mark_read"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "up_to_server_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        },
+        {
+          "description": "Receipts чата.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_receipts"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Синхронизировать изменения с сервером.",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "sync"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Устройства текущего аккаунта (сеть).",
+          "type": "object",
+          "required": [
+            "@type"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "get_devices"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Обновить кеш устройств указанных пользователей.",
+          "type": "object",
+          "required": [
+            "@type",
+            "user_ids"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "refresh_devices"
+              ]
+            },
+            "user_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "description": "Отозвать устройство текущего аккаунта.",
+          "type": "object",
+          "required": [
+            "@type",
+            "device_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "revoke_device"
+              ]
+            },
+            "device_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Пригласить собеседника в личный чат (только сигнализация).",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "call_invite"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Принять входящий звонок.",
+          "type": "object",
+          "required": [
+            "@type",
+            "call_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "call_accept"
+              ]
+            },
+            "call_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Отклонить входящий звонок.",
+          "type": "object",
+          "required": [
+            "@type",
+            "call_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "call_decline"
+              ]
+            },
+            "call_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Завершить звонок.",
+          "type": "object",
+          "required": [
+            "@type",
+            "call_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "call_end"
+              ]
+            },
+            "call_id": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "ConnectionState": {
+      "description": "Состояние соединения.",
+      "type": "string",
+      "enum": [
+        "disconnected",
+        "connecting",
+        "unauthenticated",
+        "connected",
+        "reconnecting"
+      ]
+    },
+    "ConnectionStateChangedEvent": {
+      "description": "Изменилось состояние соединения.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/ConnectionStateData"
+        },
+        "event": {
+          "$ref": "#/definitions/ConnectionStateChangedName"
+        }
+      }
+    },
+    "ConnectionStateChangedName": {
+      "description": "Изменилось состояние соединения.",
+      "type": "string",
+      "enum": [
+        "connection_state_changed"
+      ]
+    },
+    "ConnectionStateData": {
+      "description": "`{state}` для команд состояния и события соединения.",
+      "type": "object",
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/ConnectionState"
+        }
+      }
+    },
+    "Device": {
+      "description": "Устройство пользователя (только публичные ключи).",
+      "type": "object",
+      "required": [
+        "curve25519",
+        "device_id",
+        "e2e_version",
+        "ed25519",
+        "name",
+        "platform",
+        "user_id"
+      ],
+      "properties": {
+        "curve25519": {
+          "description": "Hex-кодированный публичный curve25519-ключ.",
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "e2e_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "ed25519": {
+          "description": "Hex-кодированный публичный identity-ключ.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "revoked_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    },
+    "E2eDecryptFailedData": {
+      "description": "`data` события `e2e_decrypt_failed`.",
+      "type": "object",
+      "required": [
+        "chat_id",
+        "device_id",
+        "server_id"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "server_id": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "E2eDecryptFailedEvent": {
+      "description": "Не удалось расшифровать E2E-сообщение.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/E2eDecryptFailedData"
+        },
+        "event": {
+          "$ref": "#/definitions/E2eDecryptFailedName"
+        }
+      }
+    },
+    "E2eDecryptFailedName": {
+      "description": "Не удалось расшифровать E2E-сообщение.",
+      "type": "string",
+      "enum": [
+        "e2e_decrypt_failed"
+      ]
+    },
+    "E2eMode": {
+      "description": "Режим E2E чата.",
+      "type": "string",
+      "enum": [
+        "olm_v1",
+        "none_dev",
+        "unspecified"
+      ]
+    },
+    "ErrorResponse": {
+      "description": "Ошибочный ответ.",
+      "type": "object",
+      "required": [
+        "@type",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/ErrorTag"
+        },
+        "code": {
+          "description": "Стабильный код ошибки FFI.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FfiErrorCode"
+            }
+          ]
+        },
+        "message": {
+          "description": "Диагностическое сообщение; текст сервера недоверенный.",
+          "type": "string"
+        },
+        "request": {
+          "description": "`@type` исходного запроса, если он был разобран.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retryable": {
+          "description": "Имеет ли смысл повторить операцию.",
+          "type": "boolean"
+        },
+        "server_code": {
+          "description": "Числовой код сервера; только для `code == \"server\"`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "server_code_name": {
+          "description": "Имя серверного кода; только для `code == \"server\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ErrorTag": {
+      "description": "Дискриминатор ошибки.",
+      "type": "string",
+      "enum": [
+        "error"
+      ]
+    },
+    "Event": {
+      "description": "Событие очереди `{\"@type\":\"event\",\"event\":\"...\",\"data\":...}`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ConnectionStateChangedEvent"
+        },
+        {
+          "$ref": "#/definitions/SessionStartedEvent"
+        },
+        {
+          "$ref": "#/definitions/SessionEndedEvent"
+        },
+        {
+          "$ref": "#/definitions/MessageReceivedEvent"
+        },
+        {
+          "$ref": "#/definitions/MessageUpdatedEvent"
+        },
+        {
+          "$ref": "#/definitions/OutboxChangedEvent"
+        },
+        {
+          "$ref": "#/definitions/ChatUpsertedEvent"
+        },
+        {
+          "$ref": "#/definitions/ReceiptUpdatedEvent"
+        },
+        {
+          "$ref": "#/definitions/PresenceChangedEvent"
+        },
+        {
+          "$ref": "#/definitions/CallInvitedEvent"
+        },
+        {
+          "$ref": "#/definitions/CallAcceptedEvent"
+        },
+        {
+          "$ref": "#/definitions/CallDeclinedEvent"
+        },
+        {
+          "$ref": "#/definitions/CallEndedEvent"
+        },
+        {
+          "$ref": "#/definitions/SyncProgressEvent"
+        },
+        {
+          "$ref": "#/definitions/ResyncPerformedEvent"
+        },
+        {
+          "$ref": "#/definitions/E2eDecryptFailedEvent"
+        },
+        {
+          "$ref": "#/definitions/WarningEvent"
+        },
+        {
+          "$ref": "#/definitions/EventLaggedEvent"
+        }
+      ]
+    },
+    "EventLaggedData": {
+      "description": "`data` события `event_lagged`.",
+      "type": "object",
+      "required": [
+        "missed"
+      ],
+      "properties": {
+        "missed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "EventLaggedEvent": {
+      "description": "Очередь событий переполнилась; часть событий потеряна.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/EventLaggedData"
+        },
+        "event": {
+          "$ref": "#/definitions/EventLaggedName"
+        }
+      }
+    },
+    "EventLaggedName": {
+      "description": "Очередь событий переполнилась; часть событий потеряна.",
+      "type": "string",
+      "enum": [
+        "event_lagged"
+      ]
+    },
+    "EventTag": {
+      "description": "Дискриминатор конверта события.",
+      "type": "string",
+      "enum": [
+        "event"
+      ]
+    },
+    "FfiErrorCode": {
+      "description": "Стабильные коды ошибок FFI (см. `docs/ffi.md` §6).",
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "invalid_handle",
+        "unknown_method",
+        "server",
+        "transport",
+        "storage",
+        "secret_store",
+        "crypto",
+        "not_authenticated",
+        "protocol",
+        "not_found",
+        "e2e_unavailable",
+        "not_connected",
+        "timeout",
+        "closed",
+        "panic",
+        "internal"
+      ]
+    },
+    "LogoutData": {
+      "description": "Ответ `logout`.",
+      "type": "object",
+      "required": [
+        "wiped"
+      ],
+      "properties": {
+        "wiped": {
+          "type": "boolean"
+        }
+      }
+    },
+    "MarkReadData": {
+      "description": "Ответ `mark_read`.",
+      "type": "object",
+      "required": [
+        "up_to_server_id"
+      ],
+      "properties": {
+        "up_to_server_id": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MemberRole": {
+      "description": "Роль участника.",
+      "type": "string",
+      "enum": [
+        "unspecified",
+        "member",
+        "owner"
+      ]
+    },
+    "Message": {
+      "description": "Объект сообщения.",
+      "type": "object",
+      "required": [
+        "chat_id",
+        "content_kind",
+        "created_at_ms",
+        "local_id",
+        "sender_device_id",
+        "sender_user_id",
+        "status"
+      ],
+      "properties": {
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "content_kind": {
+          "description": "Например, `text`.",
+          "type": "string"
+        },
+        "created_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "deleted_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "edited_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "local_id": {
+          "type": "string"
+        },
+        "reply_to_server_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "sender_device_id": {
+          "type": "string"
+        },
+        "sender_user_id": {
+          "type": "string"
+        },
+        "server_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "status": {
+          "$ref": "#/definitions/MessageStatus"
+        }
+      }
+    },
+    "MessageReceivedEvent": {
+      "description": "Новое сообщение.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Message"
+        },
+        "event": {
+          "$ref": "#/definitions/MessageReceivedName"
+        }
+      }
+    },
+    "MessageReceivedName": {
+      "description": "Новое сообщение.",
+      "type": "string",
+      "enum": [
+        "message_received"
+      ]
+    },
+    "MessageStatus": {
+      "description": "Статус сообщения в outbox/истории.",
+      "type": "string",
+      "enum": [
+        "none",
+        "Pending",
+        "Sending",
+        "Sent",
+        "Failed"
+      ]
+    },
+    "MessageUpdatedEvent": {
+      "description": "Сообщение изменено (edit/delete).",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Message"
+        },
+        "event": {
+          "$ref": "#/definitions/MessageUpdatedName"
+        }
+      }
+    },
+    "MessageUpdatedName": {
+      "description": "Сообщение изменено (edit/delete).",
+      "type": "string",
+      "enum": [
+        "message_updated"
+      ]
+    },
+    "NullData": {
+      "description": "`data: null` для команд без полезной нагрузки.",
+      "type": "null"
+    },
+    "OkResponse": {
+      "description": "Успешный ответ. Поле `data` зависит от команды в `request`.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "request"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/OkTag"
+        },
+        "data": {
+          "$ref": "#/definitions/ResponseData"
+        },
+        "request": {
+          "description": "`@type` исходного запроса.",
+          "type": "string"
+        }
+      }
+    },
+    "OkTag": {
+      "description": "Дискриминатор успешного ответа.",
+      "type": "string",
+      "enum": [
+        "ok"
+      ]
+    },
+    "OutboxChangedData": {
+      "description": "`data` события `outbox_changed`.",
+      "type": "object",
+      "required": [
+        "local_id",
+        "state"
+      ],
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "local_id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/OutboxState"
+        }
+      }
+    },
+    "OutboxChangedEvent": {
+      "description": "Изменилось состояние отправки собственного сообщения.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/OutboxChangedData"
+        },
+        "event": {
+          "$ref": "#/definitions/OutboxChangedName"
+        }
+      }
+    },
+    "OutboxChangedName": {
+      "description": "Изменилось состояние отправки собственного сообщения.",
+      "type": "string",
+      "enum": [
+        "outbox_changed"
+      ]
+    },
+    "OutboxState": {
+      "description": "Состояние отправки сообщения.",
+      "type": "string",
+      "enum": [
+        "pending",
+        "sending",
+        "sent",
+        "failed"
+      ]
+    },
+    "OutboxStats": {
+      "description": "Статистика outbox.",
+      "type": "object",
+      "required": [
+        "due",
+        "total"
+      ],
+      "properties": {
+        "due": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "PingData": {
+      "description": "`ping`: версии библиотеки и JSON-схемы.",
+      "type": "object",
+      "required": [
+        "api_version",
+        "service",
+        "version"
+      ],
+      "properties": {
+        "api_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "service": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "PresenceChangedData": {
+      "description": "`data` события `presence_changed`.",
+      "type": "object",
+      "required": [
+        "online",
+        "user_id"
+      ],
+      "properties": {
+        "online": {
+          "type": "boolean"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    },
+    "PresenceChangedEvent": {
+      "description": "Изменился online-статус пользователя.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/PresenceChangedData"
+        },
+        "event": {
+          "$ref": "#/definitions/PresenceChangedName"
+        }
+      }
+    },
+    "PresenceChangedName": {
+      "description": "Изменился online-статус пользователя.",
+      "type": "string",
+      "enum": [
+        "presence_changed"
+      ]
+    },
+    "Receipt": {
+      "description": "Receipt доставки/прочтения.",
+      "type": "object",
+      "required": [
+        "chat_id",
+        "delivered_up_to",
+        "read_up_to",
+        "updated_at_ms",
+        "user_id"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "delivered_up_to": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "read_up_to": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "updated_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ReceiptUpdatedEvent": {
+      "description": "Обновился receipt.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/Receipt"
+        },
+        "event": {
+          "$ref": "#/definitions/ReceiptUpdatedName"
+        }
+      }
+    },
+    "ReceiptUpdatedName": {
+      "description": "Обновился receipt.",
+      "type": "string",
+      "enum": [
+        "receipt_updated"
+      ]
+    },
+    "ResponseData": {
+      "description": "Общий тип `data` успешного ответа.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PingData"
+        },
+        {
+          "$ref": "#/definitions/ConnectionStateData"
+        },
+        {
+          "$ref": "#/definitions/Session"
+        },
+        {
+          "$ref": "#/definitions/Account"
+        },
+        {
+          "$ref": "#/definitions/Status"
+        },
+        {
+          "$ref": "#/definitions/LogoutData"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Chat"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChatMember"
+          }
+        },
+        {
+          "$ref": "#/definitions/Chat"
+        },
+        {
+          "$ref": "#/definitions/SendMessageData"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        },
+        {
+          "$ref": "#/definitions/Message"
+        },
+        {
+          "$ref": "#/definitions/MarkReadData"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Receipt"
+          }
+        },
+        {
+          "$ref": "#/definitions/SyncProgress"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Device"
+          }
+        },
+        {
+          "$ref": "#/definitions/Call"
+        },
+        {
+          "$ref": "#/definitions/NullData"
+        }
+      ]
+    },
+    "ResyncPerformedData": {
+      "description": "`data` события `resync_performed`.",
+      "type": "object",
+      "required": [
+        "up_to_seq"
+      ],
+      "properties": {
+        "up_to_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ResyncPerformedEvent": {
+      "description": "Выполнен snapshot после `ResyncRequired`.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/ResyncPerformedData"
+        },
+        "event": {
+          "$ref": "#/definitions/ResyncPerformedName"
+        }
+      }
+    },
+    "ResyncPerformedName": {
+      "description": "Выполнен snapshot после `ResyncRequired`.",
+      "type": "string",
+      "enum": [
+        "resync_performed"
+      ]
+    },
+    "SendMessageData": {
+      "description": "Ответ `send_message`.",
+      "type": "object",
+      "required": [
+        "local_id"
+      ],
+      "properties": {
+        "local_id": {
+          "type": "string"
+        }
+      }
+    },
+    "Session": {
+      "description": "Объект сессии.",
+      "type": "object",
+      "required": [
+        "active",
+        "avatar",
+        "display_name",
+        "user_id",
+        "username"
+      ],
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "avatar": {
+          "$ref": "#/definitions/Avatar"
+        },
+        "device_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      }
+    },
+    "SessionEndedData": {
+      "description": "`data` события `session_ended`.",
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "SessionEndedEvent": {
+      "description": "Сессия завершена.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/SessionEndedData"
+        },
+        "event": {
+          "$ref": "#/definitions/SessionEndedName"
+        }
+      }
+    },
+    "SessionEndedName": {
+      "description": "Сессия завершена.",
+      "type": "string",
+      "enum": [
+        "session_ended"
+      ]
+    },
+    "SessionStartedData": {
+      "description": "`data` события `session_started`.",
+      "type": "object",
+      "required": [
+        "user_id",
+        "username"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      }
+    },
+    "SessionStartedEvent": {
+      "description": "Сессия активна после login/resume.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/SessionStartedData"
+        },
+        "event": {
+          "$ref": "#/definitions/SessionStartedName"
+        }
+      }
+    },
+    "SessionStartedName": {
+      "description": "Сессия активна после login/resume.",
+      "type": "string",
+      "enum": [
+        "session_started"
+      ]
+    },
+    "Status": {
+      "description": "Сводный статус клиента.",
+      "type": "object",
+      "required": [
+        "connection",
+        "data_dir",
+        "device_name",
+        "e2e",
+        "outbox",
+        "server",
+        "sync_cursor"
+      ],
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Account"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "connection": {
+          "$ref": "#/definitions/ConnectionState"
+        },
+        "data_dir": {
+          "type": "string"
+        },
+        "device_name": {
+          "type": "string"
+        },
+        "e2e": {
+          "type": "boolean"
+        },
+        "outbox": {
+          "$ref": "#/definitions/OutboxStats"
+        },
+        "server": {
+          "type": "string"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Session"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sync_cursor": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SyncProgress": {
+      "description": "Прогресс синхронизации.",
+      "type": "object",
+      "required": [
+        "events_applied",
+        "events_skipped",
+        "from_seq",
+        "resync_performed",
+        "to_seq"
+      ],
+      "properties": {
+        "events_applied": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "events_skipped": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "from_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "resync_performed": {
+          "type": "boolean"
+        },
+        "to_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SyncProgressEvent": {
+      "description": "Прогресс синхронизации.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/SyncProgress"
+        },
+        "event": {
+          "$ref": "#/definitions/SyncProgressName"
+        }
+      }
+    },
+    "SyncProgressName": {
+      "description": "Прогресс синхронизации.",
+      "type": "string",
+      "enum": [
+        "sync_progress"
+      ]
+    },
+    "WarningData": {
+      "description": "`data` события `warning`.",
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "WarningEvent": {
+      "description": "Некритичное предупреждение.",
+      "type": "object",
+      "required": [
+        "@type",
+        "data",
+        "event"
+      ],
+      "properties": {
+        "@type": {
+          "$ref": "#/definitions/EventTag"
+        },
+        "data": {
+          "$ref": "#/definitions/WarningData"
+        },
+        "event": {
+          "$ref": "#/definitions/WarningName"
+        }
+      }
+    },
+    "WarningName": {
+      "description": "Некритичное предупреждение.",
+      "type": "string",
+      "enum": [
+        "warning"
+      ]
+    }
+  }
+}

@@ -34,12 +34,13 @@ from .exceptions import (
     UnsupportedCapabilityError,
     UsernameTakenError,
 )
-from .models import Call, Chat, Event, Message, Session
+from .models import AvatarInfo, Call, Chat, Event, Message, Session
 
 __version__ = "0.1.0"
 
 __all__ = [
     "RChatClient",
+    "AvatarInfo",
     "Chat",
     "Message",
     "Call",

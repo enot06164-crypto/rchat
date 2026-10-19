@@ -227,30 +227,43 @@ async fn session_value(handle: &RchatHandle) -> Result<Value, FfiError> {
     let account = handle.storage.load_account().await?;
     let active = handle.client.session();
     let value = match (account, active) {
-        (Some(account), Some((user_id, username, display_name))) => json!({
-            "active": true,
-            "user_id": user_id,
-            "username": username,
-            "display_name": display_name,
-            "device_id": account.device_id,
-        }),
-        (Some(account), None) => json!({
-            "active": false,
-            "user_id": account.user_id,
-            "username": account.username,
-            "display_name": account.display_name,
-            "device_id": account.device_id,
-        }),
-        (None, Some((user_id, username, display_name))) => json!({
-            "active": true,
-            "user_id": user_id,
-            "username": username,
-            "display_name": display_name,
-            "device_id": Value::Null,
-        }),
+        (Some(account), Some((user_id, username, display_name))) => session_object(
+            true,
+            &user_id,
+            &username,
+            &display_name,
+            json!(account.device_id),
+        ),
+        (Some(account), None) => session_object(
+            false,
+            &account.user_id,
+            &account.username,
+            &account.display_name,
+            json!(account.device_id),
+        ),
+        (None, Some((user_id, username, display_name))) => {
+            session_object(true, &user_id, &username, &display_name, Value::Null)
+        }
         (None, None) => Value::Null,
     };
     Ok(value)
+}
+
+fn session_object(
+    active: bool,
+    user_id: &str,
+    username: &str,
+    display_name: &str,
+    device_id: Value,
+) -> Value {
+    json!({
+        "active": active,
+        "user_id": user_id,
+        "username": username,
+        "display_name": display_name,
+        "device_id": device_id,
+        "avatar": json::avatar(user_id, display_name, username),
+    })
 }
 
 async fn account_value(handle: &RchatHandle) -> Result<Value, FfiError> {

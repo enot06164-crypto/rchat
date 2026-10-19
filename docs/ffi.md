@@ -198,7 +198,8 @@ rchat_destroy(handle);
   "user_id": "<user_id>",
   "username": "alice",
   "display_name": "Alice",
-  "device_id": "<device_id>"
+  "device_id": "<device_id>",
+  "avatar": {"initials": "AL", "color_index": 5, "color_hex": "#65AADD"}
 }
 ```
 
@@ -212,7 +213,13 @@ rchat_destroy(handle);
 {
   "connection": "connected",
   "session": {"active": true, "...": "..."},
-  "account": {"user_id": "...", "username": "...", "display_name": "...", "device_id": "..."},
+  "account": {
+    "user_id": "...",
+    "username": "...",
+    "display_name": "...",
+    "device_id": "...",
+    "avatar": {"initials": "AL", "color_index": 5, "color_hex": "#65AADD"}
+  },
   "sync_cursor": 42,
   "outbox": {"total": 1, "due": 1},
   "data_dir": "/tmp/rchat-ffi",
@@ -255,7 +262,8 @@ rchat_destroy(handle);
   "peer_user_id": "<user_id>",
   "created_at_ms": 1700000000000,
   "updated_at_ms": 1700000000000,
-  "last_server_id": 7
+  "last_server_id": 7,
+  "avatar": {"initials": "BO", "color_index": 1, "color_hex": "#FAA774"}
 }
 ```
 
@@ -270,7 +278,8 @@ rchat_destroy(handle);
   "username": "bob",
   "display_name": "Bob",
   "role": "owner",
-  "joined_at_ms": 1700000000000
+  "joined_at_ms": 1700000000000,
+  "avatar": {"initials": "BO", "color_index": 1, "color_hex": "#FAA774"}
 }
 ```
 
@@ -408,6 +417,45 @@ rchat_destroy(handle);
 применяются лениво; хост должен сам снимать кольцевой тайм-аут и не ждать
 отдельного события по времени.
 
+### 5.6. Аватары
+
+Сессии, аккаунты, чаты и участники содержат вложенный объект `avatar` с
+инициалами и детерминированным цветом — UI-клиентам не нужно дублировать
+эту логику:
+
+```json
+{"initials": "АИ", "color_index": 5, "color_hex": "#65AADD"}
+```
+
+Инициалы (`initials`) считаются по `display_name`, с фоллбэком на `username`
+(у чата — на `title`):
+
+- слова разделяются Unicode-пробелами, из каждого берутся только буквы
+  (`char::is_alphabetic`), поэтому эмодзи, цифры и пунктуация безопасно
+  пропускаются;
+- два и более слов — первые буквы первых двух (`"Иван Петров"` → `"ИП"`);
+- одно слово — до двух первых букв (`"Алиса"` → `"АЛ"`);
+- если букв нет ни в имени, ни в фоллбэке — пустая строка `""`.
+
+`color_index` — стабильный индекс `0..=7`: FNV-1a 64 от UTF-8 `user_id` /
+`chat_id` по модулю 8. Один и тот же идентификатор даёт один цвет на всех
+устройствах. `color_hex` — соответствующий цвет палитры:
+
+| `color_index` | `color_hex` | Цвет |
+| --- | --- | --- |
+| 0 | `#E17076` | красный |
+| 1 | `#FAA774` | оранжевый |
+| 2 | `#A695E7` | фиолетовый |
+| 3 | `#7BC862` | зелёный |
+| 4 | `#6EC9CB` | бирюзовый |
+| 5 | `#65AADD` | синий |
+| 6 | `#EE7AAE` | розовый |
+| 7 | `#E5CA77` | жёлтый |
+
+Реализация — `crates/rchat-core/src/avatar.rs`; JSON-объект собирается в
+`crates/rchat-ffi/src/json.rs`. Python SDK отдаёт его как `AvatarInfo`
+(см. §10), включая необязательное поле у `Message` для будущих версий.
+
 ## 6. Коды ошибок FFI
 
 | `code` | Значение |
@@ -508,6 +556,16 @@ rchat_destroy(handle);
 cargo test -p rchat-ffi
 ```
 
+Юнит-тесты `rchat-core` проверяют Unicode-инициалы (кириллица, латиница,
+CJK, эмодзи, пустые строки) и детерминированность индекса цвета. Тест
+`crates/rchat-ffi/tests/schema.rs` проверяет, что `schema/rchat.schema.json`
+соответствует Rust-типам и содержит все команды и события:
+
+```bash
+cargo test -p rchat-ffi test_schema_is_up_to_date
+cargo run -p rchat-ffi --bin export_schema -- --check
+```
+
 Ручная проверка C-ABI: соберите библиотеку и пример
 `crates/rchat-ffi/examples/ffi_smoke.c` (см. комментарий в файле). Пример
 создаёт handle с `auto_start:false`, выполняет `ping` и освобождает строки.
@@ -536,7 +594,8 @@ python3 -m unittest discover -s bindings/python/tests
   строки версии/ошибки не освобождаются.
 - `rchat.RChatClient` — высокоуровневый клиент с фоновым потоком событий,
   контекстным менеджером, методами сессии/чатов/сообщений/устройств/звонков
-  и моделями-датаклассами `Chat`, `Message`, `Call`, `Session`, `Event`.
+  и моделями-датаклассами `Chat`, `Message`, `Call`, `Session`, `Event`,
+  `AvatarInfo`.
 - `rchat.RChatError.from_response` — фабрика исключений по кодам из §6.
 
 Минимальный пример:
@@ -555,6 +614,13 @@ with RChatClient("/tmp/rchat/alice", "wss://chat.example",
             print(event.data["body"])
 ```
 
+Аватар доступен и как атрибут, и как элемент словаря:
+
+```python
+print(chat.avatar.initials, chat.avatar.color_hex)
+print(chat["avatar"]["color_index"])
+```
+
 Биндинг ищет библиотеку в `RCHAT_LIB_PATH`, затем в `target/release/` и
 `target/debug/` относительно корня репозитория. Примеры:
 `bindings/python/examples/smoke_ping.py` (низкоуровневый `ping` без сервера)
@@ -564,3 +630,63 @@ with RChatClient("/tmp/rchat/alice", "wss://chat.example",
 восстанавливается при старте (`get_me()`/`get_session()`), а повторный
 `login` вернёт `invalid_request: already authenticated` — так же, как
 одноимённая команда FFI.
+
+## 11. JSON Schema
+
+Единый источник истины структуры протокола — `schema/rchat.schema.json`
+(JSON Schema draft-07, версия API 1). Файл генерируется из Rust-типов
+`crates/rchat-ffi/src/schema.rs`, на которых выведен `schemars::JsonSchema`.
+
+Корневая схема — `anyOf` из четырёх вариантов:
+
+- `Command` — все входящие команды §5 с дискриминатором `@type`;
+- `OkResponse` — `@type: "ok"`, `request`, `data`;
+- `ErrorResponse` — `@type: "error"`, `code`, `message`, `retryable`,
+  `server_code?`, `server_code_name?`;
+- `Event` — все события §7 (`message_received`, `outbox_changed`,
+  `call_invited`, `event_lagged` и т.д.).
+
+В `definitions` находятся общие сущности (`Chat`, `ChatMember`, `Session`,
+`Account`, `Message`, `Call`, `Avatar`, `SyncProgress`, `Device`, receipts) и
+по одной схеме на команду/событие. Этого достаточно для генерации типов в
+Dart/Swift/Kotlin/TypeScript и для валидации JSON в тестах.
+
+Генерация и проверка актуальности:
+
+```bash
+# Перезаписать schema/rchat.schema.json.
+cargo run -p rchat-ffi --bin export_schema
+
+# Проверить, что файл не устарел (код возврата 1 при расхождении).
+cargo run -p rchat-ffi --bin export_schema -- --check
+
+# Тест в составе cargo test.
+cargo test -p rchat-ffi test_schema_is_up_to_date
+```
+
+Файл коммитится в репозиторий; редактировать его вручную нельзя — при
+изменении `schema.rs` запустите экспорт. Тест `test_schema_is_up_to_date`
+входит в `cargo test --workspace` и падает, если схема не обновлена.
+
+Пример фрагмента:
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "rchat-ffi JSON protocol",
+  "anyOf": [
+    {"$ref": "#/definitions/Command"},
+    {"$ref": "#/definitions/OkResponse"},
+    {"$ref": "#/definitions/ErrorResponse"},
+    {"$ref": "#/definitions/Event"}
+  ],
+  "definitions": {
+    "Command": {
+      "oneOf": [
+        {"type": "object", "required": ["@type"],
+         "properties": {"@type": {"type": "string", "enum": ["get_chats"]}}}
+      ]
+    }
+  }
+}
+```

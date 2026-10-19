@@ -19,8 +19,9 @@ workspace.
 | Сквозные E2E звонков | `crates/rchat-e2e-tests/tests/call_signaling.rs` | Реальные клиенты: invite → accept → end, decline, busy, запрет групп, доставка событий всем устройствам участника. |
 | Сквозные сценарии сбоев («мок-стек») | `crates/rchat-e2e-tests/tests/mock_stack.rs` | Outbox и синхронизация при разрывах/задержках/дублях/битых кадрах; реальный сервер, но канал в памяти и in-memory хранилище из testkit. |
 | CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`), профили аккаунтов (`--account`, `accounts`, `account-delete`), звонки (`call invite --wait`, `watch`, accept/decline/end). |
-| C-ABI/JSON | `crates/rchat-ffi/tests/ffi.rs` | Прямые вызовы C-функций: создание/уничтожение handle, `ping`, ошибки JSON и NULL, два независимых клиента, E2E-сообщение, transient-события звонка, освобождение строк. |
-| Python SDK | `bindings/python/tests/` | `ctypes`-сигнатуры, версии, создание/уничтожение handle, ошибки конфигурации и освобождение строк; два Python-клиента с настоящим сервером, E2E-чат и событие `message_received`. |
+| C-ABI/JSON | `crates/rchat-ffi/tests/ffi.rs` | Прямые вызовы C-функций: создание/уничтожение handle, `ping`, ошибки JSON и NULL, два независимых клиента, E2E-сообщение, transient-события звонка, освобождение строк, вложенный `avatar`. |
+| JSON Schema | `crates/rchat-ffi/tests/schema.rs`, `crates/rchat-ffi/src/schema.rs` | Схема — валидный JSON, содержит все 34 команды и 18 событий; `schema/rchat.schema.json` совпадает с Rust-типами (`test_schema_is_up_to_date`). |
+| Python SDK | `bindings/python/tests/` | `ctypes`-сигнатуры, версии, создание/уничтожение handle, ошибки конфигурации и освобождение строк; модели `AvatarInfo`/`Chat`/`Session`/`Message`; два Python-клиента с настоящим сервером, E2E-чат и событие `message_received`. |
 | Тесты testkit | `crates/rchat-testkit/tests/testkit.rs` | Транзакционность `MockStorage` (включая инъекцию сбоя) и порядок применения помех транспорта. |
 
 ## 2. Как запускать
@@ -39,6 +40,8 @@ cargo build -p rchat-ffi
 cargo test -p rchat-e2e-tests --test mock_stack -- --nocapture
 cargo test -p rchat-cli --test cli_smoke
 cargo test -p rchat-ffi
+cargo test -p rchat-ffi test_schema_is_up_to_date
+cargo run -p rchat-ffi --bin export_schema -- --check
 cargo test -p rchat-core dependency_rules
 
 # Python SDK: тесты ищут собранные target/debug/librchat_ffi.* и

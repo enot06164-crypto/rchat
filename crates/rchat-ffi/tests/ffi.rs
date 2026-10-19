@@ -100,6 +100,29 @@ fn last_error() -> String {
         .to_string()
 }
 
+/// Проверяет структуру `avatar` и возвращает индекс цвета.
+fn assert_avatar(value: &Value) -> u64 {
+    let initials = value["initials"]
+        .as_str()
+        .unwrap_or_else(|| panic!("avatar.initials must be a string: {value}"));
+    assert!(
+        initials.chars().count() <= 2,
+        "avatar.initials must contain at most two characters: {initials:?}"
+    );
+    let index = value["color_index"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("avatar.color_index must be an integer: {value}"));
+    assert!(index < 8, "avatar.color_index out of range: {index}");
+    let hex = value["color_hex"]
+        .as_str()
+        .unwrap_or_else(|| panic!("avatar.color_hex must be a string: {value}"));
+    assert!(
+        hex.len() == 7 && hex.starts_with('#'),
+        "avatar.color_hex must be #RRGGBB: {hex:?}"
+    );
+    index
+}
+
 #[test]
 fn create_ping_errors_and_free() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -212,6 +235,12 @@ fn two_handles_exchange_e2e_message_and_call_event() {
     }));
     assert_eq!(bob_session["active"], true);
 
+    // Аватар детерминирован по id и присутствует в сессии/аккаунте.
+    assert_eq!(alice_session["avatar"]["initials"], "AL");
+    let alice_color = assert_avatar(&alice_session["avatar"]);
+    let alice_account = alice.ok(json!({"@type": "get_account"}));
+    assert_eq!(assert_avatar(&alice_account["avatar"]), alice_color);
+
     let chat = alice.ok(json!({
         "@type": "create_direct_chat",
         "peer_username": "bob",
@@ -219,14 +248,30 @@ fn two_handles_exchange_e2e_message_and_call_event() {
     }));
     let chat_id = chat["chat_id"].as_str().expect("chat id").to_string();
     assert_eq!(chat["e2e_mode"], "olm_v1");
+    assert_eq!(chat["avatar"]["initials"], "BO");
+    let chat_color = assert_avatar(&chat["avatar"]);
 
     // Bob может узнать о чате явным refresh (или из фоновой синхронизации).
     let bob_chats = bob.ok(json!({"@type": "refresh_chats"}));
-    assert!(bob_chats
+    let bob_chat = bob_chats
         .as_array()
         .expect("chats")
         .iter()
-        .any(|chat| chat["chat_id"] == chat_id));
+        .find(|chat| chat["chat_id"] == chat_id)
+        .expect("bob sees the chat");
+    assert_eq!(assert_avatar(&bob_chat["avatar"]), chat_color);
+
+    let members = alice.ok(json!({
+        "@type": "get_chat_members",
+        "chat_id": chat_id,
+    }));
+    let bob_member = members
+        .as_array()
+        .expect("members")
+        .iter()
+        .find(|member| member["username"] == "bob")
+        .expect("bob is a chat member");
+    assert_eq!(bob_member["avatar"], bob_session["avatar"]);
 
     let sent = alice.ok(json!({
         "@type": "send_message",

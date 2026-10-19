@@ -107,10 +107,16 @@ let mut events = client.subscribe();       // UiEvent
 сериализация и C-ABI живут только в этом крейте.
 
 - Новая команда: добавьте ветку в `src/commands.rs` (валидация полей,
-  вызов метода `Client`, ответ через `json.rs`), опишите её в
-  `docs/ffi.md` и покройте вызовом в `tests/ffi.rs`.
+  вызов метода `Client`, ответ через `json.rs`), вариант в `src/schema.rs`
+  (для TypeGen), опишите её в `docs/ffi.md`, выполните
+  `cargo run -p rchat-ffi --bin export_schema` и покройте вызовом в
+  `tests/ffi.rs`.
 - Новое событие: добавьте вариант в `UiEvent` (ядро), ветку в
-  `src/json.rs`, строку в таблицу событий `docs/ffi.md` и тест.
+  `src/json.rs`, структуру события в `src/schema.rs`, строку в таблицу
+  событий `docs/ffi.md`, обновите `schema/rchat.schema.json` и тест.
+- Меняя формат команд/ответов/событий (включая поля сущностей), обновляйте
+  `schema/rchat.schema.json`; тест `test_schema_is_up_to_date` не даст
+  закоммитить устаревшую схему.
 - Не добавляйте в ядро `serde`, `serde_json` или C-типы: FFI — адаптер,
   как CLI.
 - C-ABI-инварианты: не пропускать panic через границу, проверять NULL и
@@ -120,8 +126,8 @@ let mut events = client.subscribe();       // UiEvent
   `API_VERSION`.
 - Python SDK (`bindings/python`) — тонкий слой над тем же C-ABI. При
   добавлении команды/события обновите `rchat/client.py`, при необходимости
-  `rchat/models.py`, `bindings/python/README.md` и Python-тесты; не
-  дублируйте бизнес-логику в Python.
+  `rchat/models.py` (включая `AvatarInfo`), `bindings/python/README.md` и
+  Python-тесты; не дублируйте бизнес-логику в Python.
 
 ## 5. Новое серверное хранилище (`Repo`)
 
