@@ -208,8 +208,9 @@ export function MessageBubble(props: {
         </div>
       </div>
 
-      {/* Хвостик (WebK .bubble-tail) — слой ПОД пузырём: скруглённый угол
-          «дорисовывается» хвостиком, поэтому шва не видно. */}
+      {/* Хвостик (слой ПОД пузырём: скруглённый угол «дорисовывается» хвостиком).
+          Форма наша — по мотивам Telegram WebK, где угол на стороне хвостика
+          прямой, а кривую даёт сам хвостик. */}
       <Show when={lastInGroup()}>
         <svg
           class="bubble__tail"
@@ -219,12 +220,7 @@ export function MessageBubble(props: {
           xmlns="http://www.w3.org/2000/svg"
           aria-hidden="true"
         >
-          <g transform="translate(9 -14)" fill-rule="evenodd">
-            <path
-              d="M-6 16h6v17c-.193-2.84-.876-5.767-2.05-8.782-.904-2.325-2.446-4.485-4.625-6.48A1 1 0 01-6 16z"
-              transform="matrix(1 0 0 -1 0 49)"
-            />
-          </g>
+          <path d="M11 0 C11 10 6 16 0 20 L11 20 Z" />
         </svg>
       </Show>
 
