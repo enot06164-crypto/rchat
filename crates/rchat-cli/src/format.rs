@@ -30,11 +30,34 @@ pub fn connection_state(state: ConnectionState) -> &'static str {
 pub fn chat_kind(kind: proto::ChatKind) -> &'static str {
     match kind {
         proto::ChatKind::Direct => "личный",
+        proto::ChatKind::Group => "групповой",
         other => {
             let _ = other;
             "неизвестный"
         }
     }
+}
+
+/// Роль участника группового чата.
+pub fn member_role(role: proto::ChatMemberRole) -> &'static str {
+    match role {
+        proto::ChatMemberRole::Owner => "владелец",
+        proto::ChatMemberRole::Member => "участник",
+        other => {
+            let _ = other;
+            "роль неизвестна"
+        }
+    }
+}
+
+pub fn member_line(member: &rchat_core::types::MemberRecord) -> String {
+    format!(
+        "{} ({}) — {}, в чате с {}",
+        member.user_id,
+        member.username,
+        member_role(member.role),
+        timestamp(member.joined_at_ms)
+    )
 }
 
 pub fn e2e_mode(mode: proto::E2eMode) -> &'static str {

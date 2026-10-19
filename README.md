@@ -1,12 +1,20 @@
 # rchat
 
 Учебно-рабочий мессенджер на Rust: сервер + клиентское ядро + терминальный
-клиент (CLI). Сквозное шифрование личных чатов — Olm (библиотека
-[vodozemac], своя криптография не пишется). Запускается локально без Docker и
-внешних сервисов: всё состояние — SQLite и файлы в каталоге данных.
+клиент (CLI). Сквозное шифрование — Olm для личных чатов и Megolm для
+групповых (библиотека [vodozemac], своя криптография не пишется). Запускается
+локально без Docker и внешних сервисов: всё состояние — SQLite и файлы в
+каталоге данных.
 
 Реализация следует спецификации `rchat_technical_spec_v2.md` и завершена:
 этапы 1–8, включая testkit, сквозные сценарии, документацию и CI.
+
+Сверх первого релиза добавлены **групповые чаты**: немедленное членство,
+роли (владелец/участник) и сквозное шифрование на Megolm (ключ сессии
+рассылается персональными Olm-конвертами, ротация — при исключении участника
+и отзыве устройства). Инварианты и правила — в `docs/protocol.md` §4,
+устройство — в `docs/architecture.md` §7.5, оговорки — в
+`docs/threat-model.md`.
 
 [vodozemac]: https://github.com/matrix-org/vodozemac
 
@@ -20,9 +28,9 @@
 | `rchat-server-storage-sqlite` | SQLite-реализация `Repo`, сетевой слой TLS + WebSocket, бинарник `rchat-server` |
 | `rchat-transport-ws` | WebSocket + TLS транспорт клиента (системные корни, пиннинг отпечатка) |
 | `rchat-client-storage-sqlite` | клиентское хранилище (SQLite) и шифрованное файловое хранилище секретов |
-| `rchat-crypto-provider` | E2E-провайдер Olm на vodozemac |
+| `rchat-crypto-provider` | E2E-провайдер Olm (личные чаты) и Megolm (группы) на vodozemac |
 | `rchat-testkit` | тестовые инструменты: `TestServer`, `MockStorage`, транспорт с управляемыми помехами |
-| `rchat-e2e-tests` | сквозные сценарии (реальный Olm и «мок-стек») |
+| `rchat-e2e-tests` | сквозные сценарии (реальный Olm/Megolm и «мок-стек») |
 | `rchat-cli` | CLI — composition root: собирает ядро с конкретными адаптерами |
 
 Направление зависимостей — только «вниз»: ядро не знает об адаптерах.
@@ -62,6 +70,12 @@ export RCHAT_TLS_FINGERPRINT=<sha256-отпечаток из лога>   # ':' �
 
 # 5. Живой режим: события до Ctrl+C (сообщения, presence, outbox).
 ./target/debug/rchat-cli --data-dir /tmp/rchat/bob watch
+
+# 6. Групповой чат: создание (E2E по умолчанию), состав, приглашение.
+./target/debug/rchat-cli --data-dir /tmp/rchat/alice group-create Проект --members bob
+./target/debug/rchat-cli --data-dir /tmp/rchat/alice send <chat_id> Всем привет
+./target/debug/rchat-cli --data-dir /tmp/rchat/bob sync
+./target/debug/rchat-cli --data-dir /tmp/rchat/bob group info <chat_id>
 ```
 
 Сервер можно перезапускать с тем же `--db`: сессии, история и журнал
@@ -105,10 +119,14 @@ stdin) или переменной окружения `RCHAT_PASSWORD`.
 `register`, `login`, `logout`, `status`, `me`, `devices`
 (`devices --chat <логин>` — устройства участников для сверки отпечатков),
 `revoke-device`, `chats`, `chat-create <логин> [--e2e]`,
+`group-create <имя> [--members a,b]` (E2E по умолчанию; `--no-e2e` — только
+с dev-сервером), `group info|invite|leave|remove|rename <чат|группа> ...`
+(участник приглашает; исключает и переименовывает владелец),
 `send <чат> <текст>... [--reply-to <server_id>] [--wait N]`,
 `history <чат> [--from-server] [--before <server_id>] [--limit N]`,
 `edit <чат> <server_id> <текст>`, `delete <чат> <server_id>`,
 `read <чат> [<server_id>]`, `receipts <чат>`, `sync`, `watch`.
+Группу можно указывать по `chat_id` или по имени (если оно однозначно).
 
 Полная справка — `rchat-cli --help` и `rchat-cli <команда> --help`.
 
@@ -129,6 +147,7 @@ Docker). Что именно покрывают тесты и как польз�
 
 - `docs/architecture.md` — структура, решения по крейтам, серверу, ядру, E2E;
 - `docs/protocol.md` — протокол обмена (кадры, методы, синхронизация, версии);
+- `docs/group-e2e.md` — отдельная спецификация группового E2E (Megolm);
 - `docs/testing.md` — слои тестов, testkit, сценарии сбоев, ручной smoke;
 - `docs/threat-model.md` — модель угроз, гарантии и ограничения;
 - `docs/extension-guide.md` — как расширять: транспорт, хранилище, UI,
@@ -136,7 +155,9 @@ Docker). Что именно покрывают тесты и как польз�
 
 ## Известные ограничения
 
-- E2E (Olm) — только личные чаты; защищается содержимое, не метаданные;
+- E2E: Olm для личных чатов, Megolm для групп; защищается содержимое, не
+  метаданные. Приглашённый не читает сообщения до приглашения; исключённый
+  сохраняет уже расшифрованную историю (ротация закрывает только будущее);
 - распространение ключей устройств — trust on first use: подмена
   обнаруживается только сверкой отпечатков по независимому каналу;
 - presence — best-effort и транзиентен (в памяти одного процесса);

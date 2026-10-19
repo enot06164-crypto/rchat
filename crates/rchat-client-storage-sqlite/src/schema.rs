@@ -190,3 +190,64 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
     "#,
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// База, созданная до появления ролей и учёта выдач ключей (v1),
+    /// поднимается до текущей версии без потери данных: прежним участникам
+    /// достаётся роль 0, новые столбцы и таблицы создаются.
+    #[test]
+    fn upgrade_from_v1_preserves_data() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("client.sqlite3");
+        let conn = Connection::open(&path).expect("open");
+        migrate_to(&conn, 1).expect("v1");
+        conn.execute_batch(
+            "INSERT INTO chats(chat_id, kind, e2e_mode, title, peer_user_id,
+                 created_at_ms, updated_at_ms, last_server_id)
+             VALUES('c1', 1, 1, 'Bob', 'u_bob', 1, 1, 0);
+             INSERT INTO chat_members(chat_id, user_id, username, display_name, joined_at_ms)
+             VALUES('c1', 'u_bob', 'bob', 'Bob', 1);",
+        )
+        .expect("seed v1");
+        assert_eq!(schema_version(&conn).expect("version"), 1);
+
+        migrate_to(&conn, crate::SCHEMA_VERSION).expect("upgrade");
+        assert_eq!(
+            schema_version(&conn).expect("version"),
+            crate::SCHEMA_VERSION
+        );
+        let role: i64 = conn
+            .query_row(
+                "SELECT role FROM chat_members WHERE user_id = 'u_bob'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("role");
+        assert_eq!(role, 0, "прежним участникам достаётся роль 0");
+        let title: String = conn
+            .query_row("SELECT title FROM chats", [], |row| row.get(0))
+            .expect("title");
+        assert_eq!(title, "Bob", "данные v1 сохранены");
+        let shares: i64 = conn
+            .query_row("SELECT COUNT(*) FROM group_key_shares", [], |row| {
+                row.get(0)
+            })
+            .expect("group_key_shares");
+        assert_eq!(shares, 0);
+    }
+
+    /// Повторное применение миграций ничего не меняет.
+    #[test]
+    fn migration_is_idempotent() {
+        let conn = Connection::open_in_memory().expect("open");
+        migrate_to(&conn, crate::SCHEMA_VERSION).expect("first");
+        migrate_to(&conn, crate::SCHEMA_VERSION).expect("second");
+        assert_eq!(
+            schema_version(&conn).expect("version"),
+            crate::SCHEMA_VERSION
+        );
+    }
+}

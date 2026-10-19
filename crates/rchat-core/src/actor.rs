@@ -1101,6 +1101,10 @@ impl Ctx<'_> {
             Vec::with_capacity(snapshot.chats.len());
         for chat in &snapshot.chats {
             let (record, members) = convert::chat_from_proto(chat, &session.user_id)?;
+            // Снимок мог застать изменение состава (например, участника
+            // исключили, пока это устройство было офлайн) — ротация должна
+            // сработать до замены локального состава.
+            self.inner.note_group_membership(&record, &members).await;
             for member in &members {
                 if member.user_id != session.user_id {
                     self.st.device_refresh.insert(member.user_id.clone());

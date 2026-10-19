@@ -15,7 +15,7 @@ use rchat_crypto_provider::VodozemacCryptoProvider;
 use rchat_transport_ws::{TlsTrust, WsTransportConfig, WsTransportFactory};
 use zeroize::Zeroizing;
 
-use crate::cli::{Cli, Command, PasswordArgs};
+use crate::cli::{Cli, Command, GroupCommand, PasswordArgs};
 use crate::format;
 
 /// Ошибки CLI: сообщения уже сформулированы для человека, поэтому
@@ -176,6 +176,28 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
             println!("{}", format::chat_line(&chat));
             Ok(())
         }
+        Command::GroupCreate {
+            name,
+            members,
+            no_e2e,
+        } => {
+            let chat = ctx
+                .client
+                .create_group_chat(&name, &members, !no_e2e)
+                .await?;
+            let mode = if no_e2e {
+                "без E2E (dev)"
+            } else {
+                "E2E (Megolm)"
+            };
+            println!("Создан групповой чат [{mode}]: {}", chat.chat_id);
+            println!("{}", format::chat_line(&chat));
+            if members.is_empty() {
+                println!("Участников пока нет: пригласите командой `group invite`.");
+            }
+            Ok(())
+        }
+        Command::Group { command } => group(ctx, command).await,
         Command::Send {
             chat,
             text,
@@ -309,6 +331,117 @@ async fn send(
             return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Операции с групповым чатом: состав, роли, владение.
+async fn group(ctx: &Context, command: GroupCommand) -> Result<()> {
+    match command {
+        GroupCommand::Info { chat } => {
+            let chat = resolve_group(ctx, &chat).await?;
+            let members = ctx.client.chat_members(&chat.chat_id).await?;
+            println!("{}", format::chat_line(&chat));
+            if members.is_empty() {
+                println!("Состав пуст.");
+                return Ok(());
+            }
+            println!("Участники ({}):", members.len());
+            for member in &members {
+                println!("{}", format::member_line(member));
+            }
+            Ok(())
+        }
+        GroupCommand::Invite { chat, usernames } => {
+            let chat = resolve_group(ctx, &chat).await?;
+            let updated = ctx.client.invite_to_chat(&chat.chat_id, &usernames).await?;
+            let members = ctx.client.chat_members(&updated.chat_id).await?;
+            println!(
+                "Приглашены: {}. Состав ({}):",
+                usernames.join(", "),
+                members.len()
+            );
+            for member in &members {
+                println!("{}", format::member_line(member));
+            }
+            if updated.e2e_mode == rchat_proto::proto::E2eMode::OlmV1 {
+                println!(
+                    "Ключ E2E приглашённые получат со следующими сообщениями (ранние им недоступны)."
+                );
+            }
+            Ok(())
+        }
+        GroupCommand::Leave { chat } => {
+            let chat = resolve_group(ctx, &chat).await?;
+            ctx.client.leave_chat(&chat.chat_id).await?;
+            // Событие обновления состава приходит журналом: забираем его,
+            // чтобы вывод отражал фактическое состояние.
+            let progress = ctx.client.sync_now().await?;
+            println!("Вы вышли из группы {} («{}»).", chat.chat_id, chat.title);
+            print_sync(progress);
+            let updated = ctx.storage.get_chat(&chat.chat_id).await?;
+            if let Some(updated) = updated {
+                let members = ctx.client.chat_members(&updated.chat_id).await?;
+                println!("Состав без вас ({}):", members.len());
+                for member in &members {
+                    println!("{}", format::member_line(member));
+                }
+            }
+            Ok(())
+        }
+        GroupCommand::Remove { chat, user } => {
+            let chat = resolve_group(ctx, &chat).await?;
+            let user_id = resolve_member(ctx, &chat.chat_id, &user).await?;
+            let updated = ctx
+                .client
+                .remove_chat_member(&chat.chat_id, &user_id)
+                .await?;
+            println!(
+                "Участник {user_id} исключён из {} («{}»).",
+                updated.chat_id, updated.title
+            );
+            if updated.e2e_mode == rchat_proto::proto::E2eMode::OlmV1 {
+                println!("Его доступ к новым сообщениям закрыт: сессия E2E ротирована.");
+            }
+            Ok(())
+        }
+        GroupCommand::Rename { chat, name } => {
+            let chat = resolve_group(ctx, &chat).await?;
+            let updated = ctx.client.rename_chat(&chat.chat_id, &name).await?;
+            println!("Группа переименована: «{}»", updated.title);
+            println!("{}", format::chat_line(&updated));
+            Ok(())
+        }
+    }
+}
+
+/// Находит групповой чат и проверяет, что это действительно группа.
+async fn resolve_group(ctx: &Context, reference: &str) -> Result<ChatRecord> {
+    let chat = resolve_chat(ctx, reference).await?;
+    if chat.kind != rchat_proto::proto::ChatKind::Group {
+        return Err(format!(
+            "чат {} — не групповой ({}); команды `group` работают только с группами",
+            chat.chat_id,
+            format::chat_kind(chat.kind)
+        )
+        .into());
+    }
+    Ok(chat)
+}
+
+/// Находит участника по user_id или логину; возвращает user_id.
+async fn resolve_member(ctx: &Context, chat_id: &str, reference: &str) -> Result<String> {
+    let members = ctx.client.chat_members(chat_id).await?;
+    if let Some(member) = members.iter().find(|member| member.user_id == reference) {
+        return Ok(member.user_id.clone());
+    }
+    let matches: Vec<&rchat_core::types::MemberRecord> = members
+        .iter()
+        .filter(|member| member.username.eq_ignore_ascii_case(reference))
+        .collect();
+    match matches.as_slice() {
+        [member] => Ok(member.user_id.clone()),
+        [] => Err(format!("участник {reference:?} не найден в чате (см. `group info`)").into()),
+        _ => Err(format!("логину {reference:?} соответствует несколько участников").into()),
     }
 }
 
@@ -540,13 +673,20 @@ async fn print_account(ctx: &Context) -> Result<()> {
 // Разбор чата, пароля и конфигурации
 // ---------------------------------------------------------------------------
 
-/// Находит чат по `chat_id` или по логину собеседника в личном чате.
+/// Находит чат по `chat_id`, логину собеседника в личном чате или имени
+/// группы (если однозначно).
 async fn resolve_chat(ctx: &Context, reference: &str) -> Result<ChatRecord> {
     if let Some(chat) = ctx.storage.get_chat(reference).await? {
         return Ok(chat);
     }
     let mut matches = Vec::new();
     for chat in ctx.storage.list_chats().await? {
+        if chat.kind == rchat_proto::proto::ChatKind::Group {
+            if chat.title.eq_ignore_ascii_case(reference) {
+                matches.push(chat);
+            }
+            continue;
+        }
         let Some(peer) = chat.peer_user_id.clone() else {
             continue;
         };
@@ -562,12 +702,12 @@ async fn resolve_chat(ctx: &Context, reference: &str) -> Result<ChatRecord> {
     }
     match matches.len() {
         0 => Err(format!(
-            "чат {reference:?} не найден: ни chat_id, ни личного чата с таким логином (список — `chats`)"
+            "чат {reference:?} не найден: ни chat_id, ни личного чата по логину, ни группы с таким именем (список — `chats`)"
         )
         .into()),
         1 => Ok(matches.remove(0)),
         _ => Err(format!(
-            "логину {reference:?} соответствует несколько чатов: укажите chat_id"
+            "{reference:?} соответствует несколько чатов: укажите chat_id"
         )
         .into()),
     }

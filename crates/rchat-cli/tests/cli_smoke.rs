@@ -443,3 +443,214 @@ async fn offline_message_is_flushed_after_reconnect() {
     assert_ok(code, &stdout, &stderr, "history bob");
     assert!(stdout.contains("Сообщение из офлайна"), "stdout: {stdout}");
 }
+
+/// Число получательских копий последнего сообщения в серверной БД и длина
+/// общего megolm-шифротекста.
+fn last_message_stats(db: &Path) -> (u64, usize, usize) {
+    let conn =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open server db");
+    let (server_id, ciphertext_len) = conn
+        .query_row(
+            "SELECT server_id, length(COALESCE(group_ciphertext, x'')) FROM messages
+             ORDER BY server_id DESC LIMIT 1",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .expect("last message");
+    let recipients = conn
+        .query_row(
+            "SELECT COUNT(*) FROM message_recipients WHERE server_id = ?1",
+            [server_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("recipients");
+    (
+        server_id as u64,
+        recipients as usize,
+        ciphertext_len as usize,
+    )
+}
+
+/// Создаёт группу через CLI и возвращает её `chat_id`.
+async fn create_group(alice_dir: &Path, port: u16, name: &str, members: &str) -> String {
+    let (code, stdout, stderr) = cli(
+        alice_dir,
+        port,
+        &["group-create", name, "--members", members],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "group-create");
+    assert!(stdout.contains("Megolm"), "stdout: {stdout}");
+    stdout
+        .lines()
+        .next()
+        .expect("первая строка вывода")
+        .rsplit(": ")
+        .next()
+        .expect("chat_id")
+        .trim()
+        .to_string()
+}
+
+/// Групповой E2E-чат через настоящий бинарник CLI: создание, обмен
+/// сообщениями, ротация ключа при выходе участника, исключение и
+/// переименование.
+#[tokio::test(flavor = "multi_thread")]
+async fn group_chat_lifecycle() {
+    let server = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+    let carol_dir = root.path().join("carol");
+
+    register(&alice_dir, server.port(), "alice", "secret-alice").await;
+    register(&bob_dir, server.port(), "bob", "secret-bob").await;
+    register(&carol_dir, server.port(), "carol", "secret-carol").await;
+
+    let chat_id = create_group(&alice_dir, server.port(), "Проект", "bob,carol").await;
+
+    // Состав и роли видит владелец.
+    let (code, stdout, stderr) = cli(
+        &alice_dir,
+        server.port(),
+        &["group", "info", &chat_id],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "group info");
+    assert!(stdout.contains("Участники (3)"), "stdout: {stdout}");
+    assert!(stdout.contains("владелец"), "stdout: {stdout}");
+
+    // Первое сообщение: сервер хранит только шифротекст и ключи участников.
+    let secret = "план на неделю 246";
+    let (code, stdout, stderr) =
+        cli(&alice_dir, server.port(), &["send", &chat_id, secret], None).await;
+    assert_ok(code, &stdout, &stderr, "send to group");
+    assert!(stdout.contains("Отправлено."), "stdout: {stdout}");
+    let db = server_db_path(&server);
+    assert_server_has_no_plaintext(&db, secret, 2);
+    let (_, recipients, ciphertext_len) = last_message_stats(&db);
+    assert_eq!(recipients, 2, "ключ выдан двум участникам");
+    assert!(ciphertext_len > 0, "megolm-шифротекст на месте");
+
+    // Получатели расшифровывают.
+    for (dir, who) in [(&bob_dir, "bob"), (&carol_dir, "carol")] {
+        let (code, stdout, stderr) = cli(dir, server.port(), &["sync"], None).await;
+        assert_ok(code, &stdout, &stderr, &format!("sync {who}"));
+        let (code, stdout, stderr) = cli(dir, server.port(), &["history", &chat_id], None).await;
+        assert_ok(code, &stdout, &stderr, &format!("history {who}"));
+        assert!(stdout.contains(secret), "{who} stdout: {stdout}");
+    }
+
+    // Carol покидает группу; владелец видит состав без неё.
+    let (code, stdout, stderr) = cli(
+        &carol_dir,
+        server.port(),
+        &["group", "leave", &chat_id],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "group leave");
+    assert!(stdout.contains("вышли из группы"), "stdout: {stdout}");
+
+    let (code, stdout, stderr) = cli(&alice_dir, server.port(), &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync alice");
+    let (code, stdout, stderr) = cli(
+        &alice_dir,
+        server.port(),
+        &["group", "info", &chat_id],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "group info after leave");
+    assert!(stdout.contains("Участники (2)"), "stdout: {stdout}");
+    assert!(!stdout.contains("carol ("), "stdout: {stdout}");
+
+    // Новое сообщение: сессия ротирована, ключ уходит только Bob.
+    let after = "после выхода 357";
+    let (code, stdout, stderr) =
+        cli(&alice_dir, server.port(), &["send", &chat_id, after], None).await;
+    assert_ok(code, &stdout, &stderr, "send after leave");
+    let (_, recipients, ciphertext_len) = last_message_stats(&db);
+    assert_eq!(recipients, 1, "ключ уходит только оставшемуся участнику");
+    assert!(ciphertext_len > 0, "megolm-шифротекст на месте");
+    assert_server_has_no_plaintext(&db, after, 0);
+
+    // Bob читает новое и старое; Carol — только старое (её больше нет в чате).
+    let (code, stdout, stderr) = cli(&bob_dir, server.port(), &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync bob");
+    let (code, stdout, stderr) = cli(&bob_dir, server.port(), &["history", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "history bob");
+    assert!(stdout.contains(secret), "stdout: {stdout}");
+    assert!(stdout.contains(after), "stdout: {stdout}");
+
+    let (code, stdout, stderr) = cli(&carol_dir, server.port(), &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync carol");
+    let (code, stdout, stderr) = cli(&carol_dir, server.port(), &["history", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "history carol");
+    assert!(stdout.contains(secret), "stdout: {stdout}");
+    assert!(!stdout.contains(after), "carol stdout: {stdout}");
+
+    // Исключённая участница больше не может писать в группу.
+    let (code, stdout, stderr) = cli(
+        &carol_dir,
+        server.port(),
+        &["send", &chat_id, "ещё одно", "--wait", "3"],
+        None,
+    )
+    .await;
+    assert_ne!(code, 0, "отправка исключённой должна быть отклонена");
+    // Отказ может проявиться и при сборке (устройства участников уже не видны
+    // вне чата), и при проверке на сервере — в обоих случаях сообщение не уходит.
+    assert!(
+        !stdout.contains("Отправлено.") && format!("{stdout}{stderr}").contains("ошибка"),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+
+    // Bob не владелец — исключать участников не может.
+    let (code, _, _) = cli(
+        &bob_dir,
+        server.port(),
+        &["group", "remove", &chat_id, "alice"],
+        None,
+    )
+    .await;
+    assert_ne!(code, 0, "исключать может только владелец");
+
+    // Переименование владельцем.
+    let (code, stdout, stderr) = cli(
+        &alice_dir,
+        server.port(),
+        &["group", "rename", &chat_id, "Проект-2"],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "group rename");
+    assert!(stdout.contains("Проект-2"), "stdout: {stdout}");
+
+    let (code, stdout, stderr) = cli(&bob_dir, server.port(), &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync bob");
+    let (code, stdout, stderr) = cli(&bob_dir, server.port(), &["chats"], None).await;
+    assert_ok(code, &stdout, &stderr, "chats bob");
+    assert!(stdout.contains("Проект-2"), "stdout: {stdout}");
+
+    // Исключение участника владельцем.
+    let (code, stdout, stderr) = cli(
+        &alice_dir,
+        server.port(),
+        &["group", "remove", &chat_id, "bob"],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "group remove");
+    assert!(stdout.contains("исключён"), "stdout: {stdout}");
+
+    let (code, stdout, stderr) = cli(&bob_dir, server.port(), &["sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync bob");
+    let (code, stdout, stderr) =
+        cli(&bob_dir, server.port(), &["group", "info", &chat_id], None).await;
+    assert_ok(code, &stdout, &stderr, "group info after kick");
+    assert!(stdout.contains("Участники (1)"), "stdout: {stdout}");
+}

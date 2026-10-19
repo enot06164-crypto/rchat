@@ -13,8 +13,9 @@ workspace.
 | Контрактные тесты хранилищ | `crates/rchat-client-storage-sqlite/tests/`, `crates/rchat-server-storage-sqlite/tests/` | Семантика `Storage`/`CryptoStateStore` и `Repo`: идемпотентность вставки, порядок, транзакции, retention/resync. |
 | Серверный слой | `crates/rchat-server/tests/`, `crates/rchat-server-storage-sqlite/tests/` | `run_connection` и сервисные операции: handshake, ошибки, чаты, отправка, receipts, покрытие E2E. |
 | Сквозные E2E (реальный Olm) | `crates/rchat-e2e-tests/tests/e2e_olm.rs`, `message_edit_delete.rs` | Настоящий сервер (loopback-TCP, без TLS) и настоящие клиенты с **vodozemac**: сессии, прекей-сообщения, мультиустройство, правка/удаление, квитанции, отсутствие plaintext на сервере. |
+| Сквозные E2E групп (реальный Megolm) | `crates/rchat-e2e-tests/tests/group_e2e.rs` | Групповой чат: выдача ключа сессии, инкрементальная рассылка, ротация при исключении, недоступность ранних сообщений приглашённому, мультиустройство, запрет dev-групп. |
 | Сквозные сценарии сбоев («мок-стек») | `crates/rchat-e2e-tests/tests/mock_stack.rs` | Outbox и синхронизация при разрывах/задержках/дублях/битых кадрах; реальный сервер, но канал в памяти и in-memory хранилище из testkit. |
-| CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера. |
+| CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`). |
 | Тесты testkit | `crates/rchat-testkit/tests/testkit.rs` | Транзакционность `MockStorage` (включая инъекцию сбоя) и порядок применения помех транспорта. |
 
 ## 2. Как запускать
@@ -188,6 +189,23 @@ MSG_ID=$(./target/debug/rchat-cli --data-dir "$WORK/alice" history "$CHAT" \
 ./target/debug/rchat-cli --data-dir "$WORK/alice" receipts "$CHAT"
 ./target/debug/rchat-cli --data-dir "$WORK/alice" delete "$CHAT" "$MSG_ID"
 
+# 5. Групповой E2E-чат: создание, отправка, приглашение, выход и исключение
+#    (ключ ротируется — исключённый не читает новые сообщения).
+RCHAT_PASSWORD=secret-carol ./target/debug/rchat-cli --data-dir "$WORK/carol" register carol
+GROUP=$(./target/debug/rchat-cli --data-dir "$WORK/alice" group-create Проект \
+    --members bob,carol | grep -oE '[0-9a-f]{32}' | head -n1)
+./target/debug/rchat-cli --data-dir "$WORK/alice" send "$GROUP" "Всем привет"
+./target/debug/rchat-cli --data-dir "$WORK/bob" sync
+./target/debug/rchat-cli --data-dir "$WORK/bob" group info "$GROUP"
+./target/debug/rchat-cli --data-dir "$WORK/carol" group leave "$GROUP"
+./target/debug/rchat-cli --data-dir "$WORK/alice" sync   # состав без carol
+./target/debug/rchat-cli --data-dir "$WORK/alice" send "$GROUP" "После выхода"
+./target/debug/rchat-cli --data-dir "$WORK/bob" sync
+./target/debug/rchat-cli --data-dir "$WORK/bob" history "$GROUP"   # оба текста
+./target/debug/rchat-cli --data-dir "$WORK/carol" sync
+./target/debug/rchat-cli --data-dir "$WORK/carol" history "$GROUP" # только первый
+./target/debug/rchat-cli --data-dir "$WORK/alice" group remove "$GROUP" bob
+
 kill $SERVER_PID
 ```
 
@@ -195,7 +213,9 @@ kill $SERVER_PID
 история; офлайн-сообщение уходит при следующем `sync` (он дожидается
 соединения и выгружает outbox); `status` показывает пустую очередь;
 правка/удаление и receipts видны обоим; после рестарта сервера история
-сохраняется. То же самое для TLS-режима — команды из README.
+сохраняется; групповая отправка доходит участникам, а покинувшая группу не
+читает сообщения после выхода (ротация megolm-сессии) и не может писать.
+То же самое для TLS-режима — команды из README.
 
 ## 7. Особенности
 
@@ -213,10 +233,13 @@ kill $SERVER_PID
   спецификации не считает их блокером для первого релиза). Вместо этого
   «мок-стек» точечно внедряет обрезанный protobuf-кадр, а юнит-тесты схемы
   проверяют неизвестные поля, enum-значения и ветви `oneof`.
-- **Обновление клиентской схемы «с предыдущей версии»** пока не проверяется:
-  клиентская БД живёт на версии 1. Покрыты свежая БД и идемпотентность
-  повторной миграции; серверная БД дополнительно проверяется тестом
-  `migration_upgrade_preserves_data` (v1 → текущая).
+- **Обновление клиентской схемы «с предыдущей версии»** проверено точечно:
+  юнит-тесты `rchat-client-storage-sqlite` поднимают БД с v1 (данные
+  сохраняются, прежним участникам достаётся роль 0) и проверяют
+  идемпотентность повторной миграции; общая проверка «любая старая версия →
+  текущая» на все будущие миграции не автоматизирована. Серверная БД
+  дополнительно проверяется тестом `migration_upgrade_preserves_data`
+  (v1 → текущая).
 - **Нагрузочное тестирование** отсутствует: распределённый флуд и исчерпание
   соединений не воспроизводятся, лимиты частоты проверяются юнит-тестами.
 - **Права файлов `0600/0700`** и поведение `SecretStore` на не-Unix

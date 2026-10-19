@@ -25,6 +25,11 @@ use crate::types::{
     OutboxState, ReceiptRecord, SyncApply, SyncProgress,
 };
 
+/// Короткое окно ожидания сети перед сборкой сообщения: клиент, только что
+/// запущенный (например, CLI — отдельный процесс на команду), успевает
+/// догнать журнал; офлайн-отправка при этом не блокируется надолго.
+const PRE_COMPOSE_CONNECT_WAIT: Duration = Duration::from_secs(2);
+
 /// Активная сессия на этом устройстве.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionInfo {
@@ -394,6 +399,21 @@ impl Client {
     // Регистрация и сессии
     // -----------------------------------------------------------------
 
+    /// Догоняет журнал перед сборкой исходящего содержимого (best-effort):
+    /// состав участников и кэш устройств могли измениться, пока клиент не
+    /// работал (в CLI каждая команда — отдельный запуск). Ожидание сети
+    /// ограничено коротким окном: офлайн-отправка сразу ставится в очередь.
+    async fn refresh_before_compose(&self) {
+        if self.connection_state() != ConnectionState::Connected {
+            let _ = self.wait_online(PRE_COMPOSE_CONNECT_WAIT).await;
+        }
+        if self.connection_state() == ConnectionState::Connected {
+            if let Err(error) = self.sync_now().await {
+                warn!(error = %error, "sync before compose skipped");
+            }
+        }
+    }
+
     pub async fn register(
         &self,
         username: &str,
@@ -759,6 +779,7 @@ impl Client {
         reply_to: Option<u64>,
     ) -> Result<String, CoreError> {
         self.start().await?;
+        self.refresh_before_compose().await;
         if text.is_empty() {
             return Err(CoreError::InvalidInput("empty message".into()));
         }
@@ -878,6 +899,7 @@ impl Client {
         rchat_proto::validate::chat_id(chat_id)
             .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
         self.start().await?;
+        self.refresh_before_compose().await;
         let chat = self
             .inner
             .storage
