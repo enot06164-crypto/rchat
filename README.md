@@ -114,9 +114,43 @@ stdin) или переменной окружения `RCHAT_PASSWORD`.
 ./target/debug/rchat-cli --data-dir /tmp/rchat/alice status
 ```
 
+### Несколько аккаунтов
+
+Флаг `--account` (или `RCHAT_ACCOUNT`) выбирает локальный профиль.
+`default` — сам каталог данных (прежнее поведение), именованные профили
+лежат в `<data-dir>/accounts/<имя>` и не делят ни БД, ни секреты, ни
+E2E-состояние:
+
+```bash
+# Профиль work в общем каталоге данных.
+./target/debug/rchat-cli --data-dir /tmp/rchat --account work register alice
+./target/debug/rchat-cli --data-dir /tmp/rchat --account work chat-create bob
+./target/debug/rchat-cli --data-dir /tmp/rchat --account work accounts
+# * work — alice (...), чатов: 1; /tmp/rchat/accounts/work
+# (профиль default не создан — в корне нет client.sqlite3)
+
+# Другой аккаунт рядом, не смешивая состояние.
+RCHAT_ACCOUNT=home ./target/debug/rchat-cli --data-dir /tmp/rchat register bob
+
+# Удалить только локальные данные профиля. Серверная сессия не отзывается:
+# сначала `--account work logout` (или `logout --wipe`).
+./target/debug/rchat-cli --data-dir /tmp/rchat account-delete work --yes
+```
+
+Профиль `default` удалить командой нельзя — это сам каталог данных
+(в нём могут лежать другие профили).
+
+Несколько аккаунтов можно держать и в одном процессе: у `rchat-core` нет
+глобального состояния, каждый `Client` собирается со своими хранилищем,
+секретами и транспортом. Это проверяет
+`crates/rchat-e2e-tests/tests/multi_account.rs`: три аккаунта одновременно
+работают в общем tokio-runtime. CLI запускает один профиль на процесс;
+параллельные аккаунты — отдельные процессы, файлы профилей не пересекаются.
+
 ## Команды CLI
 
-`register`, `login`, `logout`, `status`, `me`, `devices`
+`register`, `login`, `logout`, `accounts`, `account-delete <имя> [--yes]`,
+`status`, `me`, `devices`
 (`devices --chat <логин>` — устройства участников для сверки отпечатков),
 `revoke-device`, `chats`, `chat-create <логин> [--e2e]`,
 `group-create <имя> [--members a,b]` (E2E по умолчанию; `--no-e2e` — только

@@ -1,7 +1,7 @@
 //! Composition root CLI: собирает клиентское ядро с конкретными транспортом,
 //! хранилищем и хранилищем секретов, и реализует команды.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,14 +28,28 @@ struct Context {
     storage: Arc<ClientSqliteStorage>,
     secrets: Arc<EncryptedFileSecretStore>,
     data_dir: PathBuf,
+    account: String,
     server: String,
     tls: TlsTrust,
 }
 
 /// Точка входа приложения: собирает клиент и выполняет команду.
 pub async fn run(cli: Cli) -> Result<()> {
+    validate_account_name(&cli.account)?;
+    let data_root = resolve_data_dir(&cli);
+
+    // Локальные команды не требуют сети, TLS и сборки клиента: их можно
+    // выполнять до открытия БД и запуска фонового актора.
+    match &cli.command {
+        Command::Accounts => return accounts(&data_root, &cli.account).await,
+        Command::AccountDelete { name, yes } => {
+            return account_delete(&data_root, &cli.account, name, *yes).await;
+        }
+        _ => {}
+    }
+
     let tls = resolve_tls(&cli)?;
-    let data_dir = resolve_data_dir(&cli);
+    let data_dir = account_dir(&data_root, &cli.account);
     std::fs::create_dir_all(&data_dir)
         .map_err(|error| format!("каталог данных {}: {error}", data_dir.display()))?;
 
@@ -76,6 +90,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         storage,
         secrets,
         data_dir,
+        account: cli.account.clone(),
         server: cli.server.clone(),
         tls,
     };
@@ -120,8 +135,17 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
             }
             Ok(())
         }
+        // Обрабатываются в `run` до сборки клиента (локальные операции).
+        Command::Accounts | Command::AccountDelete { .. } => {
+            unreachable!("локальные команды аккаунтов не доходят до dispatch")
+        }
         Command::Status => status(ctx).await,
         Command::Me => {
+            println!(
+                "Аккаунт: {} (каталог {})",
+                ctx.account,
+                ctx.data_dir.display()
+            );
             print_account(ctx).await?;
             print_session(ctx);
             Ok(())
@@ -244,7 +268,11 @@ async fn dispatch(ctx: &Context, command: Command) -> Result<()> {
 async fn status(ctx: &Context) -> Result<()> {
     println!("Сервер: {}", ctx.server);
     println!("TLS: {}", tls_label(&ctx.tls));
-    println!("Данные: {}", ctx.data_dir.display());
+    println!(
+        "Данные: {} (аккаунт: {})",
+        ctx.data_dir.display(),
+        ctx.account
+    );
     ctx.client.start().await?;
     let state = ctx
         .client
@@ -771,6 +799,159 @@ fn tls_label(trust: &TlsTrust) -> String {
             format!("пиннинг отпечатка {hex}")
         }
     }
+}
+
+/// Имя профиля по умолчанию: его данные лежат прямо в каталоге данных
+/// (совместимость с одиночным аккаунтом).
+const DEFAULT_ACCOUNT: &str = "default";
+/// Подкаталог для именованных профилей.
+const ACCOUNTS_SUBDIR: &str = "accounts";
+
+/// Проверяет имя профиля: ASCII-буквы, цифры, `-` и `_`, до 32 символов.
+/// Ограничение одновременно защищает путь от `..` и разделителей.
+fn validate_account_name(name: &str) -> Result<()> {
+    if name.is_empty() || name.len() > 32 {
+        return Err("имя аккаунта: от 1 до 32 символов".into());
+    }
+    if !name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err(format!(
+            "имя аккаунта {name:?}: допустимы только ASCII-буквы, цифры, '-' и '_'"
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Каталог профиля: `default` — сам корень, остальные —
+/// `<корень>/accounts/<имя>`.
+fn account_dir(root: &Path, name: &str) -> PathBuf {
+    if name == DEFAULT_ACCOUNT {
+        root.to_path_buf()
+    } else {
+        root.join(ACCOUNTS_SUBDIR).join(name)
+    }
+}
+
+/// Находит существующие профили: `default` (если в корне есть БД) и
+/// подкаталоги `accounts/*` с клиентской БД. Сортирует по имени.
+fn discover_accounts(root: &Path) -> Vec<(String, PathBuf)> {
+    let mut found = Vec::new();
+    if root.join("client.sqlite3").is_file() {
+        found.push((DEFAULT_ACCOUNT.to_string(), root.to_path_buf()));
+    }
+    if let Ok(entries) = std::fs::read_dir(root.join(ACCOUNTS_SUBDIR)) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if validate_account_name(&name).is_err() {
+                continue;
+            }
+            let dir = entry.path();
+            if dir.join("client.sqlite3").is_file() {
+                found.push((name, dir));
+            }
+        }
+    }
+    found.sort_by(|left, right| left.0.cmp(&right.0));
+    found
+}
+
+/// Краткая сводка профиля для `accounts`.
+async fn account_summary(dir: &Path) -> Result<String> {
+    let storage = ClientSqliteStorage::open(dir.join("client.sqlite3"))?;
+    let account = storage.load_account().await?;
+    let chats = storage.list_chats().await?;
+    Ok(match account {
+        Some(account) => format!(
+            "{} ({}, устройство {}, чатов: {})",
+            account.display_name,
+            account.username,
+            account.device_id,
+            chats.len()
+        ),
+        None => format!("вход не выполнен, чатов: {}", chats.len()),
+    })
+}
+
+/// `accounts`: список локальных профилей; текущий помечен `*`.
+async fn accounts(root: &Path, active: &str) -> Result<()> {
+    let found = discover_accounts(root);
+    if found.is_empty() {
+        println!(
+            "Локальных аккаунтов нет ({}).\nСоздайте профиль: rchat-cli --account <имя> register <логин>",
+            root.display()
+        );
+        return Ok(());
+    }
+    println!("Аккаунты в {} (* — текущий):", root.display());
+    for (name, dir) in found {
+        let marker = if name == active { "*" } else { " " };
+        match account_summary(&dir).await {
+            Ok(summary) => println!("{marker} {name} — {summary}; {}", dir.display()),
+            Err(error) => println!("{marker} {name} — ошибка чтения: {error}"),
+        }
+    }
+    Ok(())
+}
+
+/// `account-delete`: удаляет каталог именованного профиля. Локальная
+/// операция: серверная сессия не отзывается (для этого — `logout`).
+async fn account_delete(root: &Path, active: &str, name: &str, yes: bool) -> Result<()> {
+    validate_account_name(name)?;
+    if name == DEFAULT_ACCOUNT {
+        return Err(
+            "профиль default — это сам каталог данных; удалите его вручную, когда в нём нет нужных профилей".into(),
+        );
+    }
+    if name == active {
+        return Err(format!(
+            "профиль {name} выбран текущим (--account); удалите его из другого профиля"
+        )
+        .into());
+    }
+    let dir = account_dir(root, name);
+    let metadata = match std::fs::symlink_metadata(&dir) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            return Err(format!("профиль {name} не найден: {}", dir.display()).into());
+        }
+    };
+    if !metadata.is_dir() {
+        return Err(format!("{} — не каталог профиля", dir.display()).into());
+    }
+    if !dir.join("client.sqlite3").is_file() {
+        return Err(format!("{} не похож на профиль rchat", dir.display()).into());
+    }
+    if !yes {
+        {
+            use std::io::Write as _;
+            print!(
+                "Удалить профиль {name} ({})? Серверная сессия не отзывается. [y/N] ",
+                dir.display()
+            );
+            std::io::stdout().flush()?;
+        }
+        let mut answer = String::new();
+        std::io::stdin()
+            .read_line(&mut answer)
+            .map_err(|error| format!("чтение ответа: {error}"))?;
+        if !matches!(
+            answer.trim().to_ascii_lowercase().as_str(),
+            "y" | "yes" | "д" | "да"
+        ) {
+            println!("Отменено.");
+            return Ok(());
+        }
+    }
+    std::fs::remove_dir_all(&dir)
+        .map_err(|error| format!("удаление {}: {error}", dir.display()))?;
+    println!("Профиль {name} удалён: {}", dir.display());
+    Ok(())
 }
 
 fn resolve_data_dir(cli: &Cli) -> PathBuf {

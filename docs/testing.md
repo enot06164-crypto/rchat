@@ -14,8 +14,9 @@ workspace.
 | Серверный слой | `crates/rchat-server/tests/`, `crates/rchat-server-storage-sqlite/tests/` | `run_connection` и сервисные операции: handshake, ошибки, чаты, отправка, receipts, покрытие E2E. |
 | Сквозные E2E (реальный Olm) | `crates/rchat-e2e-tests/tests/e2e_olm.rs`, `message_edit_delete.rs` | Настоящий сервер (loopback-TCP, без TLS) и настоящие клиенты с **vodozemac**: сессии, прекей-сообщения, мультиустройство, правка/удаление, квитанции, отсутствие plaintext на сервере. |
 | Сквозные E2E групп (реальный Megolm) | `crates/rchat-e2e-tests/tests/group_e2e.rs` | Групповой чат: выдача ключа сессии, инкрементальная рассылка, ротация при исключении, недоступность ранних сообщений приглашённому, мультиустройство, запрет dev-групп. |
+| Сквозные E2E мультиаккаунта | `crates/rchat-e2e-tests/tests/multi_account.rs` | Три аккаунта в одном процессе: независимые личности и устройства, параллельная отправка, отсутствие утечки чатов между аккаунтами. |
 | Сквозные сценарии сбоев («мок-стек») | `crates/rchat-e2e-tests/tests/mock_stack.rs` | Outbox и синхронизация при разрывах/задержках/дублях/битых кадрах; реальный сервер, но канал в памяти и in-memory хранилище из testkit. |
-| CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`). |
+| CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`), профили аккаунтов (`--account`, `accounts`, `account-delete`). |
 | Тесты testkit | `crates/rchat-testkit/tests/testkit.rs` | Транзакционность `MockStorage` (включая инъекцию сбоя) и порядок применения помех транспорта. |
 
 ## 2. Как запускать
@@ -206,6 +207,14 @@ GROUP=$(./target/debug/rchat-cli --data-dir "$WORK/alice" group-create Прое�
 ./target/debug/rchat-cli --data-dir "$WORK/carol" history "$GROUP" # только первый
 ./target/debug/rchat-cli --data-dir "$WORK/alice" group remove "$GROUP" bob
 
+# 6. Профили аккаунтов в общем каталоге данных: именованный профиль,
+#    список (текущий помечен `*`) и удаление только его локальных данных.
+DATA=$WORK/profiles
+RCHAT_PASSWORD=secret-dave ./target/debug/rchat-cli --data-dir "$DATA" \
+    --account work register dave
+./target/debug/rchat-cli --data-dir "$DATA" --account work accounts
+./target/debug/rchat-cli --data-dir "$DATA" account-delete work --yes
+
 kill $SERVER_PID
 ```
 
@@ -214,8 +223,9 @@ kill $SERVER_PID
 соединения и выгружает outbox); `status` показывает пустую очередь;
 правка/удаление и receipts видны обоим; после рестарта сервера история
 сохраняется; групповая отправка доходит участникам, а покинувшая группу не
-читает сообщения после выхода (ротация megolm-сессии) и не может писать.
-То же самое для TLS-режима — команды из README.
+читает сообщения после выхода (ротация megolm-сессии) и не может писать;
+`accounts` показывает профили, `account-delete` убирает только выбранный
+профиль. То же самое для TLS-режима — команды из README.
 
 ## 7. Особенности
 

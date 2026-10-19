@@ -654,3 +654,130 @@ async fn group_chat_lifecycle() {
     assert_ok(code, &stdout, &stderr, "group info after kick");
     assert!(stdout.contains("Участники (1)"), "stdout: {stdout}");
 }
+
+/// Несколько аккаунтов в одном каталоге данных: `--account` изолирует БД,
+/// секреты и E2E-состояние, `accounts` показывает профили, а
+/// `account-delete` удаляет только локальные данные выбранного профиля.
+#[tokio::test(flavor = "multi_thread")]
+async fn accounts_profiles_are_isolated() {
+    let server = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let data = root.path().join("data");
+
+    // `alice` — профиль default прямо в каталоге; `bob` — именованный.
+    let (code, stdout, stderr) = cli(
+        &data,
+        server.port(),
+        &["register", "alice", "--password-stdin"],
+        Some("secret-alice\n"),
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "register default alice");
+    let (code, stdout, stderr) = cli(
+        &data,
+        server.port(),
+        &["--account", "bob", "register", "bob", "--password-stdin"],
+        Some("secret-bob\n"),
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "register bob profile");
+
+    assert!(
+        data.join("client.sqlite3").is_file(),
+        "профиль default лежит прямо в каталоге данных"
+    );
+    assert!(
+        data.join("accounts/bob/client.sqlite3").is_file(),
+        "именованный профиль лежит в accounts/<имя>"
+    );
+
+    // Список профилей: видны оба, текущий помечен `*`.
+    let (code, stdout, stderr) = cli(
+        &data,
+        server.port(),
+        &["--account", "bob", "accounts"],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "accounts");
+    assert!(stdout.contains("* bob —"), "stdout: {stdout}");
+    assert!(stdout.contains(" default —"), "stdout: {stdout}");
+
+    // `me` называет активный профиль.
+    let (code, stdout, stderr) = cli(&data, server.port(), &["--account", "bob", "me"], None).await;
+    assert_ok(code, &stdout, &stderr, "me bob");
+    assert!(stdout.contains("Аккаунт: bob"), "stdout: {stdout}");
+
+    // Переписка: default-alice → именованный bob.
+    let (code, stdout, stderr) = cli(&data, server.port(), &["chat-create", "bob"], None).await;
+    assert_ok(code, &stdout, &stderr, "chat-create");
+    let chat_id = stdout
+        .lines()
+        .next()
+        .expect("первая строка вывода")
+        .rsplit(": ")
+        .next()
+        .expect("chat_id")
+        .trim()
+        .to_string();
+    let secret = "между профилями 468";
+    let (code, stdout, stderr) = cli(&data, server.port(), &["send", &chat_id, secret], None).await;
+    assert_ok(code, &stdout, &stderr, "send from default");
+    let (code, stdout, stderr) =
+        cli(&data, server.port(), &["--account", "bob", "sync"], None).await;
+    assert_ok(code, &stdout, &stderr, "sync bob profile");
+    let (code, stdout, stderr) = cli(
+        &data,
+        server.port(),
+        &["--account", "bob", "history", &chat_id],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "history bob profile");
+    assert!(stdout.contains(secret), "stdout: {stdout}");
+
+    // Активный профиль локально удалить нельзя.
+    let (code, _stdout, stderr) = cli(
+        &data,
+        server.port(),
+        &["--account", "bob", "account-delete", "bob", "--yes"],
+        None,
+    )
+    .await;
+    assert_ne!(code, 0, "нельзя удалить активный профиль");
+    assert!(stderr.contains("текущим"), "stderr: {stderr}");
+
+    // Отказ от подтверждения оставляет профиль на месте.
+    let (code, stdout, stderr) = cli(
+        &data,
+        server.port(),
+        &["account-delete", "bob"],
+        Some("n\n"),
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "account-delete cancel");
+    assert!(stdout.contains("Отменено"), "stdout: {stdout}");
+    assert!(data.join("accounts/bob/client.sqlite3").is_file());
+
+    // Подтверждённое удаление убирает только bob, default не затронут.
+    let (code, stdout, stderr) = cli(
+        &data,
+        server.port(),
+        &["account-delete", "bob", "--yes"],
+        None,
+    )
+    .await;
+    assert_ok(code, &stdout, &stderr, "account-delete bob");
+    assert!(
+        !data.join("accounts/bob").exists(),
+        "каталог профиля удалён"
+    );
+    assert!(
+        data.join("client.sqlite3").is_file(),
+        "профиль default не затронут"
+    );
+
+    let (code, stdout, stderr) = cli(&data, server.port(), &["accounts"], None).await;
+    assert_ok(code, &stdout, &stderr, "accounts after delete");
+    assert!(!stdout.contains(" bob —"), "stdout: {stdout}");
+}
