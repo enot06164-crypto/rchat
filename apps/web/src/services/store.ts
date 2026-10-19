@@ -42,6 +42,8 @@ export interface AppState {
   activeChatId: string | null;
   /** Локальные счётчики «непрочитанного» (см. README apps/web). */
   unread: Record<string, number>;
+  /** Сообщение, на которое отвечаем из композера (гасится после отправки). */
+  replyTo: Message | null;
   booted: boolean;
   busy: boolean;
   authError: string | null;
@@ -60,6 +62,7 @@ const INITIAL_STATE: AppState = {
   members: {},
   activeChatId: null,
   unread: {},
+  replyTo: null,
   booted: false,
   busy: false,
   authError: null,
@@ -246,6 +249,7 @@ export function applyEvent(event: RchatEvent): void {
         members: {},
         unread: {},
         presence: {},
+        replyTo: null,
         sendError: null,
       });
       return;
@@ -326,9 +330,52 @@ export function applyEvent(event: RchatEvent): void {
 // Действия пользователя
 
 export async function openChat(chatId: string): Promise<void> {
-  setState({ activeChatId: chatId, sendError: null });
+  setState({ activeChatId: chatId, sendError: null, replyTo: null });
   setState("unread", chatId, 0);
   void loadChatHistory(chatId);
+}
+
+/** Начать ответ на сообщение (реплай в композере, FFI `reply_to_server_id`). */
+export function setReplyTo(message: Message): void {
+  setState("replyTo", message);
+}
+
+export function clearReply(): void {
+  setState("replyTo", null);
+}
+
+/**
+ * Удаление сообщения (FFI `delete_message`). Локально помечаем как удалённое
+ * сразу; подтверждение придёт событием `message_updated` идемпотентно.
+ */
+export async function deleteMessage(chatId: string, serverId: number): Promise<void> {
+  try {
+    await chatApi.deleteMessage(chatId, serverId);
+    setState("messages", chatId, (prev = []) =>
+      prev.map((m) =>
+        m.server_id === serverId && m.deleted_at_ms === null
+          ? { ...m, deleted_at_ms: Date.now(), body: null }
+          : m
+      )
+    );
+  } catch (error) {
+    console.warn("rchat: delete_message", error);
+  }
+}
+
+/** Гарантирует, что состав группового чата загружен (для шторки «Информация»). */
+export async function ensureMembers(chatId: string): Promise<void> {
+  if (state.members[chatId] !== undefined) return;
+  try {
+    const members = (await chatApi.getChatMembers(chatId)) as ChatMember[];
+    setState(
+      "members",
+      chatId,
+      Object.fromEntries(members.map((m) => [m.user_id, m]))
+    );
+  } catch {
+    /* шторка покажет пустой список */
+  }
 }
 
 async function loadChatHistory(chatId: string): Promise<void> {
@@ -383,6 +430,7 @@ export async function sendCurrentText(text: string): Promise<void> {
   if (chatId === null || session === null || trimmed === "") return;
 
   setState("sendError", null);
+  const replyTo = state.replyTo;
   const optimistic: Message = {
     local_id: `web-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     server_id: null,
@@ -391,7 +439,7 @@ export async function sendCurrentText(text: string): Promise<void> {
     sender_device_id: "",
     content_kind: "text",
     body: trimmed,
-    reply_to_server_id: null,
+    reply_to_server_id: replyTo !== null ? replyTo.server_id : null,
     status: "pending",
     created_at_ms: Date.now(),
     edited_at_ms: null,
@@ -400,9 +448,11 @@ export async function sendCurrentText(text: string): Promise<void> {
   setState("messages", chatId, (prev = []) => upsertSorted(prev, optimistic));
 
   try {
-    const result = (await chatApi.sendMessage(chatId, trimmed)) as {
-      local_id: string;
-    };
+    const result = (await chatApi.sendMessage(
+      chatId,
+      trimmed,
+      replyTo !== null ? replyTo.server_id : null
+    )) as { local_id: string };
     setState(
       "messages",
       chatId,
@@ -413,6 +463,7 @@ export async function sendCurrentText(text: string): Promise<void> {
             : m
         )
     );
+    clearReply();
   } catch (error) {
     setState(
       "messages",
@@ -498,6 +549,7 @@ export async function logout(): Promise<void> {
     members: {},
     unread: {},
     presence: {},
+    replyTo: null,
     sendError: null,
     authError: null,
   });

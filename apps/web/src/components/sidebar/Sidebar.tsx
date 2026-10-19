@@ -1,42 +1,46 @@
-import { Show, createSignal } from "solid-js";
-import { LogOut, PenLine, Search } from "lucide-solid";
+import { Show, createSignal, onCleanup } from "solid-js";
+import { LogOut, Menu, PenLine, Search } from "lucide-solid";
 import { connectionLabel, logout, state } from "../../services/store";
 import { Avatar } from "../Avatar";
 import { ChatList } from "./ChatList";
 import { NewChatModal } from "./NewChatModal";
 
-/** Левая колонка: профиль, поиск + новый чат (карандаш), вкладки, список. */
+/**
+ * Сайдбар 360px (Amethyst Dark): шапка 56px — гамбургер, овальный поиск,
+ * аватар с кольцом онлайна (меню профиля); список чатов, вкладки папок
+ * и плавающий фиолетовый карандаш (новый чат).
+ */
 export function Sidebar() {
   const [tab, setTab] = createSignal<"all" | "unread">("all");
   const [query, setQuery] = createSignal("");
   const [newChatOpen, setNewChatOpen] = createSignal(false);
+  const [meMenuOpen, setMeMenuOpen] = createSignal(false);
 
   const linkStatus = () =>
     state.linkUp ? connectionLabel(state.connection) : "шлюз недоступен";
-  const linkClass = () =>
-    state.linkUp && state.connection === "connected" ? "is-online" : "";
+  const onlineNow = () => state.linkUp && state.connection === "connected";
+
+  // Закрытие меню профиля кликом мимо него.
+  const closeMenus = (event: MouseEvent): void => {
+    const target = event.target as HTMLElement | null;
+    if (target === null || target.closest(".me-menu, .sidebar__me-avatar")) {
+      return;
+    }
+    setMeMenuOpen(false);
+  };
+  document.addEventListener("mousedown", closeMenus);
+  onCleanup(() => document.removeEventListener("mousedown", closeMenus));
 
   return (
     <aside class="sidebar">
       <header class="sidebar__header">
-        <Avatar info={state.session?.avatar} size={40} />
-        <div class="sidebar__me">
-          <div class="sidebar__me-name">
-            {state.session?.display_name ?? state.session?.username ?? ""}
-          </div>
-          <div class={`sidebar__me-status ${linkClass()}`}>{linkStatus()}</div>
-        </div>
         <button
           class="icon-button"
-          title="Выйти из аккаунта"
-          aria-label="Выйти из аккаунта"
-          onClick={() => void logout()}
+          title="Меню (папки — скоро)"
+          aria-label="Меню"
         >
-          <LogOut size={20} />
+          <Menu size={20} />
         </button>
-      </header>
-
-      <div class="sidebar__search-row">
         <div class="sidebar__search">
           <Search size={17} />
           <input
@@ -47,14 +51,38 @@ export function Sidebar() {
           />
         </div>
         <button
-          class="icon-button sidebar__add"
-          title="Новый личный чат"
-          aria-label="Новый личный чат"
-          onClick={() => setNewChatOpen(true)}
+          class="sidebar__me-avatar"
+          title="Профиль"
+          aria-label="Профиль"
+          onClick={() => setMeMenuOpen((open) => !open)}
         >
-          <PenLine size={20} />
+          <Avatar info={state.session?.avatar} size={34} />
+          <Show when={onlineNow()}>
+            <span class="sidebar__me-ring" />
+          </Show>
         </button>
-      </div>
+
+        <Show when={meMenuOpen()}>
+          <div class="me-menu" role="menu">
+            <div class="me-menu__header">
+              <div class="me-menu__name">
+                {state.session?.display_name ?? state.session?.username ?? ""}
+              </div>
+              <div class={`sidebar__me-status ${onlineNow() ? "is-online" : ""}`}>
+                {linkStatus()}
+              </div>
+            </div>
+            <button
+              role="menuitem"
+              class="me-menu__item"
+              onClick={() => void logout()}
+            >
+              <LogOut size={16} />
+              Выйти из аккаунта
+            </button>
+          </div>
+        </Show>
+      </header>
 
       <nav class="sidebar__tabs" aria-label="Папки чатов">
         <button
@@ -72,6 +100,15 @@ export function Sidebar() {
       </nav>
 
       <ChatList tab={tab()} query={query()} />
+
+      <button
+        class="fab"
+        title="Новый личный чат"
+        aria-label="Новый личный чат"
+        onClick={() => setNewChatOpen(true)}
+      >
+        <PenLine size={24} />
+      </button>
 
       <Show when={newChatOpen()}>
         <NewChatModal onClose={() => setNewChatOpen(false)} />

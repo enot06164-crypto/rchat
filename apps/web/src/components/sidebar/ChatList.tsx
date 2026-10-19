@@ -28,7 +28,7 @@ export function ChatList(props: { tab: "all" | "unread"; query: string }) {
         fallback={
           <div class="chat-list__empty">
             {state.chats.length === 0
-              ? "Нет чатов. Нажмите кнопку «+», чтобы начать диалог."
+              ? "Нет чатов. Нажмите фиолетовый карандаш, чтобы начать диалог."
               : "Ничего не найдено."}
           </div>
         }

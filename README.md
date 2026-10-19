@@ -40,7 +40,7 @@ WebSocket-шлюз `rchat.gateway`, протокол FFI не меняется).
 | `rchat-e2e-tests` | сквозные сценарии (реальный Olm/Megolm и «мок-стек») |
 | `rchat-cli` | CLI — composition root: собирает ядро с конкретными адаптерами |
 | `rchat-ffi` | C-ABI/JSON-интерфейс для встраивания (cdylib/staticlib), один handle — один профиль; экспорт `schema/rchat.schema.json` |
-| `apps/web` | веб-клиент (этап H): SolidJS + TypeScript + Vite в стиле Telegram WebK, общается с ядром через WebSocket-шлюз `rchat.gateway` |
+| `apps/web` | веб-клиент (этап H-Final): SolidJS + TypeScript + Vite в теме Telegram WebK «Amethyst Dark», общается с ядром через WebSocket-шлюз `rchat.gateway` |
 
 Направление зависимостей — только «вниз»: ядро не знает об адаптерах.
 Правило закреплено тестом `crates/rchat-core/tests/dependency_rules.rs`.
@@ -238,9 +238,11 @@ with RChatClient("/tmp/rchat/alice", "wss://chat.example",
 
 ## Веб-клиент (этап H)
 
-Официальный веб-интерфейс в стиле Telegram WebK: `apps/web` — SolidJS +
-TypeScript (strict) + Vite, тёмная палитра WebK, аватары-инициалы из ядра,
-пузыри с хвостиками и галочками статусов. Браузер общается с ядром через
+Официальный веб-интерфейс как полная реплика Telegram WebK (тёмная тема
+**Amethyst Dark**): `apps/web` — SolidJS + TypeScript (strict) + Vite;
+токены темы в `styles/variables.scss`, аватары-инициалы из ядра, пузыри
+с хвостиками, реплаи с цитатами, контекстное меню сообщения, шторка
+«Информация», плавающий FAB-карандаш. Браузер общается с ядром через
 локальный **WebSocket-шлюз** (`rchat.gateway` из Python SDK): JSON-запросы
 проксируются в `rchat_send_json`, события ядра ретранслируются всем вкладкам;
 протокол FFI (`docs/ffi.md`) остаётся неизменным.

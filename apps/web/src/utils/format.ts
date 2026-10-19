@@ -28,3 +28,33 @@ export function formatShortTime(timestampMs: number): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${day}.${month}`;
 }
+
+const dayFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "long",
+});
+
+const dayYearFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+/** «Сегодня» / «Вчера» / «16 сентября» (с годом, если он не текущий). */
+export function formatDateDivider(timestampMs: number): string {
+  if (!Number.isFinite(timestampMs)) return "";
+  const date = new Date(timestampMs);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date): boolean =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (sameDay(date, today)) return "Сегодня";
+  if (sameDay(date, yesterday)) return "Вчера";
+  if (date.getFullYear() === today.getFullYear()) {
+    return dayFormatter.format(date);
+  }
+  return dayYearFormatter.format(date);
+}

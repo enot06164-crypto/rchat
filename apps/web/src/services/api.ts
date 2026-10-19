@@ -245,10 +245,21 @@ export const chatApi = {
     api.call<unknown[]>("get_receipts", { chat_id: chatId }),
   createDirectChat: (username: string) =>
     api.call<unknown>("create_direct_chat", { peer_username: username }),
-  sendMessage: (chatId: string, text: string) =>
-    api.call<unknown>("send_message", { chat_id: chatId, text }),
+  sendMessage: (
+    chatId: string,
+    text: string,
+    replyToServerId: number | null = null
+  ) => {
+    const payload: Record<string, unknown> = { chat_id: chatId, text };
+    if (replyToServerId !== null) payload.reply_to_server_id = replyToServerId;
+    return api.call<unknown>("send_message", payload) as Promise<{
+      local_id: string;
+    }>;
+  },
   markRead: (chatId: string) =>
     api.call<unknown>("mark_read", { chat_id: chatId }),
+  deleteMessage: (chatId: string, serverId: number) =>
+    api.call<unknown>("delete_message", { chat_id: chatId, server_id: serverId }),
   login: (username: string, password: string) =>
     api.call<unknown>("login", { username, password }),
   register: (username: string, displayName: string, password: string) => {

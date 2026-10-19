@@ -1,8 +1,7 @@
 @use "./variables" as *;
 
 // ---------------------------------------------------------------------------
-// «Дудл»-паттерн фона чата (узор Telegram) — stroke opacity 0.05 поверх
-// радиального градиента. Закодированы только <, > и #.
+// «Дудл»-паттерн фона чата (узор Telegram) — stroke opacity 0.05.
 $chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.05' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='45' cy='45' r='14'/%3E%3Ccircle cx='45' cy='45' r='4'/%3E%3Cpath d='M150 25 l7 15 16 2 -12 11 3 16 -14 -8 -14 8 3 -16 -12 -11 16 -2 z'/%3E%3Cpath d='M255 60 c8 -12 24 -6 24 6 0 10 -12 18 -24 28 -12 -10 -24 -18 -24 -28 0 -12 16 -18 24 -6 z'/%3E%3Cpath d='M38 150 h40 M58 130 v40'/%3E%3Ccircle cx='190' cy='150' r='20' stroke-dasharray='3 7'/%3E%3Cpath d='M25 258 q15 -14 30 0 t30 0 t30 0 t30 0'/%3E%3Ccircle cx='250' cy='252' r='9'/%3E%3Ccircle cx='105' cy='215' r='3'/%3E%3C/g%3E%3C/svg%3E");
 
 /* ------------------------------------------------------------------------- */
@@ -20,8 +19,8 @@ body,
 }
 
 body {
-  background: var(--bg-app);
-  color: var(--text-primary);
+  background: $bg-app;
+  color: $text-primary;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
@@ -41,20 +40,20 @@ button {
 input,
 textarea {
   font: inherit;
-  color: var(--text-primary);
+  color: $text-primary;
   border: none;
   outline: none;
   background: transparent;
 }
 
 ::placeholder {
-  color: var(--text-secondary);
+  color: $text-secondary;
 }
 
-/* Кастомные скроллбары в стиле Telegram WebK */
+/* Кастомные скроллбары */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2f3d4d transparent;
+  scrollbar-color: #2a2a2e transparent;
 }
 
 *::-webkit-scrollbar {
@@ -67,19 +66,19 @@ textarea {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #2f3d4d;
+  background: #2a2a2e;
   border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #3a4a5c;
+  background: #3a3a40;
 }
 
 /* ------------------------------------------------------------------------- */
-/* Каркас приложения                                                         */
+/* Каркас: сайдбар 360px + чат + шторка 360px                                */
 .app-shell {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 360px 1fr;
   height: 100%;
 }
 
@@ -90,15 +89,15 @@ textarea {
   justify-content: center;
   flex-direction: column;
   gap: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-app);
+  color: $text-secondary;
+  background: $bg-app;
 
   &__spinner {
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    border: 3px solid var(--bg-input);
-    border-top-color: var(--accent);
+    border: 3px solid $bg-surface-hover;
+    border-top-color: $accent-purple;
     animation: spin 0.9s linear infinite;
   }
 
@@ -126,6 +125,28 @@ textarea {
   }
 }
 
+@keyframes drawer-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0.3;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Аватары                                                                   */
 .avatar {
@@ -138,105 +159,7 @@ textarea {
   font-weight: 600;
   letter-spacing: 0.5px;
   user-select: none;
-  background: var(--accent);
-}
-
-/* ------------------------------------------------------------------------- */
-/* Левая колонка                                                             */
-.sidebar {
-  background: var(--bg-sidebar);
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  border-right: 1px solid var(--separator);
-
-  &__header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-  }
-
-  &__me {
-    flex: 1;
-    min-width: 0;
-  }
-
-  &__me-name {
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  &__me-status {
-    font-size: 12px;
-    color: var(--text-secondary);
-
-    &.is-online {
-      color: #7bc862;
-    }
-
-    &.is-busy {
-      color: #faa774;
-    }
-  }
-
-  // строка поиска + карандаш «новый чат» (иконка WebK вместо плавающей FAB)
-  &__search-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0 10px 8px;
-  }
-
-  &__search {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 12px;
-    background: var(--bg-input);
-    border-radius: var(--radius-panel);
-    color: var(--text-secondary);
-
-    input {
-      flex: 1;
-      min-width: 0;
-    }
-  }
-
-  &__add {
-    color: var(--text-secondary);
-
-    &:hover {
-      color: var(--accent);
-    }
-  }
-
-  &__tabs {
-    display: flex;
-    padding: 0 10px;
-    gap: 4px;
-
-    button {
-      flex: 1;
-      padding: 8px 6px;
-      font-size: 13px;
-      color: var(--text-secondary);
-      border-bottom: 2px solid transparent;
-
-      &.active {
-        color: var(--text-primary);
-        border-bottom-color: var(--accent);
-      }
-
-      &:hover {
-        color: var(--text-primary);
-      }
-    }
-  }
+  background: $accent-purple;
 }
 
 .icon-button {
@@ -247,12 +170,174 @@ textarea {
   height: 36px;
   border-radius: 50%;
   flex: none;
-  color: var(--text-secondary);
+  color: $text-secondary;
   transition: background 0.15s ease, color 0.15s ease;
 
   &:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    background: $bg-surface-hover;
+    color: $text-primary;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Сайдбар 360px                                                             */
+.sidebar {
+  background: $bg-sidebar;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border-right: 1px solid $border-subtle;
+
+  &__header {
+    height: 56px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    position: relative;
+  }
+
+  // Овальный поиск WebK
+  &__search {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    background: $bg-surface;
+    border-radius: 20px;
+    color: $text-secondary;
+
+    input {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  // Мини-аватар с тонким кольцом онлайна
+  &__me-avatar {
+    position: relative;
+    flex: none;
+    border-radius: 50%;
+    padding: 0;
+    line-height: 0;
+
+    .avatar {
+      box-shadow: 0 0 0 2px $bg-sidebar;
+    }
+  }
+
+  &__me-ring {
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 2px solid $online-green;
+    pointer-events: none;
+  }
+
+  &__me-status {
+    font-size: 12px;
+    color: $text-secondary;
+
+    &.is-online {
+      color: $online-green;
+    }
+  }
+
+  &__tabs {
+    display: flex;
+    padding: 0 10px;
+    gap: 4px;
+
+    button {
+      flex: 1;
+      padding: 9px 6px;
+      font-size: 13px;
+      color: $text-secondary;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease;
+
+      &.active {
+        color: $text-primary;
+        border-bottom-color: $accent-purple;
+      }
+
+      &:hover {
+        color: $text-primary;
+      }
+    }
+  }
+
+  // Плавающий фиолетовый карандаш (новый чат)
+  .fab {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: $accent-purple;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+    transition: background 0.15s ease, transform 0.15s ease;
+
+    &:hover {
+      background: $accent-purple-hover;
+      transform: scale(1.04);
+    }
+
+    &:active {
+      transform: scale(0.96);
+    }
+  }
+}
+
+// Меню профиля (иконка аватара с кольцом)
+.me-menu {
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  width: 240px;
+  background: $bg-surface;
+  border-radius: 12px;
+  border: 1px solid $border-subtle;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 6px;
+  z-index: 40;
+  animation: menu-pop 0.14s ease;
+
+  &__header {
+    padding: 10px 12px 12px;
+    border-bottom: 1px solid $border-subtle;
+    margin-bottom: 6px;
+  }
+
+  &__name {
+    font-weight: 600;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 8px;
+    color: $text-primary;
+    transition: background 0.12s ease;
+
+    &:hover {
+      background: $bg-surface-hover;
+    }
   }
 }
 
@@ -260,31 +345,45 @@ textarea {
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 6px 12px;
+  padding: 4px 6px 76px;
+  min-height: 0;
 
   &__empty {
     padding: 32px 16px;
     text-align: center;
-    color: var(--text-secondary);
+    color: $text-secondary;
     font-size: 13px;
   }
 }
 
 .chat-item {
   display: flex;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: var(--radius-panel);
+  align-items: center;
+  gap: 11px;
+  min-height: 72px;
+  padding: 8px 10px;
+  border-radius: 12px;
   cursor: pointer;
   transition: background 0.12s ease;
 
   &:hover {
-    background: var(--bg-hover);
+    background: $bg-surface-hover;
   }
 
+  // Активный чат — элегантная фиолетовая заливка
   &--active,
   &--active:hover {
-    background: var(--bg-selected);
+    background: $accent-purple;
+
+    .chat-item__time,
+    .chat-item__preview {
+      color: rgba(255, 255, 255, 0.82);
+    }
+
+    .chat-item__badge {
+      background: rgba(255, 255, 255, 0.28);
+      color: #fff;
+    }
   }
 
   &__body {
@@ -312,34 +411,43 @@ textarea {
   &__time {
     flex: none;
     font-size: 12px;
-    color: var(--text-secondary);
+    color: $text-secondary;
   }
 
   &__bottom {
     display: flex;
     align-items: center;
+    gap: 6px;
     justify-content: space-between;
-    gap: 8px;
   }
 
   &__preview {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
     font-size: 13px;
-    color: var(--text-secondary);
+    color: $text-secondary;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 
+    svg {
+      flex: none;
+    }
+
     .chat-item--active & {
-      color: rgba(255, 255, 255, 0.75);
+      color: rgba(255, 255, 255, 0.82);
     }
   }
 
+  // Фиолетовая капсула непрочитанных
   &__badge {
     flex: none;
-    min-width: 20px;
-    padding: 2px 6px;
-    border-radius: 10px;
-    background: var(--accent);
+    min-width: 22px;
+    padding: 3px 7px;
+    border-radius: 12px;
+    background: $badge-unread;
     color: #fff;
     font-size: 12px;
     font-weight: 600;
@@ -348,17 +456,16 @@ textarea {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Правая колонка                                                            */
+/* Чат (центральная колонка)                                                 */
 .chat-view {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  // Фирменный фон: паттерн Telegram (opacity 0.05) поверх мягкого радиального
-  // градиента на глубоком тёмном цвете.
-  background-color: var(--bg-app);
+  position: relative;
+  background-color: $bg-app;
   background-image: $chat-pattern,
-    radial-gradient(900px 620px at 50% 12%, rgba(43, 82, 120, 0.22), transparent 72%);
+    radial-gradient(900px 620px at 50% 12%, rgba(135, 116, 225, 0.08), transparent 72%);
 
   &--empty {
     align-items: center;
@@ -366,7 +473,7 @@ textarea {
   }
 
   &__placeholder {
-    color: var(--text-secondary);
+    color: $text-secondary;
     font-size: 14px;
     max-width: 320px;
     text-align: center;
@@ -379,8 +486,14 @@ textarea {
     align-items: center;
     gap: 10px;
     padding: 0 14px;
-    background: var(--bg-header);
-    border-bottom: 1px solid var(--separator);
+    background: $bg-surface;
+    border-bottom: 1px solid $border-subtle;
+    cursor: pointer;
+    transition: background 0.12s ease;
+
+    &:hover {
+      background: #1a1a1d;
+    }
   }
 
   &__title-col {
@@ -390,7 +503,7 @@ textarea {
 
   &__title {
     font-weight: 600;
-    color: #fff;
+    color: $text-primary;
     display: block;
     white-space: nowrap;
     overflow: hidden;
@@ -400,7 +513,7 @@ textarea {
 
   &__subtitle {
     font-size: 12px;
-    color: var(--text-secondary);
+    color: $text-secondary;
     display: block;
     line-height: 16px;
   }
@@ -412,7 +525,7 @@ textarea {
   }
 }
 
-/* Центральная колонна ленты и ввода (пропорции WebK) */
+/* Центральный столб ленты и ввода */
 .chat-main {
   flex: 1;
   min-height: 0;
@@ -427,18 +540,70 @@ textarea {
 /* Лента */
 .message-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 14px 8px 8px;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  position: relative;
 
   &__empty {
     margin: auto;
-    color: var(--text-secondary);
+    color: $text-secondary;
     font-size: 13px;
     padding: 32px;
     text-align: center;
+  }
+}
+
+// Капсула-разделитель дат
+.date-chip {
+  align-self: center;
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 14px;
+  margin: 10px 0 8px;
+  user-select: none;
+}
+
+// Кнопка «вниз» с бейджем пропущенных сообщений
+.feed-down {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: $accent-purple;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s ease, transform 0.12s ease;
+
+  &:hover {
+    background: $accent-purple-hover;
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+
+  &__badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 20px;
+    padding: 2px 5px;
+    border-radius: 10px;
+    background: rgba(14, 14, 14, 0.82);
+    border: 1px solid $border-subtle;
+    font-size: 11px;
+    font-weight: 600;
   }
 }
 
@@ -450,10 +615,6 @@ textarea {
 
   &--own {
     align-self: flex-end;
-
-    .bubble-row__avatar {
-      display: none;
-    }
   }
 
   &--in {
@@ -468,13 +629,14 @@ textarea {
 .bubble {
   position: relative;
   padding: 7px 10px 6px;
-  border-radius: var(--radius-bubble);
-  animation: slide-in 0.18s ease;
+  border-radius: $radius-bubble;
+  animation: slide-in 0.16s ease;
   min-width: 86px;
 
   &--in {
-    background: var(--bubble-in);
-    color: var(--bubble-in-text);
+    background: $bubble-in;
+    border: 1px solid $bubble-in-border;
+    color: $text-primary;
     border-bottom-left-radius: 4px;
 
     .bubble__tail {
@@ -482,27 +644,69 @@ textarea {
       transform: scaleX(-1);
 
       path {
-        fill: var(--bubble-in);
+        fill: $bubble-in;
       }
     }
   }
 
+  // Сливово-фиолетовый градиент исходящих
   &--own {
-    background: var(--bubble-out);
-    color: var(--bubble-out-text);
+    background-image: linear-gradient(
+      135deg,
+      $bubble-out-start 0%,
+      $bubble-out-end 100%
+    );
+    color: $text-primary;
     border-bottom-right-radius: 4px;
 
     .bubble__tail {
       right: -8px;
 
       path {
-        fill: var(--bubble-out);
+        fill: $bubble-out-end;
       }
     }
   }
 
   &--deleted {
     opacity: 0.55;
+  }
+
+  // Имя автора в групповых чатах (цвет из палитры ядра)
+  &__author {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 1px 2px;
+    user-select: none;
+  }
+
+  // Цитата/реплай: фиолетовая полоса 3px + имя + превью
+  &__quote {
+    display: flex;
+    flex-direction: column;
+    margin: 0 0 4px;
+    padding: 3px 0 3px 8px;
+    border-left: 3px solid $bubble-reply-bar;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.18);
+    min-width: 0;
+
+    &-name {
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 16px;
+    }
+
+    &-text {
+      font-size: 12px;
+      line-height: 16px;
+      color: rgba(255, 255, 255, 0.72);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
   }
 
   &__body {
@@ -519,11 +723,11 @@ textarea {
     display: flex;
     align-items: center;
     gap: 3px;
-    color: var(--text-secondary);
+    color: rgba(255, 255, 255, 0.6);
   }
 
-  &--own &__meta {
-    color: rgba(255, 255, 255, 0.7);
+  &--in &__meta {
+    color: rgba(255, 255, 255, 0.45);
   }
 
   &__time {
@@ -535,7 +739,7 @@ textarea {
     display: flex;
 
     svg.status-read {
-      color: #6ec9cb;
+      color: #9684e5;
     }
 
     svg.status-failed {
@@ -550,26 +754,112 @@ textarea {
   }
 }
 
+/* Контекстное меню сообщения */
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 200px;
+  background: $bg-surface;
+  border-radius: 10px;
+  border: 1px solid $border-subtle;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 5px;
+  animation: menu-pop 0.14s ease;
+  transform-origin: top left;
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 8px;
+    color: $text-primary;
+    text-align: left;
+    transition: background 0.12s ease;
+
+    &:hover:not(:disabled) {
+      background: $bg-surface-hover;
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    &--danger {
+      color: $danger;
+
+      svg {
+        color: $danger;
+      }
+    }
+  }
+}
+
 /* ------------------------------------------------------------------------- */
-/* Капсула ввода («парящий композер» WebK)                                   */
+/* Капсула ввода                                                             */
 .composer-wrap {
   flex: none;
 }
 
 .composer-error {
-  color: var(--danger);
+  color: $danger;
   font-size: 12px;
   padding: 0 6px 6px;
 }
 
 .composer {
   display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  background: var(--bg-sidebar); // #17212b
-  border-radius: 16px;
-  padding: 7px 10px 7px 6px;
+  flex-direction: column;
+  background: $bg-composer;
+  border-radius: 24px;
+  padding: 6px 10px 6px 6px;
   margin-bottom: 16px;
+
+  // Строка реплая над полем ввода
+  &__reply {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 6px 6px 8px;
+    border-bottom: 1px solid $border-subtle;
+  }
+
+  &__reply-bar {
+    align-self: stretch;
+    width: 3px;
+    border-radius: 3px;
+    background: $bubble-reply-bar;
+  }
+
+  &__reply-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__reply-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-accent;
+  }
+
+  &__reply-text {
+    font-size: 12px;
+    color: $text-secondary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__row {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+  }
 
   textarea {
     flex: 1;
@@ -592,12 +882,12 @@ textarea {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  color: var(--text-secondary);
+  color: $text-secondary;
   transition: background 0.15s ease, color 0.15s ease;
 
   &:hover {
-    background: var(--bg-hover);
-    color: var(--accent);
+    background: $bg-surface-hover;
+    color: $text-accent;
   }
 }
 
@@ -606,7 +896,7 @@ textarea {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: var(--accent);
+  background: $accent-purple;
   color: #fff;
   display: flex;
   align-items: center;
@@ -614,7 +904,7 @@ textarea {
   transition: background 0.15s ease, opacity 0.15s ease, transform 0.12s ease;
 
   &:hover:not(:disabled) {
-    background: var(--accent-hover);
+    background: $accent-purple-hover;
   }
 
   &:active:not(:disabled) {
@@ -628,6 +918,171 @@ textarea {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Шторка «Информация» (360px, выезжает справа)                              */
+.info-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  max-width: 100%;
+  background: $bg-surface;
+  border-left: 1px solid $border-subtle;
+  display: flex;
+  flex-direction: column;
+  z-index: 25;
+  animation: drawer-in 0.2s ease;
+
+  &__header {
+    height: 56px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    border-bottom: 1px solid $border-subtle;
+  }
+
+  &__title {
+    font-weight: 600;
+  }
+
+  &__scroll {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  &__hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 26px 16px 16px;
+    border-bottom: 1px solid $border-subtle;
+  }
+
+  &__name {
+    font-size: 17px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+
+  &__status {
+    font-size: 13px;
+    color: $text-secondary;
+
+    &.is-online {
+      color: $text-accent;
+    }
+  }
+
+  &__notify {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 14px;
+    padding: 12px 4px;
+    border-top: 1px solid $border-subtle;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  &__tabs {
+    display: flex;
+    padding: 0 10px;
+
+    button {
+      flex: 1;
+      padding: 11px 4px 9px;
+      font-size: 13px;
+      color: $text-secondary;
+      border-bottom: 2px solid transparent;
+
+      &.active {
+        color: $text-primary;
+        font-weight: 500;
+        border-bottom-color: $accent-purple;
+      }
+
+      &:hover {
+        color: $text-primary;
+      }
+    }
+  }
+
+  &__empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: $text-secondary;
+    font-size: 13px;
+  }
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 16px;
+  transition: background 0.12s ease;
+
+  &:hover {
+    background: $bg-surface-hover;
+  }
+
+  &__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__subtitle {
+    font-size: 12px;
+    color: $text-secondary;
+  }
+}
+
+// Тумблер уведомлений (локальный)
+.switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: $badge-muted;
+  flex: none;
+  transition: background 0.15s ease;
+
+  &__thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #9e9ea3;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+
+  &--on {
+    background: $accent-purple;
+
+    .switch__thumb {
+      transform: translateX(16px);
+      background: #fff;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Модальные окна                                                            */
 .modal-backdrop {
   position: fixed;
@@ -636,16 +1091,17 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 50;
 }
 
 .modal {
   width: 360px;
   max-width: calc(100vw - 32px);
-  background: var(--bg-modal);
+  background: $bg-surface;
   border-radius: 14px;
+  border: 1px solid $border-subtle;
   padding: 18px 18px 16px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 
   &__title {
     font-size: 16px;
@@ -655,20 +1111,20 @@ textarea {
 
   &__input {
     width: 100%;
-    background: var(--bg-input);
-    border-radius: var(--radius-panel);
+    background: $bg-composer;
+    border-radius: $radius-panel;
     padding: 10px 12px;
     margin-bottom: 4px;
     border: 1px solid transparent;
     transition: border-color 0.15s ease;
 
     &:focus {
-      border-color: rgba(36, 129, 204, 0.65);
+      border-color: rgba(135, 116, 225, 0.65);
     }
   }
 
   &__error {
-    color: var(--danger);
+    color: $danger;
     font-size: 12px;
     padding: 4px 2px 6px;
   }
@@ -684,7 +1140,7 @@ textarea {
 /* Кнопки */
 .button {
   padding: 8px 14px;
-  border-radius: var(--radius-panel);
+  border-radius: $radius-panel;
   font-size: 14px;
   transition: background 0.15s ease, opacity 0.15s ease;
 
@@ -694,20 +1150,20 @@ textarea {
   }
 
   &--accent {
-    background: var(--accent);
+    background: $accent-purple;
     color: #fff;
 
     &:hover:not(:disabled) {
-      background: var(--accent-hover);
+      background: $accent-purple-hover;
     }
   }
 
   &--ghost {
-    color: var(--text-secondary);
+    color: $text-secondary;
 
     &:hover:not(:disabled) {
-      background: var(--bg-hover);
-      color: var(--text-primary);
+      background: $bg-surface-hover;
+      color: $text-primary;
     }
   }
 
@@ -724,28 +1180,29 @@ textarea {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(1200px 500px at 20% -10%, rgba(43, 82, 120, 0.35), transparent),
-    var(--bg-app);
+    radial-gradient(1200px 500px at 20% -10%, rgba(135, 116, 225, 0.16), transparent),
+    $bg-app;
 
   &__card {
     width: 360px;
     max-width: calc(100vw - 32px);
-    background: var(--bg-modal);
+    background: $bg-surface;
+    border: 1px solid $border-subtle;
     border-radius: 14px;
     padding: 24px 24px 20px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
   }
 
   &__logo {
     font-size: 26px;
     font-weight: 700;
     letter-spacing: 1px;
-    color: var(--accent);
+    color: $accent-purple;
     text-align: center;
   }
 
   &__subtitle {
-    color: var(--text-secondary);
+    color: $text-secondary;
     font-size: 13px;
     text-align: center;
     margin: 6px 0 18px;
@@ -759,40 +1216,40 @@ textarea {
     button {
       flex: 1;
       padding: 9px 0;
-      color: var(--text-secondary);
+      color: $text-secondary;
       border-bottom: 2px solid transparent;
 
       &.active {
-        color: var(--text-primary);
-        border-bottom-color: var(--accent);
+        color: $text-primary;
+        border-bottom-color: $accent-purple;
       }
     }
   }
 
   &__field {
     width: 100%;
-    background: var(--bg-input);
-    border-radius: 10px;
+    background: $bg-composer;
+    border-radius: $radius-panel;
     padding: 10px 12px;
     margin-bottom: 10px;
     border: 1px solid transparent;
-    transition: border-color 0.15s ease;
+    transition: border-color 0.15s ease, background 0.15s ease;
 
     &:focus {
-      border-color: rgba(36, 129, 204, 0.65);
-      background: #243140;
+      border-color: rgba(135, 116, 225, 0.65);
+      background: #262626;
     }
   }
 
   &__error {
-    color: var(--danger);
+    color: $danger;
     font-size: 12px;
     padding: 2px 2px 10px;
   }
 
   &__gateway {
     margin-top: 14px;
-    color: var(--text-secondary);
+    color: $text-secondary;
     font-size: 11px;
     text-align: center;
   }
