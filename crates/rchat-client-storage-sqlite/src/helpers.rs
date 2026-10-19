@@ -1,7 +1,7 @@
 //! Преобразования значений SQLite ↔ доменные типы и общие фрагменты SQL.
 
 use rchat_core::error::StorageError;
-use rchat_core::payload::{Attachment, AttachmentKind};
+use rchat_core::payload::{Attachment, AttachmentKind, BlobRef};
 use rchat_core::types::{
     ChatRecord, DeviceRecord, MemberRecord, MessageRecord, MessageStatus, OutboxRecord,
     ReceiptRecord, UserRecord,
@@ -78,6 +78,12 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
     let attachment_blob_ref: Option<String> = row.get(17)?;
     let attachment_key: Option<Vec<u8>> = row.get(18)?;
     let attachment_nonce: Option<Vec<u8>> = row.get(19)?;
+    let attachment_thumb_ref: Option<String> = row.get(20)?;
+    let attachment_thumb_key: Option<Vec<u8>> = row.get(21)?;
+    let attachment_thumb_nonce: Option<Vec<u8>> = row.get(22)?;
+    let attachment_thumb_size: Option<i64> = row.get(23)?;
+    let attachment_thumb_mime: Option<String> = row.get(24)?;
+    let attachment_waveform: Option<Vec<u8>> = row.get(25)?;
     let attachment = match (attachment_kind, attachment_data, attachment_blob_ref) {
         (Some(kind), data, blob_ref) => {
             let data = data.unwrap_or_default();
@@ -91,6 +97,15 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
                 blob_ref,
                 key: attachment_key,
                 nonce: attachment_nonce,
+                thumb: attachment_thumb_ref.map(|reference| BlobRef {
+                    reference,
+                    key: attachment_thumb_key.clone().unwrap_or_default(),
+                    nonce: attachment_thumb_nonce.clone().unwrap_or_default(),
+                    size: attachment_thumb_size.map(from_sql_u64).unwrap_or(0),
+                    mime: attachment_thumb_mime.clone().unwrap_or_default(),
+                    data: Vec::new(),
+                }),
+                waveform: attachment_waveform.unwrap_or_default(),
                 data,
             })
         }
@@ -117,7 +132,9 @@ pub(crate) const MESSAGE_COLUMNS: &str = "local_id, server_id, chat_id, sender_u
      sender_device_id, content_kind, body, reply_to_server_id, status, created_at_ms, \
      edited_at_ms, deleted_at_ms, attachment_kind, attachment_name, attachment_mime, \
      attachment_size, attachment_data, attachment_blob_ref, attachment_key, \
-     attachment_nonce";
+     attachment_nonce, attachment_thumb_ref, attachment_thumb_key, \
+     attachment_thumb_nonce, attachment_thumb_size, attachment_thumb_mime, \
+     attachment_waveform";
 
 /// Строка `outbox` → доменная запись. Позиции колонок фиксированы
 /// константой [`OUTBOX_COLUMNS`].

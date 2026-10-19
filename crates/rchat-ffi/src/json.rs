@@ -4,6 +4,8 @@
 //! hex: JSON не предназначен для передачи секретов, а открытые identity-ключи
 //! и так публичны.
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use rchat_core::avatar::Avatar;
 use rchat_core::events::UiEvent;
 use rchat_core::types::{
@@ -127,6 +129,19 @@ pub(crate) fn message(message: &MessageRecord) -> Value {
             "name": item.name,
             "mime": item.mime,
             "size": item.size,
+            // Постер видео — отдельный блоб (метаданные).
+            "thumb": item.thumb.as_ref().map(|thumb| json!({
+                "kind": "photo",
+                "name": "",
+                "mime": thumb.mime,
+                "size": thumb.size,
+            })),
+            // Пики звуковой волны для голосового.
+            "waveform": if item.waveform.is_empty() {
+                Value::Null
+            } else {
+                json!(BASE64.encode(&item.waveform))
+            },
         }),
         None => Value::Null,
     };

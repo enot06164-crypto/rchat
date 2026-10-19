@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use rchat_core::payload::{Attachment, AttachmentKind};
+use rchat_core::payload::{Attachment, AttachmentKind, BlobRef};
 use rchat_core::traits::Storage;
 use serde_json::{json, Value};
 
@@ -165,12 +165,19 @@ pub(crate) async fn dispatch(
                         format!("message {server_id} has no attachment"),
                     )
                 })?;
+            // Постер видео (если есть) — отдельным запросом к ядру.
+            let thumb = handle
+                .client
+                .attachment_thumb_content(server_id)
+                .await?
+                .map(|bytes| BASE64.encode(&bytes));
             Ok(json!({
                 "kind": attachment.kind.as_str(),
                 "name": attachment.name,
                 "mime": attachment.mime,
                 "size": attachment.size,
                 "data_base64": BASE64.encode(&attachment.data),
+                "thumb_base64": thumb,
             }))
         }
         "get_messages" => {
@@ -384,6 +391,37 @@ fn parse_attachment(item: &Value) -> Result<Attachment, FfiError> {
         .get("size")
         .and_then(Value::as_u64)
         .unwrap_or(data.len() as u64);
+    // Постер видео (отдельный блоб) и пики звуковой волны.
+    let thumb = match item.get("thumb_base64").and_then(Value::as_str) {
+        Some(raw) => {
+            let bytes = BASE64
+                .decode(raw)
+                .map_err(|e| FfiError::invalid(format!("attachment.thumb_base64: {e}")))?;
+            if bytes.is_empty() {
+                None
+            } else {
+                Some(BlobRef {
+                    reference: String::new(),
+                    key: Vec::new(),
+                    nonce: Vec::new(),
+                    size: bytes.len() as u64,
+                    mime: item
+                        .get("thumb_mime")
+                        .and_then(Value::as_str)
+                        .unwrap_or("image/jpeg")
+                        .to_string(),
+                    data: bytes,
+                })
+            }
+        }
+        None => None,
+    };
+    let waveform = match item.get("waveform_base64").and_then(Value::as_str) {
+        Some(raw) => BASE64
+            .decode(raw)
+            .map_err(|e| FfiError::invalid(format!("attachment.waveform_base64: {e}")))?,
+        None => Vec::new(),
+    };
     let attachment = Attachment {
         kind,
         name,
@@ -392,6 +430,8 @@ fn parse_attachment(item: &Value) -> Result<Attachment, FfiError> {
         blob_ref: None,
         key: None,
         nonce: None,
+        thumb,
+        waveform,
         data,
     };
     attachment.validate().map_err(FfiError::invalid)?;

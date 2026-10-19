@@ -52,6 +52,8 @@ async fn e2e_blob_channel_delivers_file_encrypted() {
                 blob_ref: None,
                 key: None,
                 nonce: None,
+                thumb: None,
+                waveform: Vec::new(),
                 data: file.clone(),
             },
             None,
@@ -134,6 +136,8 @@ async fn e2e_blob_channel_rejects_oversized_file() {
         blob_ref: None,
         key: None,
         nonce: None,
+        thumb: None,
+        waveform: Vec::new(),
         data: Vec::new(),
     };
     let error = alice

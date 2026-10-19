@@ -1275,6 +1275,7 @@ dependencies = [
  "getrandom 0.4.3",
  "rchat-core",
  "rchat-proto",
+ "sha2",
  "tokio",
  "vodozemac",
  "zeroize",

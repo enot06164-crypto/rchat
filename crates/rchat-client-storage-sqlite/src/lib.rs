@@ -31,7 +31,7 @@ use rusqlite::Connection;
 pub use secrets::EncryptedFileSecretStore;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// SQLite-хранилище клиента.
 pub struct ClientSqliteStorage {

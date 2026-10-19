@@ -11,6 +11,7 @@ rchat-proto.workspace = true
 async-trait.workspace = true
 chacha20poly1305.workspace = true
 getrandom.workspace = true
+sha2.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 vodozemac.workspace = true
 zeroize.workspace = true

@@ -15,7 +15,7 @@ use rchat_core::error::{SecretStoreError, StorageError};
 use rchat_core::traits::{CryptoStateStore, SecretStore, Storage};
 use rchat_core::types::{
     ChatRecord, DeviceRecord, LocalAccount, MemberRecord, MessageRecord, MessageStatus,
-    OutboxRecord, OutboxState, ReceiptRecord, SyncApply, UserRecord,
+    OutboxRecord, OutboxState, ReceiptRecord, SyncApply, UploadedBlob, UserRecord,
 };
 
 #[derive(Default, Clone)]
@@ -311,6 +311,34 @@ impl Storage for MockStorage {
             .get(chat_id)
             .cloned()
             .unwrap_or_default())
+    }
+
+    // --- файлы: локальный кэш и дедупликация (в моке — без эффекта) ---
+    async fn cache_attachment_data(
+        &self,
+        _server_id: u64,
+        _data: &[u8],
+        _max_total_bytes: u64,
+    ) -> Result<bool, StorageError> {
+        Ok(false)
+    }
+
+    async fn find_uploaded_blob(
+        &self,
+        _hash: &[u8; 32],
+    ) -> Result<Option<UploadedBlob>, StorageError> {
+        Ok(None)
+    }
+
+    async fn save_uploaded_blob(
+        &self,
+        _hash: &[u8; 32],
+        _blob_ref: &str,
+        _key: &[u8],
+        _nonce: &[u8],
+        _size: u64,
+    ) -> Result<(), StorageError> {
+        Ok(())
     }
 
     async fn get_message(&self, local_id: &str) -> Result<Option<MessageRecord>, StorageError> {

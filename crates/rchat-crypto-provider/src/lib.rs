@@ -368,6 +368,16 @@ impl CryptoProvider for VodozemacCryptoProvider {
         Ok((ciphertext, nonce.to_vec()))
     }
 
+    async fn hash_blob(&self, data: &[u8]) -> Result<[u8; 32], CryptoError> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let digest = hasher.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&digest);
+        Ok(out)
+    }
+
     async fn decrypt_blob(
         &self,
         key: &[u8; 32],

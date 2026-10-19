@@ -6,6 +6,19 @@ use rchat_proto::proto::{ChatKind, ChatMemberRole, E2eMode};
 
 use crate::payload::Attachment;
 
+/// Ранее загруженный блоб (для локальной дедупликации загрузок).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadedBlob {
+    /// Ссылка на блоб в хранилище сервера.
+    pub blob_ref: String,
+    /// Ключ шифрования файла (локально; сервер его не знает).
+    pub key: Vec<u8>,
+    /// Nonce симметричного шифра.
+    pub nonce: Vec<u8>,
+    /// Размер файла в байтах.
+    pub size: u64,
+}
+
 /// Локальный аккаунт (профиль) на этом устройстве.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalAccount {

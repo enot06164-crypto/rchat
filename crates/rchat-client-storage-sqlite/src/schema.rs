@@ -190,6 +190,30 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
     "#,
     ),
     (
+        5,
+        r#"
+    -- Постер-кадр видео (второй блоб) и пики звуковой волны голосового.
+    ALTER TABLE messages ADD COLUMN attachment_thumb_ref TEXT;
+    ALTER TABLE messages ADD COLUMN attachment_thumb_key BLOB;
+    ALTER TABLE messages ADD COLUMN attachment_thumb_nonce BLOB;
+    ALTER TABLE messages ADD COLUMN attachment_thumb_size INTEGER;
+    ALTER TABLE messages ADD COLUMN attachment_thumb_mime TEXT;
+    ALTER TABLE messages ADD COLUMN attachment_waveform BLOB;
+
+    -- Локальный кэш загрузок: хэш содержимого → уже залитый блоб и ключ.
+    -- Позволяет не заливать один и тот же файл повторно, не раскрывая ключ
+    -- серверу (сервер видит только шифротекст).
+    CREATE TABLE uploaded_blobs (
+        hash BLOB NOT NULL PRIMARY KEY,
+        blob_ref TEXT NOT NULL,
+        key BLOB NOT NULL,
+        nonce BLOB NOT NULL,
+        size INTEGER NOT NULL,
+        created_at_ms INTEGER NOT NULL
+    );
+    "#,
+    ),
+    (
         4,
         r#"
     -- Файлы едут отдельным блобом: в сообщении лежат ссылка на блоб и ключ

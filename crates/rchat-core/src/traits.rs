@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use crate::error::{CryptoError, SecretStoreError, StorageError, TransportError};
 use crate::types::{
     ChatRecord, DeviceRecord, LocalAccount, MemberRecord, MessageRecord, OutboxRecord, OutboxState,
-    ReceiptRecord, SyncApply, UserRecord,
+    ReceiptRecord, SyncApply, UploadedBlob, UserRecord,
 };
 
 // ---------------------------------------------------------------------------
@@ -88,6 +88,31 @@ pub trait Storage: Send + Sync {
         before_server_id: Option<u64>,
         limit: u32,
     ) -> Result<Vec<MessageRecord>, StorageError>;
+
+    /// Кладёт скачанное содержимое вложения в локальный кэш. При превышении
+    /// `max_total_bytes` вытесняются самые старые кэшированные вложения.
+    /// Возвращает `true`, если содержимое сохранено.
+    async fn cache_attachment_data(
+        &self,
+        server_id: u64,
+        data: &[u8],
+        max_total_bytes: u64,
+    ) -> Result<bool, StorageError>;
+    /// Ищет ранее загруженный блоб по хэшу содержимого (локальная
+    /// дедупликация: тот же файл не заливается на сервер повторно).
+    async fn find_uploaded_blob(
+        &self,
+        hash: &[u8; 32],
+    ) -> Result<Option<UploadedBlob>, StorageError>;
+    /// Запоминает загруженный блоб для будущей дедупликации.
+    async fn save_uploaded_blob(
+        &self,
+        hash: &[u8; 32],
+        blob_ref: &str,
+        key: &[u8],
+        nonce: &[u8],
+        size: u64,
+    ) -> Result<(), StorageError>;
 
     // --- outbox ---
     /// Атомарно сохраняет локальное сообщение и запись outbox.
@@ -346,6 +371,10 @@ pub trait CryptoProvider: Send + Sync {
         key: &[u8; 32],
         plaintext: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>), CryptoError>;
+    /// Хэш содержимого файла (SHA-256) — по нему локальный кэш загрузок
+    /// узнаёт, что файл уже заливался на сервер (дедупликация без
+    /// раскрытия ключа серверу).
+    async fn hash_blob(&self, data: &[u8]) -> Result<[u8; 32], CryptoError>;
     /// Расшифровка файла (блоба) симметричным ключом из сообщения.
     async fn decrypt_blob(
         &self,

@@ -86,6 +86,10 @@ pub(crate) enum Command {
 /// Размер части файла при загрузке/скачивании блоба (байт).
 const BLOB_CHUNK_BYTES: usize = 64 * 1024;
 
+/// Предел локального кэша скачанных файлов (байт). При переполнении
+/// вытесняются самые старые кэшированные вложения.
+const MAX_ATTACHMENT_CACHE_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Случайный hex-идентификатор (для blob_id).
 fn random_hex(bytes: usize) -> Result<String, CoreError> {
     let mut buffer = vec![0u8; bytes];
@@ -881,12 +885,29 @@ impl Client {
         // Файл уходит отдельным блобом: клиент шифрует его случайным ключом,
         // сервер видит только шифротекст, а ключ едет внутри сообщения.
         let (blob_ref, key, nonce) = self.upload_blob(chat_id, &attachment.data).await?;
+        // Постер видео — отдельный блоб (как thumbnail в Telegram).
+        let thumb = match attachment.thumb.as_ref() {
+            Some(thumb) if !thumb.data.is_empty() => {
+                let (reference, thumb_key, thumb_nonce) =
+                    self.upload_blob(chat_id, &thumb.data).await?;
+                Some(crate::payload::BlobRef {
+                    reference,
+                    key: thumb_key,
+                    nonce: thumb_nonce,
+                    size: thumb.data.len() as u64,
+                    mime: thumb.mime.clone(),
+                    data: Vec::new(),
+                })
+            }
+            _ => attachment.thumb.clone(),
+        };
         let payload = Payload::with_attachment(
             text,
             Attachment {
                 blob_ref: Some(blob_ref),
                 key: Some(key),
                 nonce: Some(nonce),
+                thumb,
                 data: Vec::new(),
                 ..attachment
             },
@@ -917,7 +938,40 @@ impl Client {
             return Ok(Some(attachment));
         };
         let data = self.download_blob(&blob_ref, &key, &nonce).await?;
+        // Кэшируем содержимое локально (с лимитом и вытеснением старых) —
+        // повторное открытие не качает файл заново.
+        let _ = self
+            .inner
+            .storage
+            .cache_attachment_data(server_id, &data, MAX_ATTACHMENT_CACHE_BYTES)
+            .await;
         Ok(Some(Attachment { data, ..attachment }))
+    }
+
+    /// Содержимое постера видео (если он есть) — скачивается и расшифровывается.
+    pub async fn attachment_thumb_content(
+        &self,
+        server_id: u64,
+    ) -> Result<Option<Vec<u8>>, CoreError> {
+        let Some(message) = self.message_by_server_id(server_id).await? else {
+            return Ok(None);
+        };
+        let Some(thumb) = message.attachment.as_ref().and_then(|a| a.thumb.as_ref()) else {
+            return Ok(None);
+        };
+        if !thumb.data.is_empty() {
+            return Ok(Some(thumb.data.clone()));
+        }
+        if thumb.reference.is_empty() || thumb.key.is_empty() {
+            return Ok(None);
+        }
+        match self
+            .download_blob(&thumb.reference, &thumb.key, &thumb.nonce)
+            .await
+        {
+            Ok(data) => Ok(Some(data)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Загружает файл в хранилище сервера (зашифрованным) и возвращает
@@ -933,6 +987,14 @@ impl Client {
             .as_ref()
             .ok_or_else(|| CoreError::E2eUnavailable("no crypto provider".into()))?
             .clone();
+        // Дедупликация: тот же файл уже заливали — переиспользуем блоб и ключ
+        // (ключ остаётся на устройстве, сервер его не знает).
+        let hash = crypto.hash_blob(data).await?;
+        if let Some(cached) = self.inner.storage.find_uploaded_blob(&hash).await? {
+            if cached.size == data.len() as u64 {
+                return Ok((cached.blob_ref, cached.key, cached.nonce));
+            }
+        }
         let mut key = [0u8; 32];
         getrandom::fill(&mut key).map_err(|e| CoreError::Internal(format!("blob key: {e}")))?;
         let (ciphertext, nonce) = crypto.encrypt_blob(&key, data).await?;
@@ -971,6 +1033,13 @@ impl Client {
             .await?;
         match response {
             proto::response::Result::FinishBlob(result) => {
+                // Запоминаем загрузку: повторная отправка того же файла
+                // не потребует новой заливки на сервер.
+                let _ = self
+                    .inner
+                    .storage
+                    .save_uploaded_blob(&hash, &result.blob_ref, &key, &nonce, data.len() as u64)
+                    .await;
                 Ok((result.blob_ref, key.to_vec(), nonce))
             }
             _ => Err(CoreError::Protocol(

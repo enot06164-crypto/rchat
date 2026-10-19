@@ -18,6 +18,8 @@ fn attachment(kind: AttachmentKind, name: &str, mime: &str, data: &[u8]) -> Atta
         blob_ref: None,
         key: None,
         nonce: None,
+        thumb: None,
+        waveform: Vec::new(),
         data: data.to_vec(),
     }
 }

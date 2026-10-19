@@ -5,7 +5,7 @@ use rchat_core::error::StorageError;
 use rchat_core::traits::Storage;
 use rchat_core::types::{
     ChatRecord, DeviceRecord, LocalAccount, MemberRecord, MessageRecord, MessageStatus,
-    OutboxRecord, OutboxState, ReceiptRecord, SyncApply, UserRecord,
+    OutboxRecord, OutboxState, ReceiptRecord, SyncApply, UploadedBlob, UserRecord,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
@@ -700,6 +700,133 @@ impl Storage for ClientSqliteStorage {
         })
         .await
     }
+
+    // ------------------------------------------------------------------
+    // Файлы: локальный кэш содержимого и дедупликация загрузок
+    // ------------------------------------------------------------------
+    async fn cache_attachment_data(
+        &self,
+        server_id: u64,
+        data: &[u8],
+        max_total_bytes: u64,
+    ) -> Result<bool, StorageError> {
+        let server_id = server_id as i64;
+        let data = data.to_vec();
+        let limit = max_total_bytes as i64;
+        self.call(move |conn| {
+            // Освобождаем место: вытесняем самые старые кэшированные вложения.
+            let mut total: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(SUM(LENGTH(attachment_data)), 0) FROM messages
+                     WHERE attachment_data IS NOT NULL",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| map_sql("cached bytes", e))?;
+            if total + data.len() as i64 > limit {
+                let victims: Vec<i64> = {
+                    let mut stmt = conn
+                        .prepare(
+                            "SELECT server_id FROM messages
+                             WHERE attachment_data IS NOT NULL AND server_id IS NOT NULL
+                             ORDER BY created_at_ms ASC",
+                        )
+                        .map_err(|e| map_sql("cache eviction stmt", e))?;
+                    let rows = stmt
+                        .query_map([], |row| row.get::<_, i64>(0))
+                        .map_err(|e| map_sql("cache eviction rows", e))?;
+                    rows.collect::<Result<Vec<i64>, _>>()
+                        .map_err(|e| map_sql("cache eviction row", e))?
+                };
+                for victim in victims {
+                    conn.execute(
+                        "UPDATE messages SET attachment_data = NULL WHERE server_id = ?1",
+                        rusqlite::params![victim],
+                    )
+                    .map_err(|e| map_sql("cache eviction", e))?;
+                    total -= conn
+                        .query_row(
+                            "SELECT COALESCE(LENGTH(attachment_data), 0) FROM messages
+                             WHERE server_id = ?1",
+                            rusqlite::params![victim],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .map_err(|e| map_sql("cache eviction size", e))?;
+                    if total + data.len() as i64 <= limit {
+                        break;
+                    }
+                }
+            }
+            let changed = conn
+                .execute(
+                    "UPDATE messages SET attachment_data = ?2 WHERE server_id = ?1",
+                    rusqlite::params![server_id, data],
+                )
+                .map_err(|e| map_sql("cache attachment", e))?;
+            Ok(changed > 0)
+        })
+        .await
+    }
+
+    async fn find_uploaded_blob(
+        &self,
+        hash: &[u8; 32],
+    ) -> Result<Option<UploadedBlob>, StorageError> {
+        let hash = hash.to_vec();
+        self.call(move |conn| {
+            let row: Option<(String, Vec<u8>, Vec<u8>, i64)> = conn
+                .query_row(
+                    "SELECT blob_ref, key, nonce, size FROM uploaded_blobs WHERE hash = ?1",
+                    rusqlite::params![hash],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .ok();
+            Ok(row.map(|(blob_ref, key, nonce, size)| UploadedBlob {
+                blob_ref,
+                key,
+                nonce,
+                size: size.max(0) as u64,
+            }))
+        })
+        .await
+    }
+
+    async fn save_uploaded_blob(
+        &self,
+        hash: &[u8; 32],
+        blob_ref: &str,
+        key: &[u8],
+        nonce: &[u8],
+        size: u64,
+    ) -> Result<(), StorageError> {
+        let hash = hash.to_vec();
+        let blob_ref = blob_ref.to_string();
+        let key = key.to_vec();
+        let nonce = nonce.to_vec();
+        self.call(move |conn| {
+            conn.execute(
+                "INSERT INTO uploaded_blobs(hash, blob_ref, key, nonce, size, created_at_ms)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(hash) DO UPDATE SET
+                     blob_ref = excluded.blob_ref,
+                     key = excluded.key,
+                     nonce = excluded.nonce,
+                     size = excluded.size,
+                     created_at_ms = excluded.created_at_ms",
+                rusqlite::params![
+                    hash,
+                    blob_ref,
+                    key,
+                    nonce,
+                    size as i64,
+                    rchat_proto::now_ms() as i64
+                ],
+            )
+            .map_err(|e| map_sql("save uploaded blob", e))?;
+            Ok(())
+        })
+        .await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -711,8 +838,12 @@ fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), 
         Some(attachment) => Some(to_sql_u64("attachment size", attachment.size)?),
         None => None,
     };
+    let thumb_size = match message.attachment.as_ref().and_then(|a| a.thumb.as_ref()) {
+        Some(thumb) => Some(to_sql_u64("thumb size", thumb.size)?),
+        None => None,
+    };
     conn.execute(
-        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)"),
+        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)"),
         rusqlite::params![
             message.local_id,
             opt_to_sql_u64(message.server_id),
@@ -734,6 +865,12 @@ fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), 
             message.attachment.as_ref().and_then(|a| a.blob_ref.as_deref()),
             message.attachment.as_ref().and_then(|a| a.key.as_deref()),
             message.attachment.as_ref().and_then(|a| a.nonce.as_deref()),
+            message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.reference.as_str()),
+            message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.key.as_slice()),
+            message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.nonce.as_slice()),
+            thumb_size,
+            message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.mime.as_str()),
+            message.attachment.as_ref().map(|a| a.waveform.as_slice()).filter(|d| !d.is_empty()),
         ],
     )
     .map_err(|e| map_sql("insert_message", e))?;
@@ -888,7 +1025,7 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
             tx.execute(
                 &format!(
                     "INSERT INTO messages({MESSAGE_COLUMNS})
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
                      ON CONFLICT DO NOTHING"
                 ),
                 rusqlite::params![
@@ -912,6 +1049,12 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                     message.attachment.as_ref().and_then(|a| a.blob_ref.as_deref()),
                     message.attachment.as_ref().and_then(|a| a.key.as_deref()),
                     message.attachment.as_ref().and_then(|a| a.nonce.as_deref()),
+                    message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.reference.as_str()),
+                    message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.key.as_slice()),
+                    message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.nonce.as_slice()),
+                    message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.size as i64),
+                    message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.mime.as_str()),
+                    message.attachment.as_ref().map(|a| a.waveform.as_slice()).filter(|d| !d.is_empty()),
                 ],
             )
             .map_err(|e| map_sql("sync insert_message", e))?;

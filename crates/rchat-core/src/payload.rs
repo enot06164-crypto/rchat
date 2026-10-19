@@ -57,6 +57,23 @@ impl AttachmentKind {
     }
 }
 
+/// Ссылка на зашифрованный блоб (файл) в хранилище сервера.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlobRef {
+    /// Ссылка на блоб (выдаётся сервером).
+    pub reference: String,
+    /// Ключ шифрования (внутри конверта; сервер его не видит).
+    pub key: Vec<u8>,
+    /// Nonce симметричного шифра.
+    pub nonce: Vec<u8>,
+    /// Размер файла в байтах.
+    pub size: u64,
+    /// MIME-тип.
+    pub mime: String,
+    /// Сырые байты (только при отправке: блоб ещё не залит).
+    pub data: Vec<u8>,
+}
+
 /// Вложение сообщения.
 ///
 /// Файл хранится на сервере отдельным блобом: клиент шифрует его случайным
@@ -78,6 +95,10 @@ pub struct Attachment {
     pub key: Option<Vec<u8>>,
     /// Nonce симметричного шифра файла.
     pub nonce: Option<Vec<u8>>,
+    /// Постер-кадр для видео (отдельный блоб, как в Telegram).
+    pub thumb: Option<BlobRef>,
+    /// Пики звуковой волны для голосового (для отрисовки в UI).
+    pub waveform: Vec<u8>,
     /// Содержимое файла: только для сообщений, отправленных до появления
     /// канала блобов (файл ехал внутри сообщения).
     pub data: Vec<u8>,
@@ -162,6 +183,21 @@ impl Payload {
             if let Some(nonce) = &item.nonce {
                 attachment.insert("nonce".into(), json!(BASE64.encode(nonce)));
             }
+            if let Some(thumb) = &item.thumb {
+                attachment.insert(
+                    "t".into(),
+                    json!({
+                        "b": thumb.reference,
+                        "key": BASE64.encode(&thumb.key),
+                        "nonce": BASE64.encode(&thumb.nonce),
+                        "s": thumb.size,
+                        "m": thumb.mime,
+                    }),
+                );
+            }
+            if !item.waveform.is_empty() {
+                attachment.insert("wf".into(), json!(BASE64.encode(&item.waveform)));
+            }
             if !item.data.is_empty() {
                 attachment.insert("d".into(), json!(BASE64.encode(&item.data)));
             }
@@ -224,6 +260,37 @@ impl Payload {
                 .and_then(Value::as_str)
                 .map(|raw| BASE64.decode(raw).unwrap_or_default())
                 .unwrap_or_default();
+            let thumb = item.get("t").and_then(|raw| {
+                let raw = raw.as_object()?;
+                let reference = raw.get("b")?.as_str()?.to_string();
+                let key = raw
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .map(|value| BASE64.decode(value).unwrap_or_default())
+                    .unwrap_or_default();
+                let nonce = raw
+                    .get("nonce")
+                    .and_then(Value::as_str)
+                    .map(|value| BASE64.decode(value).unwrap_or_default())
+                    .unwrap_or_default();
+                Some(BlobRef {
+                    reference,
+                    key,
+                    nonce,
+                    size: raw.get("s").and_then(Value::as_u64).unwrap_or(0),
+                    mime: raw
+                        .get("m")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    data: Vec::new(),
+                })
+            });
+            let waveform = item
+                .get("wf")
+                .and_then(Value::as_str)
+                .map(|value| BASE64.decode(value).unwrap_or_default())
+                .unwrap_or_default();
             Some(Attachment {
                 kind,
                 name,
@@ -232,6 +299,8 @@ impl Payload {
                 blob_ref,
                 key,
                 nonce,
+                thumb,
+                waveform,
                 data,
             })
         });
@@ -262,6 +331,8 @@ mod tests {
             blob_ref: None,
             key: None,
             nonce: None,
+            thumb: None,
+            waveform: Vec::new(),
             data: vec![1, 2, 3],
         };
         let payload = Payload::with_attachment("смотри", attachment.clone());
