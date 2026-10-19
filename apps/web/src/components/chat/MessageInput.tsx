@@ -1,8 +1,12 @@
 import { Show, createSignal } from "solid-js";
-import { SendHorizontal } from "lucide-solid";
+import { Paperclip, SendHorizontal, Smile } from "lucide-solid";
 import { sendCurrentText, state } from "../../services/store";
 
-/** Поле ввода: Enter — отправка, Shift+Enter — перенос строки, самолётик. */
+/**
+ * «Парящая капсула» ввода в стиле Telegram WebK: смайл и скрепка слева,
+ * рамочный textarea по центру, круглая синяя кнопка отправки справа.
+ * Отступ снизу 16px и скругление 16px задаёт `.composer` в global.scss.
+ */
 export function MessageInput(props: { chatId: string }) {
   const [value, setValue] = createSignal("");
   let textarea!: HTMLTextAreaElement;
@@ -24,15 +28,29 @@ export function MessageInput(props: { chatId: string }) {
   };
 
   return (
-    <div class="message-input">
+    <div class="composer-wrap">
       <Show when={state.sendError !== null && state.activeChatId === props.chatId}>
-        <div class="message-input__error">{state.sendError}</div>
+        <div class="composer-error">{state.sendError}</div>
       </Show>
-      <div class="message-input__row">
+      <div class="composer">
+        <button
+          class="composer-icon"
+          title="Эмодзи (скоро)"
+          aria-label="Эмодзи"
+        >
+          <Smile size={22} />
+        </button>
+        <button
+          class="composer-icon"
+          title="Прикрепить файл (скоро)"
+          aria-label="Прикрепить файл"
+        >
+          <Paperclip size={20} />
+        </button>
         <textarea
           ref={textarea}
           rows={1}
-          placeholder="Сообщение…"
+          placeholder="Сообщение"
           value={value()}
           onInput={(event) => {
             setValue(event.currentTarget.value);

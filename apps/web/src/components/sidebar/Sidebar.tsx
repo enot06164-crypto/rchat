@@ -1,11 +1,11 @@
 import { Show, createSignal } from "solid-js";
-import { LogOut, Plus, Search } from "lucide-solid";
+import { LogOut, PenLine, Search } from "lucide-solid";
 import { connectionLabel, logout, state } from "../../services/store";
 import { Avatar } from "../Avatar";
 import { ChatList } from "./ChatList";
 import { NewChatModal } from "./NewChatModal";
 
-/** Левая колонка: профиль, поиск, вкладки папок, список чатов, новый чат. */
+/** Левая колонка: профиль, поиск + новый чат (карандаш), вкладки, список. */
 export function Sidebar() {
   const [tab, setTab] = createSignal<"all" | "unread">("all");
   const [query, setQuery] = createSignal("");
@@ -36,14 +36,24 @@ export function Sidebar() {
         </button>
       </header>
 
-      <div class="sidebar__search">
-        <Search size={17} />
-        <input
-          type="text"
-          placeholder="Поиск"
-          value={query()}
-          onInput={(event) => setQuery(event.currentTarget.value)}
-        />
+      <div class="sidebar__search-row">
+        <div class="sidebar__search">
+          <Search size={17} />
+          <input
+            type="text"
+            placeholder="Поиск"
+            value={query()}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+        <button
+          class="icon-button sidebar__add"
+          title="Новый личный чат"
+          aria-label="Новый личный чат"
+          onClick={() => setNewChatOpen(true)}
+        >
+          <PenLine size={20} />
+        </button>
       </div>
 
       <nav class="sidebar__tabs" aria-label="Папки чатов">
@@ -62,15 +72,6 @@ export function Sidebar() {
       </nav>
 
       <ChatList tab={tab()} query={query()} />
-
-      <button
-        class="fab"
-        title="Новый личный чат"
-        aria-label="Новый личный чат"
-        onClick={() => setNewChatOpen(true)}
-      >
-        <Plus size={22} />
-      </button>
 
       <Show when={newChatOpen()}>
         <NewChatModal onClose={() => setNewChatOpen(false)} />

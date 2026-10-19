@@ -1,5 +1,10 @@
 @use "./variables" as *;
 
+// ---------------------------------------------------------------------------
+// «Дудл»-паттерн фона чата (узор Telegram) — stroke opacity 0.05 поверх
+// радиального градиента. Закодированы только <, > и #.
+$chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.05' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='45' cy='45' r='14'/%3E%3Ccircle cx='45' cy='45' r='4'/%3E%3Cpath d='M150 25 l7 15 16 2 -12 11 3 16 -14 -8 -14 8 3 -16 -12 -11 16 -2 z'/%3E%3Cpath d='M255 60 c8 -12 24 -6 24 6 0 10 -12 18 -24 28 -12 -10 -24 -18 -24 -28 0 -12 16 -18 24 -6 z'/%3E%3Cpath d='M38 150 h40 M58 130 v40'/%3E%3Ccircle cx='190' cy='150' r='20' stroke-dasharray='3 7'/%3E%3Cpath d='M25 258 q15 -14 30 0 t30 0 t30 0 t30 0'/%3E%3Ccircle cx='250' cy='252' r='9'/%3E%3Ccircle cx='105' cy='215' r='3'/%3E%3C/g%3E%3C/svg%3E");
+
 /* ------------------------------------------------------------------------- */
 /* Сброс и базовая типографика                                               */
 * {
@@ -177,11 +182,20 @@ textarea {
     }
   }
 
+  // строка поиска + карандаш «новый чат» (иконка WebK вместо плавающей FAB)
+  &__search-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 10px 8px;
+  }
+
   &__search {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 10px 8px;
     padding: 7px 12px;
     background: var(--bg-input);
     border-radius: var(--radius-panel);
@@ -190,6 +204,14 @@ textarea {
     input {
       flex: 1;
       min-width: 0;
+    }
+  }
+
+  &__add {
+    color: var(--text-secondary);
+
+    &:hover {
+      color: var(--accent);
     }
   }
 
@@ -215,27 +237,6 @@ textarea {
       }
     }
   }
-
-  .fab {
-    position: absolute;
-    right: 16px;
-    bottom: 16px;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-    transition: background 0.15s ease, transform 0.15s ease;
-
-    &:hover {
-      background: var(--accent-hover);
-      transform: scale(1.05);
-    }
-  }
 }
 
 .icon-button {
@@ -245,6 +246,7 @@ textarea {
   width: 36px;
   height: 36px;
   border-radius: 50%;
+  flex: none;
   color: var(--text-secondary);
   transition: background 0.15s ease, color 0.15s ease;
 
@@ -258,7 +260,7 @@ textarea {
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 6px 72px;
+  padding: 4px 6px 12px;
 
   &__empty {
     padding: 32px 16px;
@@ -351,7 +353,12 @@ textarea {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-chat);
+  min-width: 0;
+  // Фирменный фон: паттерн Telegram (opacity 0.05) поверх мягкого радиального
+  // градиента на глубоком тёмном цвете.
+  background-color: var(--bg-app);
+  background-image: $chat-pattern,
+    radial-gradient(900px 620px at 50% 12%, rgba(43, 82, 120, 0.22), transparent 72%);
 
   &--empty {
     align-items: center;
@@ -366,39 +373,62 @@ textarea {
   }
 
   &__header {
+    height: 56px;
+    flex: none;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 14px;
+    padding: 0 14px;
     background: var(--bg-header);
     border-bottom: 1px solid var(--separator);
-    min-height: 56px;
   }
 
   &__title-col {
+    flex: 1;
     min-width: 0;
   }
 
   &__title {
     font-weight: 600;
+    color: #fff;
     display: block;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 19px;
   }
 
   &__subtitle {
     font-size: 12px;
     color: var(--text-secondary);
     display: block;
+    line-height: 16px;
   }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+}
+
+/* Центральная колонна ленты и ввода (пропорции WebK) */
+.chat-main {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px;
 }
 
 /* Лента */
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 36px 10px;
+  padding: 14px 8px 8px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -520,33 +550,54 @@ textarea {
   }
 }
 
-/* Ввод сообщения */
-.message-input {
-  padding: 10px 16px 14px;
-  background: var(--bg-chat);
+/* ------------------------------------------------------------------------- */
+/* Капсула ввода («парящий композер» WebK)                                   */
+.composer-wrap {
+  flex: none;
+}
 
-  &__error {
-    color: var(--danger);
-    font-size: 12px;
-    padding: 0 4px 8px;
+.composer-error {
+  color: var(--danger);
+  font-size: 12px;
+  padding: 0 6px 6px;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  background: var(--bg-sidebar); // #17212b
+  border-radius: 16px;
+  padding: 7px 10px 7px 6px;
+  margin-bottom: 16px;
+
+  textarea {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    max-height: 160px;
+    line-height: 1.4;
+    padding: 9px 2px;
+    overflow-y: auto;
+    background: transparent;
+    border: none;
   }
+}
 
-  &__row {
-    display: flex;
-    align-items: flex-end;
-    gap: 10px;
-    background: var(--bg-input);
-    border-radius: 12px;
-    padding: 8px 8px 8px 14px;
+.composer-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  transition: background 0.15s ease, color 0.15s ease;
 
-    textarea {
-      flex: 1;
-      resize: none;
-      max-height: 160px;
-      line-height: 1.4;
-      padding: 4px 0;
-      overflow-y: auto;
-    }
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
   }
 }
 
@@ -560,10 +611,14 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.12s ease;
 
   &:hover:not(:disabled) {
     background: var(--accent-hover);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.94);
   }
 
   &:disabled {
@@ -604,6 +659,12 @@ textarea {
     border-radius: var(--radius-panel);
     padding: 10px 12px;
     margin-bottom: 4px;
+    border: 1px solid transparent;
+    transition: border-color 0.15s ease;
+
+    &:focus {
+      border-color: rgba(36, 129, 204, 0.65);
+    }
   }
 
   &__error {
@@ -622,7 +683,7 @@ textarea {
 
 /* Кнопки */
 .button {
-  padding: 9px 16px;
+  padding: 8px 14px;
   border-radius: var(--radius-panel);
   font-size: 14px;
   transition: background 0.15s ease, opacity 0.15s ease;
@@ -671,7 +732,7 @@ textarea {
     max-width: calc(100vw - 32px);
     background: var(--bg-modal);
     border-radius: 14px;
-    padding: 26px 26px 22px;
+    padding: 24px 24px 20px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   }
 
@@ -687,7 +748,7 @@ textarea {
     color: var(--text-secondary);
     font-size: 13px;
     text-align: center;
-    margin: 6px 0 20px;
+    margin: 6px 0 18px;
   }
 
   &__tabs {
@@ -711,9 +772,16 @@ textarea {
   &__field {
     width: 100%;
     background: var(--bg-input);
-    border-radius: var(--radius-panel);
-    padding: 11px 12px;
+    border-radius: 10px;
+    padding: 10px 12px;
     margin-bottom: 10px;
+    border: 1px solid transparent;
+    transition: border-color 0.15s ease;
+
+    &:focus {
+      border-color: rgba(36, 129, 204, 0.65);
+      background: #243140;
+    }
   }
 
   &__error {

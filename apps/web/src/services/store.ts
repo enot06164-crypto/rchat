@@ -29,6 +29,8 @@ export interface AppState {
   /** Состояние соединения ядра с сервером (§5.1). */
   connection: ConnectionState;
   session: Session | null;
+  /** Присутствие из события `presence_changed` (user_id → online). */
+  presence: Record<string, boolean>;
   /** Чаты, отсортированные по `updated_at_ms` по убыванию. */
   chats: Chat[];
   /** chat_id → сообщения по возрастанию `created_at_ms`. */
@@ -51,6 +53,7 @@ const INITIAL_STATE: AppState = {
   linkUp: false,
   connection: "disconnected",
   session: null,
+  presence: {},
   chats: [],
   messages: {},
   receipts: {},
@@ -242,6 +245,7 @@ export function applyEvent(event: RchatEvent): void {
         receipts: {},
         members: {},
         unread: {},
+        presence: {},
         sendError: null,
       });
       return;
@@ -299,13 +303,20 @@ export function applyEvent(event: RchatEvent): void {
       if (active !== null) void loadChatHistory(active);
       return;
     }
+    case "presence_changed": {
+      // статус собеседника для подзаголовка шапки («в сети» / «был(а) недавно»);
+      // до первого события показываем только признак шифрования
+      const data = event.data as { user_id: string; online: boolean };
+      setState("presence", data.user_id, data.online);
+      return;
+    }
     case "warning": {
       const data = event.data as { message: string };
       console.warn("rchat warning:", data.message);
       return;
     }
     default:
-      // presence_changed, sync_progress, resync_performed и call_* событий
+      // sync_progress, resync_performed и call_* событий
       // v1 веб-UI не отображает: расширенная логика появится на этапе звонков.
       return;
   }
@@ -486,6 +497,7 @@ export async function logout(): Promise<void> {
     receipts: {},
     members: {},
     unread: {},
+    presence: {},
     sendError: null,
     authError: null,
   });
