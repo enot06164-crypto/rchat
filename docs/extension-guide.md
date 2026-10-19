@@ -118,6 +118,10 @@ let mut events = client.subscribe();       // UiEvent
   `rchat_receive_json` через `rchat_free_string`, не логировать пароли и
   токены. Изменение формата запросов/ответов/событий требует повышения
   `API_VERSION`.
+- Python SDK (`bindings/python`) — тонкий слой над тем же C-ABI. При
+  добавлении команды/события обновите `rchat/client.py`, при необходимости
+  `rchat/models.py`, `bindings/python/README.md` и Python-тесты; не
+  дублируйте бизнес-логику в Python.
 
 ## 5. Новое серверное хранилище (`Repo`)
 

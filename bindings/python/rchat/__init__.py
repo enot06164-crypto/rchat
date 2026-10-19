@@ -1,0 +1,77 @@
+"""Official zero-dependency Python SDK for rchat-ffi."""
+
+from __future__ import annotations
+
+from . import ffi
+from .client import RChatClient
+from .exceptions import (
+    AuthenticationError,
+    ClosedError,
+    ConflictError,
+    CryptoError,
+    E2eUnavailableError,
+    ForbiddenError,
+    InternalError,
+    InvalidHandleError,
+    InvalidRequestError,
+    NotConnectedError,
+    NotFoundError,
+    PanicError,
+    ProtocolError,
+    RateLimitedError,
+    RChatClosedError,
+    RChatConfigError,
+    RChatError,
+    RChatException,
+    RChatLibraryError,
+    ResyncRequiredError,
+    SecretStoreError,
+    ServerError,
+    StorageError,
+    TimeoutError,
+    TransportError,
+    UnknownMethodError,
+    UnsupportedCapabilityError,
+    UsernameTakenError,
+)
+from .models import Call, Chat, Event, Message, Session
+
+__version__ = "0.1.0"
+
+__all__ = [
+    "RChatClient",
+    "Chat",
+    "Message",
+    "Call",
+    "Session",
+    "Event",
+    "ffi",
+    "RChatException",
+    "RChatError",
+    "RChatLibraryError",
+    "RChatClosedError",
+    "RChatConfigError",
+    "InvalidRequestError",
+    "InvalidHandleError",
+    "UnknownMethodError",
+    "AuthenticationError",
+    "TransportError",
+    "NotConnectedError",
+    "TimeoutError",
+    "StorageError",
+    "SecretStoreError",
+    "CryptoError",
+    "ProtocolError",
+    "ResyncRequiredError",
+    "NotFoundError",
+    "E2eUnavailableError",
+    "ClosedError",
+    "PanicError",
+    "InternalError",
+    "ServerError",
+    "ConflictError",
+    "UsernameTakenError",
+    "ForbiddenError",
+    "RateLimitedError",
+    "UnsupportedCapabilityError",
+]

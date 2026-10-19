@@ -15,8 +15,9 @@
 и отзыве устройства). Инварианты и правила — в `docs/protocol.md` §4,
 устройство — в `docs/architecture.md` §7.5, оговорки — в
 `docs/threat-model.md`. Также добавлены мультиаккаунтные профили CLI,
-сигнализация звонков и встраиваемый **C-ABI/JSON-интерфейс** (`rchat-ffi`,
-стиль tdjson); готовых языковых биндингов пока нет.
+сигнализация звонков, встраиваемый **C-ABI/JSON-интерфейс** (`rchat-ffi`,
+стиль tdjson) и официальный **Python SDK** (`bindings/python`, только
+стандартная библиотека).
 
 [vodozemac]: https://github.com/matrix-org/vodozemac
 
@@ -40,11 +41,16 @@
 Правило закреплено тестом `crates/rchat-core/tests/dependency_rules.rs`.
 Подробности — в `docs/architecture.md`.
 
+Официальный Python SDK лежит в `bindings/python`: низкоуровневая обёртка
+`rchat.ffi` над C-ABI и высокоуровневый `RChatClient` с фоновым потоком
+событий. Сторонние зависимости не нужны — только стандартный `ctypes`.
+
 ## Требования
 
 - Rust stable (версия и компоненты закреплены в `rust-toolchain.toml`);
 - Linux или macOS (права `0600` на файл секретов; на других ОС это
-  ограничение честно отражено в `docs/threat-model.md`).
+  ограничение честно отражено в `docs/threat-model.md`);
+- Python 3.9+ — только для Python SDK и его тестов; серверу и CLI не нужен.
 
 ## Быстрый старт
 
@@ -208,6 +214,23 @@ rchat_destroy(h);
 ограничения — `docs/ffi.md`; минимальный пример —
 `crates/rchat-ffi/examples/ffi_smoke.c`.
 
+Python SDK использует тот же C-ABI:
+
+```python
+from rchat import RChatClient
+
+with RChatClient("/tmp/rchat/alice", "wss://chat.example",
+                 tls_fingerprint="AA:BB:...") as client:
+    client.login("alice", "password")
+    chat = client.create_direct_chat("bob", e2e=True)
+    client.send_message(chat.chat_id, "привет")
+    for event in client.events():
+        if event.event == "message_received":
+            print(event.data.get("body"))
+```
+
+Сборка библиотеки, примеры и тесты — в `bindings/python/README.md`.
+
 ## Проверки качества
 
 ```bash
@@ -216,6 +239,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --bin rchat-server --bin rchat-cli
 cargo build -p rchat-ffi
+python3 -m unittest discover -s bindings/python/tests
 ```
 
 Те же команды выполняет CI (`.github/workflows/ci.yml`, GitHub Actions без
@@ -229,6 +253,7 @@ Docker). Что именно покрывают тесты и как польз�
 - `docs/group-e2e.md` — отдельная спецификация группового E2E (Megolm);
 - `docs/testing.md` — слои тестов, testkit, сценарии сбоев, ручной smoke;
 - `docs/ffi.md` — C-ABI/JSON: конфигурация, команды, события, ошибки, сборка;
+- `bindings/python/README.md` — Python SDK: установка, примеры, тесты;
 - `docs/threat-model.md` — модель угроз, гарантии и ограничения;
 - `docs/extension-guide.md` — как расширять: транспорт, хранилище, UI,
   протокол, криптопровайдер.
@@ -248,8 +273,9 @@ Docker). Что именно покрывают тесты и как польз�
   отзываются;
 - сервер — один процесс: реестр соединений и rate-limit в памяти;
 - сессии — по одной на устройство, без зависания на нескольких серверах;
-- C-ABI/JSON (`rchat-ffi`) поставляется без готовых языковых биндингов;
-  API-схема версии 1 может меняться до стабилизации 1.0.
+- C-ABI/JSON (`rchat-ffi`) и Python SDK (`bindings/python`) используют
+  API-схему версии 1; до стабилизации 1.0 она может меняться. Биндингов для
+  других языков пока нет.
 
 Полный список — `docs/architecture.md` §11 и `docs/threat-model.md`.
 

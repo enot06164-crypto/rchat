@@ -20,6 +20,7 @@ workspace.
 | Сквозные сценарии сбоев («мок-стек») | `crates/rchat-e2e-tests/tests/mock_stack.rs` | Outbox и синхронизация при разрывах/задержках/дублях/битых кадрах; реальный сервер, но канал в памяти и in-memory хранилище из testkit. |
 | CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`), профили аккаунтов (`--account`, `accounts`, `account-delete`), звонки (`call invite --wait`, `watch`, accept/decline/end). |
 | C-ABI/JSON | `crates/rchat-ffi/tests/ffi.rs` | Прямые вызовы C-функций: создание/уничтожение handle, `ping`, ошибки JSON и NULL, два независимых клиента, E2E-сообщение, transient-события звонка, освобождение строк. |
+| Python SDK | `bindings/python/tests/` | `ctypes`-сигнатуры, версии, создание/уничтожение handle, ошибки конфигурации и освобождение строк; два Python-клиента с настоящим сервером, E2E-чат и событие `message_received`. |
 | Тесты testkit | `crates/rchat-testkit/tests/testkit.rs` | Транзакционность `MockStorage` (включая инъекцию сбоя) и порядок применения помех транспорта. |
 
 ## 2. Как запускать
@@ -39,14 +40,18 @@ cargo test -p rchat-e2e-tests --test mock_stack -- --nocapture
 cargo test -p rchat-cli --test cli_smoke
 cargo test -p rchat-ffi
 cargo test -p rchat-core dependency_rules
+
+# Python SDK: тесты ищут собранные target/debug/librchat_ffi.* и
+# target/debug/rchat-server.
+python3 -m unittest discover -s bindings/python/tests
 ```
 
 Внешние сервисы и Docker не требуются: SQLite собирается в bundled-режиме,
 TLS — на `rustls` без системной библиотеки OpenSSL. Тестам не нужны
 сетевые порты вне loopback; канальные сценарии работают вообще без сокетов.
 
-Те же команды (плюс сборку `rchat-ffi` и C-ABI smoke) выполняет CI
-(`.github/workflows/ci.yml`).
+Те же команды (плюс сборку `rchat-ffi`, C-ABI smoke и Python SDK)
+выполняет CI (`.github/workflows/ci.yml`).
 
 ## 3. Testkit (`rchat-testkit`)
 

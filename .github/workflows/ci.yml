@@ -49,3 +49,9 @@ jobs:
             crates/rchat-ffi/examples/ffi_smoke.c \
             -L target/debug -lrchat_ffi -o /tmp/rchat-ffi-smoke
           LD_LIBRARY_PATH=target/debug /tmp/rchat-ffi-smoke
+
+      - name: Run Python SDK tests
+        run: |
+          cargo build --locked -p rchat-ffi
+          cargo build --locked --bin rchat-server
+          python3 -m unittest discover -s bindings/python/tests

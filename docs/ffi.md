@@ -2,9 +2,9 @@
 
 Документ описывает встраиваемый интерфейс клиента: C-ABI с JSON-запросами,
 JSON-ответами и очередью событий. Интерфейс предназначен для хостов на C,
-C++, Python (через `ctypes`/`cffi`), C#, Go и других языках. Готовых
-биндингов в поставку пока не входит — только библиотека и заголовок
-`crates/rchat-ffi/include/rchat.h`.
+C++, Python, C#, Go и других языках. В поставку входят библиотека, заголовок
+`crates/rchat-ffi/include/rchat.h` и официальный Python SDK на `ctypes`
+(`bindings/python`, см. §10).
 
 Один `RchatHandle` — один независимый клиент/профиль: собственный каталог
 данных, SQLite, файл секретов и E2E-состояние. Несколько handle в одном
@@ -492,9 +492,11 @@ rchat_destroy(handle);
   ослабляет шифрование.
 - `ws://` и `tls_insecure` допустимы только для локальной разработки.
 - Медиа/WebRTC в звонках отсутствуют: только invite/accept/decline/end.
-- Готовых биндингов для языков пока нет. `rchat_api_version()` возвращает
-  версию JSON-схемы (`1`); до стабилизации 1.0 несовместимые изменения
-  сопровождаются повышением версии.
+- Официальный Python SDK (`bindings/python`) построен на стандартном
+  `ctypes` и не добавляет зависимостей; биндинги для других языков пока не
+  поставляются. `rchat_api_version()` возвращает версию JSON-схемы (`1`);
+  до стабилизации 1.0 несовместимые изменения сопровождаются повышением
+  версии.
 
 ## 9. Тестирование
 
@@ -509,3 +511,56 @@ cargo test -p rchat-ffi
 Ручная проверка C-ABI: соберите библиотеку и пример
 `crates/rchat-ffi/examples/ffi_smoke.c` (см. комментарий в файле). Пример
 создаёт handle с `auto_start:false`, выполняет `ping` и освобождает строки.
+
+Python SDK также проверяется отдельно:
+
+```bash
+cargo build -p rchat-ffi
+cargo build --bin rchat-server
+python3 -m unittest discover -s bindings/python/tests
+```
+
+## 10. Python SDK
+
+Официальный SDK находится в `bindings/python` и использует только
+стандартную библиотеку (`ctypes`, `json`, `threading`, `queue`,
+`pathlib`, `typing`, `dataclasses`). Подробности и примеры — в
+[`bindings/python/README.md`](../bindings/python/README.md).
+
+Пакет предоставляет:
+
+- `rchat.ffi` — низкоуровневые обёртки `rchat_create`, `rchat_send_json`,
+  `rchat_receive_json`, `rchat_destroy`, `rchat_version`,
+  `rchat_api_version`, `rchat_last_error`. Возвращённые send/receive строки
+  копируются и освобождаются через `rchat_free_string`; заимствованные
+  строки версии/ошибки не освобождаются.
+- `rchat.RChatClient` — высокоуровневый клиент с фоновым потоком событий,
+  контекстным менеджером, методами сессии/чатов/сообщений/устройств/звонков
+  и моделями-датаклассами `Chat`, `Message`, `Call`, `Session`, `Event`.
+- `rchat.RChatError.from_response` — фабрика исключений по кодам из §6.
+
+Минимальный пример:
+
+```python
+from rchat import RChatClient
+
+with RChatClient("/tmp/rchat/alice", "wss://chat.example",
+                 tls_fingerprint="AA:BB:...") as client:
+    client.login("alice", "password")
+    chat = client.create_direct_chat("bob", e2e=True)
+    client.send_message(chat.chat_id, "привет")
+
+    for event in client.events():
+        if event.event == "message_received":
+            print(event.data["body"])
+```
+
+Биндинг ищет библиотеку в `RCHAT_LIB_PATH`, затем в `target/release/` и
+`target/debug/` относительно корня репозитория. Примеры:
+`bindings/python/examples/smoke_ping.py` (низкоуровневый `ping` без сервера)
+и `bindings/python/examples/echo_bot.py`.
+
+`login` нужен только профилю без сохранённого токена: сессия с токеном
+восстанавливается при старте (`get_me()`/`get_session()`), а повторный
+`login` вернёт `invalid_request: already authenticated` — так же, как
+одноимённая команда FFI.
