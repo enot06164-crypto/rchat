@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, onCleanup } from "solid-js";
+import { Show, createSignal, onCleanup } from "solid-js";
 import { ArrowLeft, LogOut, Menu, PenLine, Search, UserPlus, X } from "lucide-solid";
 import { connectionLabel, logout, state } from "../../services/store";
 import { Avatar } from "../Avatar";
@@ -14,7 +14,6 @@ import { NewChatModal } from "./NewChatModal";
  * - Список чатов и плавающая круглая кнопка `.fab` (`.btn-corner`) внизу справа.
  */
 export function Sidebar() {
-  const [tab, setTab] = createSignal<"all" | "unread">("all");
   const [query, setQuery] = createSignal("");
   const [searchFocused, setSearchFocused] = createSignal(false);
   const [newChatOpen, setNewChatOpen] = createSignal(false);
@@ -23,9 +22,6 @@ export function Sidebar() {
   const linkStatus = () =>
     state.linkUp ? connectionLabel(state.connection) : "шлюз недоступен";
   const onlineNow = () => state.linkUp && state.connection === "connected";
-  const totalUnread = createMemo(() =>
-    Object.values(state.unread).reduce((sum, count) => sum + (count > 0 ? 1 : 0), 0)
-  );
   const isSearching = () => searchFocused() || query().trim() !== "";
 
   // Закрытие главного меню кликом мимо него.
@@ -139,30 +135,7 @@ export function Sidebar() {
         </Show>
       </header>
 
-      <nav class="sidebar__tabs" aria-label="Папки чатов">
-        <button
-          classList={{ active: tab() === "all" }}
-          onClick={() => setTab("all")}
-        >
-          <span>Все чаты</span>
-          <Show when={state.chats.length > 0}>
-            <span class="sidebar__tab-badge">{state.chats.length}</span>
-          </Show>
-        </button>
-        <button
-          classList={{ active: tab() === "unread" }}
-          onClick={() => setTab("unread")}
-        >
-          <span>Непрочитанные</span>
-          <Show when={totalUnread() > 0}>
-            <span class="sidebar__tab-badge sidebar__tab-badge--accent">
-              {totalUnread()}
-            </span>
-          </Show>
-        </button>
-      </nav>
-
-      <ChatList tab={tab()} query={query()} />
+      <ChatList query={query()} />
 
       <button
         classList={{ fab: true, "is-open": newChatOpen() }}

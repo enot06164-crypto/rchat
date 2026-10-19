@@ -3,15 +3,10 @@ import type { Chat } from "../../types/rchat";
 import { state } from "../../services/store";
 import { ChatItem } from "./ChatItem";
 
-/** Прокрутка диалогов с фильтрами: вкладки «Все»/«Непрочитанные» и поиск. */
-export function ChatList(props: { tab: "all" | "unread"; query: string }) {
+/** Список чатов с фильтром по названию (вкладки-папки в WebK убраны). */
+export function ChatList(props: { query: string }) {
   const chats = (): Chat[] => {
     let list = state.chats;
-    if (props.tab === "unread") {
-      list = list.filter(
-        (chat) => (state.unread[chat.chat_id] ?? 0) > 0
-      );
-    }
     const query = props.query.trim().toLowerCase();
     if (query !== "") {
       list = list.filter((chat) =>

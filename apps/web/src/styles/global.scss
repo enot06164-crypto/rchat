@@ -1,9 +1,10 @@
 @use "./variables" as *;
 
 // ---------------------------------------------------------------------------
-// «Дудл»-паттерн фона чата (узор Telegram) — stroke opacity 0.05.
+// Обои чата в стиле Telegram: контурный «дудл»-паттерн (heart, star, sparkle,
+// paper plane, speech bubble, plus, wave) + аметистовое свечение.
 // ---------------------------------------------------------------------------
-$chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.05' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='45' cy='45' r='14'/%3E%3Ccircle cx='45' cy='45' r='4'/%3E%3Cpath d='M150 25 l7 15 16 2 -12 11 3 16 -14 -8 -14 8 3 -16 -12 -11 16 -2 z'/%3E%3Cpath d='M255 60 c8 -12 24 -6 24 6 0 10 -12 18 -24 28 -12 -10 -24 -18 -24 -28 0 -12 16 -18 24 -6 z'/%3E%3Cpath d='M38 150 h40 M58 130 v40'/%3E%3Ccircle cx='190' cy='150' r='20' stroke-dasharray='3 7'/%3E%3Cpath d='M25 258 q15 -14 30 0 t30 0 t30 0 t30 0'/%3E%3Ccircle cx='250' cy='252' r='9'/%3E%3Ccircle cx='105' cy='215' r='3'/%3E%3C/g%3E%3C/svg%3E");
+$chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.07' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M32 52c0-9 11-13 16-6 5-7 16-3 16 6 0 11-16 20-16 20S32 63 32 52Z'/%3E%3Cpath d='M150 22c1.6 8.4 4.6 11.4 13 13-8.4 1.6-11.4 4.6-13 13-1.6-8.4-4.6-11.4-13-13 8.4-1.6 11.4-4.6 13-13Z'/%3E%3Cpath d='M246 30l30 16-30 16 8-16-8-16Z'/%3E%3Cpath d='M44 120h26a8 8 0 0 1 8 8v10a8 8 0 0 1-8 8H62l-10 8v-8h-8a8 8 0 0 1-8-8v-10a8 8 0 0 1 8-8Z'/%3E%3Cpath d='M150 104l6.6 13.4 14.8 2.2-10.7 10.4 2.5 14.7-13.2-6.9-13.2 6.9 2.5-14.7-10.7-10.4 14.8-2.2L150 104Z'/%3E%3Ccircle cx='266' cy='132' r='18' stroke-dasharray='4 8'/%3E%3Cpath d='M30 232h26M43 219v26'/%3E%3Cpath d='M120 236c8-8 16 8 24 0s16 8 24 0'/%3E%3Cpath d='M244 226l-8 18h9l-6 16 18-22h-10l7-12h-10Z'/%3E%3Ccircle cx='262' cy='272' r='10'/%3E%3Ccircle cx='52' cy='284' r='5'/%3E%3Ccircle cx='286' cy='88' r='4'/%3E%3Ccircle cx='96' cy='76' r='4'/%3E%3Cpath d='M180 268h34a8 8 0 0 1 8 8v6a8 8 0 0 1-8 8h-12l-8 7v-7h-14a8 8 0 0 1-8-8v-6a8 8 0 0 1 8-8Z'/%3E%3C/g%3E%3C/svg%3E");
 
 /* ------------------------------------------------------------------------- */
 /* Сброс и базовая типографика (Telegram WebK base.scss)                       */
@@ -320,50 +321,6 @@ textarea {
     }
   }
 
-  // Вкладки папок (.menu-horizontal-div WebK)
-  &__tabs {
-    display: flex;
-    padding: 0 8px;
-    gap: 4px;
-    flex: none;
-
-    button {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 10px 4px 8px;
-      font-size: 14px;
-      color: $text-secondary;
-      border-bottom: 3px solid transparent;
-      border-radius: $radius-bubble-small $radius-bubble-small 0 0;
-      transition: color $transition-fast, border-color $transition-fast;
-
-      &.active {
-        color: $text-primary;
-        border-bottom-color: $accent-purple;
-      }
-
-      &:hover {
-        color: $text-primary;
-      }
-    }
-  }
-
-  &__tab-badge {
-    font-size: 12px;
-    padding: 1px 7px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.08);
-    color: $text-secondary;
-
-    &--accent {
-      background: $accent-purple;
-      color: #fff;
-    }
-  }
-
   // Плавающая кнопка нового чата (.btn-corner WebK, 54px)
   .fab {
     position: absolute;
@@ -616,7 +573,9 @@ textarea {
   &--empty {
     align-items: center;
     justify-content: center;
-    background: $bg-app;
+    background-color: $bg-app;
+    background-image: $chat-pattern,
+      radial-gradient(900px 620px at 50% 8%, rgba(135, 116, 225, 0.07), transparent 72%);
     border-radius: $radius-bubble;
   }
 
@@ -1464,15 +1423,16 @@ textarea {
 
   &__input {
     width: 100%;
-    background: $bg-composer;
+    background: #181818;
+    border: 1px solid #2f2f2f;
     border-radius: $radius-panel;
     padding: 11px 12px;
     margin-bottom: 4px;
-    border: 1px solid transparent;
-    transition: border-color $transition-fast;
+    transition: border-color $transition-fast, background-color $transition-fast;
 
     &:focus {
       border-color: $accent-purple;
+      background: transparent;
     }
   }
 
@@ -1535,6 +1495,7 @@ textarea {
   align-items: center;
   justify-content: center;
   background:
+    $chat-pattern,
     radial-gradient(1200px 500px at 20% -10%, rgba(135, 116, 225, 0.16), transparent),
     $bg-app;
 
@@ -1583,16 +1544,16 @@ textarea {
 
   &__field {
     width: 100%;
-    background: $bg-composer;
+    background: #181818;
+    border: 1px solid #2f2f2f;
     border-radius: $radius-panel;
     padding: 12px;
     margin-bottom: 10px;
-    border: 1px solid transparent;
     transition: border-color $transition-fast, background-color $transition-fast;
 
     &:focus {
       border-color: $accent-purple;
-      background: #262626;
+      background: transparent;
     }
   }
 
