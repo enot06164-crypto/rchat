@@ -981,7 +981,10 @@ textarea {
   left: 33.6px;
 }
 
-// Кнопка быстрого ответа при наведении (WebK .bubble-beside-button)
+// Кнопка быстрого ответа при наведении (WebK .bubble-beside-button).
+// Кнопка живёт за пределами пузыря, поэтому нужен «мостик» — прозрачная
+// перемычка к краю пузыря: пока курсор в ней, пузырь остаётся под курсором
+// (hover наследуется по дереву), и кнопку можно спокойно нажать.
 .bubble__hover-reply {
   position: absolute;
   top: 2px;
@@ -999,6 +1002,15 @@ textarea {
   pointer-events: none;
   transition: opacity $transition-fast, transform $transition-fast,
     background-color $transition-fast;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    width: 10px;
+  }
 }
 
 .bubble-row:hover .bubble__hover-reply {
@@ -1009,6 +1021,11 @@ textarea {
 
 .bubble-row--in .bubble__hover-reply {
   right: -36px;
+
+  &::before {
+    left: auto;
+    right: 100%;
+  }
 }
 
 .bubble-row--own .bubble__hover-reply {

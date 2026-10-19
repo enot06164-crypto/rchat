@@ -38,7 +38,11 @@ export function MessageList(props: { chatId: string }) {
   );
 
   const items = createMemo<FeedItem[]>(() => {
-    const list = state.messages[props.chatId] ?? [];
+    // Удалённые сообщения выпадают из ленты полностью — никаких «призрачных»
+    // пузырей (как в Telegram при «удалить у себя»).
+    const list = (state.messages[props.chatId] ?? []).filter(
+      (message) => message.deleted_at_ms === null
+    );
     const result: FeedItem[] = [];
     let lastDay = Number.NaN;
     let prevSender: string | null = null;
