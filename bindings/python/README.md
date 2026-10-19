@@ -185,6 +185,28 @@ finally:
   освобождение; сервер не нужен (`auto_start=False`);
 - `examples/echo_bot.py` — вход, прослушивание событий и ответ эхом.
 
+## WebSocket-шлюз для веб-клиента (этап H)
+
+Модуль `rchat.gateway` открывает `ws://…/ws` и проксирует протокол FFI в
+браузер: запросы — в `rchat_send_json`, события — всем открытым вкладкам.
+Один процесс шлюза владеет ровно одним профилем (создаёт `RChatClient`).
+
+```bash
+python3 -m venv .venv-gateway
+.venv-gateway/bin/pip install websockets      # единственная внешняя зависимость шлюза
+PYTHONPATH=bindings/python .venv-gateway/bin/python -m rchat.gateway \
+    --data-dir /tmp/rchat-web/alice \
+    --server ws://127.0.0.1:9000 \
+    --port 8080
+```
+
+Флаги: `--data-dir` (обязателен), `--server` (обязателен), `--host/--port`
+(по умолчанию `127.0.0.1:8080`), `--/--no-e2e` (E2E по умолчанию включён),
+`--tls-fingerprint`/`--tls-insecure` для `wss://`. Прочие пути (не `/ws`)
+получают JSON 404 — статику отдаёт Vite (`npm run dev`/`npm run preview` в
+`apps/web`). Протокольный смок двух профилей —
+`apps/web/scripts/smoke_gateway.py`.
+
 ## Тесты
 
 Из корня репозитория:

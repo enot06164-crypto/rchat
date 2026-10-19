@@ -1,0 +1,30 @@
+// Палитра и базовые величины в стиле Telegram WebK (тёмная тема по умолчанию).
+:root {
+  // основной фон приложения подложки
+  --bg-app: #0e1621;
+  // левая колонка (список чатов)
+  --bg-sidebar: #17212b;
+  // поверхность верх/низ правой колонки
+  --bg-chat: #0e1621;
+  --bg-header: #17212b;
+  // сообщения
+  --bubble-in: #182533;
+  --bubble-in-text: #ffffff;
+  --bubble-out: #2b5278;
+  --bubble-out-text: #ffffff;
+  // акценты и тексты
+  --accent: #2481cc;
+  --accent-hover: #2b8ae0;
+  --text-primary: #ffffff;
+  --text-secondary: #6c7883;
+  --danger: #e17076;
+  // служебные поверхности
+  --bg-input: #242f3d;
+  --bg-hover: #202b36;
+  --bg-selected: #2b5278;
+  --bg-modal: #17212b;
+  --separator: #101921;
+  // формы
+  --radius-bubble: 16px;
+  --radius-panel: 10px;
+}

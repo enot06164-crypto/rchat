@@ -18,5 +18,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+# Local WebSocket gateway (`python3 -m rchat.gateway`), not used by the SDK.
+gateway = ["websockets>=12"]
+
 [tool.setuptools]
 packages = ["rchat"]

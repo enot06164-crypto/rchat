@@ -18,8 +18,10 @@
 сигнализация звонков, встраиваемый **C-ABI/JSON-интерфейс** (`rchat-ffi`,
 стиль tdjson), детерминированные метаданные аватаров (инициалы и цвет в
 JSON), официальный **Python SDK** (`bindings/python`, только стандартная
-библиотека) и экспорт **JSON Schema** (`schema/rchat.schema.json`) для
-генерации типизированных клиентов.
+библиотека), экспорт **JSON Schema** (`schema/rchat.schema.json`) для
+генерации типизированных клиентов и **веб-клиент** (этап H,
+`apps/web` на SolidJS; браузер работает с ядром через локальный
+WebSocket-шлюз `rchat.gateway`, протокол FFI не меняется).
 
 [vodozemac]: https://github.com/matrix-org/vodozemac
 
@@ -38,6 +40,7 @@ JSON), официальный **Python SDK** (`bindings/python`, только с
 | `rchat-e2e-tests` | сквозные сценарии (реальный Olm/Megolm и «мок-стек») |
 | `rchat-cli` | CLI — composition root: собирает ядро с конкретными адаптерами |
 | `rchat-ffi` | C-ABI/JSON-интерфейс для встраивания (cdylib/staticlib), один handle — один профиль; экспорт `schema/rchat.schema.json` |
+| `apps/web` | веб-клиент (этап H): SolidJS + TypeScript + Vite в стиле Telegram WebK, общается с ядром через WebSocket-шлюз `rchat.gateway` |
 
 Направление зависимостей — только «вниз»: ядро не знает об адаптерах.
 Правило закреплено тестом `crates/rchat-core/tests/dependency_rules.rs`.
@@ -233,6 +236,35 @@ with RChatClient("/tmp/rchat/alice", "wss://chat.example",
 
 Сборка библиотеки, примеры и тесты — в `bindings/python/README.md`.
 
+## Веб-клиент (этап H)
+
+Официальный веб-интерфейс в стиле Telegram WebK: `apps/web` — SolidJS +
+TypeScript (strict) + Vite, тёмная палитра WebK, аватары-инициалы из ядра,
+пузыри с хвостиками и галочками статусов. Браузер общается с ядром через
+локальный **WebSocket-шлюз** (`rchat.gateway` из Python SDK): JSON-запросы
+проксируются в `rchat_send_json`, события ядра ретранслируются всем вкладкам;
+протокол FFI (`docs/ffi.md`) остаётся неизменным.
+
+```bash
+cargo build --bin rchat-server
+
+# 1) сервер разработки
+cargo run --bin rchat-server -- \
+    --db /tmp/rchat-web/server.sqlite3 --listen 127.0.0.1:9000 \
+    --plaintext-insecure --allow-dev-plaintext-chats
+
+# 2) шлюз (нужен пакет websockets: pip/uv install websockets)
+PYTHONPATH=bindings/python python3 -m rchat.gateway \
+    --data-dir /tmp/rchat-web/alice --server ws://127.0.0.1:9000 --port 8080
+
+# 3) веб-клиент (dev-сервер проксирует /ws на шлюз)
+cd apps/web && npm install && npm run dev
+```
+
+`npm run build` — строгая проверка TypeScript + сборка в `apps/web/dist`;
+`npm run preview` отдаёт её с тем же прокси `/ws`. Детали, ограничения v1 и
+протокольный смок шлюза — в `apps/web/README.md`.
+
 ## Проверки качества
 
 ```bash
@@ -258,6 +290,7 @@ Docker). Что именно покрывают тесты и как польз�
 - `docs/ffi.md` — C-ABI/JSON: конфигурация, команды, события, аватары, ошибки, сборка;
 - `schema/rchat.schema.json` — JSON Schema всех команд, ответов и событий;
 - `bindings/python/README.md` — Python SDK: установка, примеры, тесты;
+- `apps/web/README.md` — веб-клиент: запуск (сервер + шлюз + Vite), сборка, ограничения;
 - `docs/threat-model.md` — модель угроз, гарантии и ограничения;
 - `docs/extension-guide.md` — как расширять: транспорт, хранилище, UI,
   протокол, криптопровайдер.

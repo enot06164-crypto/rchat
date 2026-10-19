@@ -13,3 +13,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.venv/
+.venv-*/
+apps/web/node_modules/
+apps/web/dist/

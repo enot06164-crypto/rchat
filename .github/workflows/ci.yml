@@ -58,3 +58,16 @@ jobs:
           cargo build --locked -p rchat-ffi
           cargo build --locked --bin rchat-server
           python3 -m unittest discover -s bindings/python/tests
+
+      - name: Сборка веб-клиента (этап H)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: npm ci + build веб-клиента
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
