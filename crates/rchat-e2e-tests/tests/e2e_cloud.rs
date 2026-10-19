@@ -65,17 +65,20 @@ async fn cloud_chat_delivers_and_is_searchable() {
     let received = wait_for_body(&bob, &chat.chat_id, secret).await;
     assert_eq!(received.content_kind, "text");
 
-    // Сервер ищет по истории: ключ чата у него есть.
-    let hits = bob
+    // Сервер ищет по истории: ключ чата у него есть. Ищет автор (для него
+    // собеседник в названии чата).
+    let hits = alice
         .search_messages("облачное секретное", 10)
         .await
         .expect("search messages");
     assert_eq!(hits.len(), 1, "сервер должен найти облачное сообщение");
     assert_eq!(hits[0].chat_id, chat.chat_id);
-    assert!(hits[0].body.contains(secret));
+    // В выдаче — текст сообщения, а не служебный конверт.
+    assert_eq!(hits[0].body, secret);
+    assert_eq!(hits[0].chat_title, "Bob");
 
     // Поиск по несуществующему слову ничего не находит.
-    let empty = bob
+    let empty = alice
         .search_messages("такого-слова-нет", 10)
         .await
         .expect("search messages");

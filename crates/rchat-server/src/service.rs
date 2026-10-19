@@ -598,24 +598,26 @@ impl Server {
         let limit = request.limit.clamp(1, 100);
         let candidates = self
             .repo
-            .search_candidates(&auth.user.user_id, limit * 4)
+            .search_candidates(&auth.user.user_id, limit * 8)
             .await?;
         let needle = query.to_lowercase();
         let mut hits = Vec::new();
         for candidate in candidates {
             // Ключ чата знает сервер (облачный режим) — им и расшифровываем.
-            let Some(text) =
+            let Some(envelope) =
                 decrypt_cloud_text(&candidate.chat_key, &candidate.nonce, &candidate.ciphertext)
             else {
                 continue;
             };
-            if !text.to_lowercase().contains(&needle) {
+            // Предварительный фильтр по конверту; точную проверку по тексту
+            // делает клиент (он знает формат конверта и разбирает его).
+            if !envelope.to_lowercase().contains(&needle) {
                 continue;
             }
             hits.push(proto::SearchHit {
                 chat_id: candidate.chat_id.clone(),
                 server_id: candidate.server_id,
-                body: text,
+                body: envelope,
                 created_at_ms: candidate.created_at_ms,
                 chat_title: candidate.chat_title.clone(),
             });

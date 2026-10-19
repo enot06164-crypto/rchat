@@ -56,6 +56,11 @@ export function Sidebar() {
   // Поиск по сообщениям: с задержкой, чтобы не дёргать сервер на каждую
   // букву (как в WebK).  Пустая строка — очищаем выдачу.
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearSearch = (): void => {
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    setQuery("");
+    void searchMessages("");
+  };
   const onSearchInput = (value: string): void => {
     setQuery(value);
     if (searchTimer !== undefined) clearTimeout(searchTimer);
@@ -71,7 +76,7 @@ export function Sidebar() {
 
   const onBurgerClick = (): void => {
     if (query().trim() !== "") {
-      setQuery("");
+      clearSearch();
       setSearchFocused(false);
       return;
     }
@@ -116,7 +121,7 @@ export function Sidebar() {
               class="sidebar__search-clear"
               title="Очистить"
               aria-label="Очистить поиск"
-              onClick={() => setQuery("")}
+              onClick={clearSearch}
             >
               <X size={16} />
             </button>

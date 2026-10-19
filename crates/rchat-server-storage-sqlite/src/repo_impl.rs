@@ -1459,7 +1459,14 @@ impl Repo for SqliteRepo {
         self.call(move |conn| {
             // Облачные сообщения чатов, где пользователь состоит. Содержимое
             // отдаётся зашифрованным: расшифровывает его сервер ключом аккаунта.
-            let sql = "SELECT m.chat_id, COALESCE(c.name, ''), m.server_id, m.cloud_ciphertext, \
+            // Название чата: у группы — её имя, у личного — имя собеседника.
+            let sql = "SELECT m.chat_id, \
+                       COALESCE(NULLIF(c.name, ''), ( \
+                           SELECT u.display_name FROM chat_members cm2 \
+                           JOIN users u ON u.user_id = cm2.user_id \
+                           WHERE cm2.chat_id = m.chat_id AND cm2.user_id <> ?1 LIMIT 1 \
+                       ), ''), \
+                       m.server_id, m.cloud_ciphertext, \
                        m.cloud_nonce, COALESCE(c.cloud_key, X''), m.created_at_ms \
                        FROM messages m \
                        JOIN chat_members cm ON cm.chat_id = m.chat_id AND cm.user_id = ?1 \

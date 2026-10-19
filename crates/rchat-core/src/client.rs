@@ -582,7 +582,22 @@ impl Client {
             ))
             .await?;
         match resp {
-            proto::response::Result::SearchMessages(r) => Ok(r.hits),
+            proto::response::Result::SearchMessages(r) => {
+                // Сервер отдаёт расшифрованный конверт содержимого; текст
+                // разбираем здесь (формат конверта известен клиенту) и
+                // оставляем только действительные совпадения.
+                let needle = query.to_lowercase();
+                let mut hits = Vec::new();
+                for mut hit in r.hits {
+                    let payload = crate::payload::Payload::decode(hit.body.as_bytes());
+                    if !payload.text.to_lowercase().contains(&needle) {
+                        continue;
+                    }
+                    hit.body = payload.text;
+                    hits.push(hit);
+                }
+                Ok(hits)
+            }
             other => Err(unexpected(other)),
         }
     }
