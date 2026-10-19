@@ -378,6 +378,22 @@ export async function ensureMembers(chatId: string): Promise<void> {
   }
 }
 
+/**
+ * Общие группы с пользователем: пересечение списка групп и их участников.
+ * Данных ядра достаточно (`get_chats` + `get_chat_members`): отдельной
+ * команды «общие чаты» в FFI нет.
+ */
+export async function loadCommonGroups(peerUserId: string): Promise<Chat[]> {
+  const groups = state.chats.filter((chat) => chat.kind === "group");
+  const common: Chat[] = [];
+  for (const chat of groups) {
+    await ensureMembers(chat.chat_id);
+    const members = state.members[chat.chat_id] ?? {};
+    if (peerUserId in members) common.push(chat);
+  }
+  return common;
+}
+
 async function loadChatHistory(chatId: string): Promise<void> {
   const job = (async () => {
     const chat = state.chats.find((c) => c.chat_id === chatId);

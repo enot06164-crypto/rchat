@@ -1344,6 +1344,11 @@ textarea {
     margin-top: 10px;
   }
 
+  &__username {
+    font-size: 14px;
+    color: $text-secondary;
+  }
+
   &__status {
     font-size: 14px;
     color: $text-secondary;
@@ -1353,28 +1358,52 @@ textarea {
     }
   }
 
+  // Строка уведомлений (с колокольчиком в кружке — как в Telegram)
   &__notify {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    margin-top: 14px;
-    padding: 12px 4px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    gap: 12px;
+    margin: 16px 12px 8px;
+    padding: 12px 14px;
+    border-radius: $radius-bubble;
+    background: rgba(255, 255, 255, 0.05);
     cursor: pointer;
     user-select: none;
     font-size: 15px;
+  }
+
+  &__bell {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(225, 112, 118, 0.18);
+    color: $danger;
+  }
+
+  &__notify-label {
+    flex: 1;
   }
 
   &__tabs {
     display: flex;
     padding: 0 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    overflow-x: auto;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
 
     button {
-      flex: 1;
-      padding: 11px 4px 9px;
-      font-size: 14px;
+      flex: 1 0 auto;
+      padding: 11px 6px 9px;
+      font-size: 13px;
+      white-space: nowrap;
       color: $text-secondary;
       border-bottom: 3px solid transparent;
       transition: color $transition-fast, border-color $transition-fast;
@@ -1391,10 +1420,16 @@ textarea {
   }
 
   &__empty {
-    padding: 32px 16px;
+    padding: 32px 20px;
     text-align: center;
     color: $text-secondary;
     font-size: 14px;
+
+    &-hint {
+      margin-top: 6px;
+      font-size: 13px;
+      color: $text-muted;
+    }
   }
 }
 
