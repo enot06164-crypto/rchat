@@ -1,29 +1,37 @@
-import { Show, createSignal, onCleanup } from "solid-js";
-import { LogOut, Menu, PenLine, Search } from "lucide-solid";
+import { Show, createMemo, createSignal, onCleanup } from "solid-js";
+import { ArrowLeft, LogOut, Menu, PenLine, Search, UserPlus, X } from "lucide-solid";
 import { connectionLabel, logout, state } from "../../services/store";
 import { Avatar } from "../Avatar";
 import { ChatList } from "./ChatList";
 import { NewChatModal } from "./NewChatModal";
 
 /**
- * Сайдбар 360px (Amethyst Dark): шапка 56px — гамбургер, овальный поиск,
- * аватар с кольцом онлайна (меню профиля); список чатов, вкладки папок
- * и плавающий фиолетовый карандаш (новый чат).
+ * Левая колонка (Telegram WebK `#column-left`):
+ * - Шапка 56px: слева кнопка-гамбургер (открывает меню аккаунта WebK или
+ *   сбрасывает поиск стрелкой назад), справа на всю ширину — овальное поле
+ *   поиска `.input-search` с фиолетовой обводкой при фокусе.
+ * - Горизонтальные вкладки папок чатов с плавным нижним индикатором.
+ * - Список чатов и плавающая круглая кнопка `.fab` (`.btn-corner`) внизу справа.
  */
 export function Sidebar() {
   const [tab, setTab] = createSignal<"all" | "unread">("all");
   const [query, setQuery] = createSignal("");
+  const [searchFocused, setSearchFocused] = createSignal(false);
   const [newChatOpen, setNewChatOpen] = createSignal(false);
   const [meMenuOpen, setMeMenuOpen] = createSignal(false);
 
   const linkStatus = () =>
     state.linkUp ? connectionLabel(state.connection) : "шлюз недоступен";
   const onlineNow = () => state.linkUp && state.connection === "connected";
+  const totalUnread = createMemo(() =>
+    Object.values(state.unread).reduce((sum, count) => sum + (count > 0 ? 1 : 0), 0)
+  );
+  const isSearching = () => searchFocused() || query().trim() !== "";
 
-  // Закрытие меню профиля кликом мимо него.
+  // Закрытие главного меню кликом мимо него.
   const closeMenus = (event: MouseEvent): void => {
     const target = event.target as HTMLElement | null;
-    if (target === null || target.closest(".me-menu, .sidebar__me-avatar")) {
+    if (target === null || target.closest(".me-menu, .sidebar__burger")) {
       return;
     }
     setMeMenuOpen(false);
@@ -31,54 +39,101 @@ export function Sidebar() {
   document.addEventListener("mousedown", closeMenus);
   onCleanup(() => document.removeEventListener("mousedown", closeMenus));
 
+  const onBurgerClick = (): void => {
+    if (query().trim() !== "") {
+      setQuery("");
+      setSearchFocused(false);
+      return;
+    }
+    setMeMenuOpen((open) => !open);
+  };
+
   return (
     <aside class="sidebar">
       <header class="sidebar__header">
         <button
-          class="icon-button"
-          title="Меню (папки — скоро)"
-          aria-label="Меню"
+          classList={{
+            "icon-button": true,
+            "sidebar__burger": true,
+            "is-active": meMenuOpen(),
+          }}
+          title={query().trim() !== "" ? "Сбросить поиск" : "Меню и профиль"}
+          aria-label={query().trim() !== "" ? "Сбросить поиск" : "Меню"}
+          onClick={onBurgerClick}
         >
-          <Menu size={20} />
+          <Show when={query().trim() !== ""} fallback={<Menu size={22} />}>
+            <ArrowLeft size={22} />
+          </Show>
         </button>
-        <div class="sidebar__search">
-          <Search size={17} />
+
+        <div
+          classList={{
+            "sidebar__search": true,
+            "is-focused": isSearching(),
+          }}
+        >
+          <Search size={18} class="sidebar__search-icon" />
           <input
             type="text"
             placeholder="Поиск"
             value={query()}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
-        </div>
-        <button
-          class="sidebar__me-avatar"
-          title="Профиль"
-          aria-label="Профиль"
-          onClick={() => setMeMenuOpen((open) => !open)}
-        >
-          <Avatar info={state.session?.avatar} size={34} />
-          <Show when={onlineNow()}>
-            <span class="sidebar__me-ring" />
+          <Show when={query() !== ""}>
+            <button
+              class="sidebar__search-clear"
+              title="Очистить"
+              aria-label="Очистить поиск"
+              onClick={() => setQuery("")}
+            >
+              <X size={16} />
+            </button>
           </Show>
-        </button>
+        </div>
 
         <Show when={meMenuOpen()}>
           <div class="me-menu" role="menu">
-            <div class="me-menu__header">
-              <div class="me-menu__name">
-                {state.session?.display_name ?? state.session?.username ?? ""}
+            <div class="me-menu__account">
+              <div class="me-menu__avatar-wrap">
+                <Avatar info={state.session?.avatar} size={38} />
+                <Show when={onlineNow()}>
+                  <span class="me-menu__online-ring" />
+                </Show>
               </div>
-              <div class={`sidebar__me-status ${onlineNow() ? "is-online" : ""}`}>
-                {linkStatus()}
+              <div class="me-menu__info">
+                <div class="me-menu__name">
+                  {state.session?.display_name || state.session?.username || "Профиль"}
+                </div>
+                <div class={`me-menu__status ${onlineNow() ? "is-online" : ""}`}>
+                  {state.session?.username ? `@${state.session.username} · ` : ""}
+                  {linkStatus()}
+                </div>
               </div>
             </div>
+
+            <div class="me-menu__divider" />
+
             <button
               role="menuitem"
               class="me-menu__item"
+              onClick={() => {
+                setMeMenuOpen(false);
+                setNewChatOpen(true);
+              }}
+            >
+              <UserPlus size={18} />
+              <span>Новый личный чат</span>
+            </button>
+
+            <button
+              role="menuitem"
+              class="me-menu__item me-menu__item--danger"
               onClick={() => void logout()}
             >
-              <LogOut size={16} />
-              Выйти из аккаунта
+              <LogOut size={18} />
+              <span>Выйти из аккаунта</span>
             </button>
           </div>
         </Show>
@@ -89,25 +144,33 @@ export function Sidebar() {
           classList={{ active: tab() === "all" }}
           onClick={() => setTab("all")}
         >
-          Все
+          <span>Все чаты</span>
+          <Show when={state.chats.length > 0}>
+            <span class="sidebar__tab-badge">{state.chats.length}</span>
+          </Show>
         </button>
         <button
           classList={{ active: tab() === "unread" }}
           onClick={() => setTab("unread")}
         >
-          Непрочитанные
+          <span>Непрочитанные</span>
+          <Show when={totalUnread() > 0}>
+            <span class="sidebar__tab-badge sidebar__tab-badge--accent">
+              {totalUnread()}
+            </span>
+          </Show>
         </button>
       </nav>
 
       <ChatList tab={tab()} query={query()} />
 
       <button
-        class="fab"
+        classList={{ fab: true, "is-open": newChatOpen() }}
         title="Новый личный чат"
         aria-label="Новый личный чат"
         onClick={() => setNewChatOpen(true)}
       >
-        <PenLine size={24} />
+        <PenLine size={22} />
       </button>
 
       <Show when={newChatOpen()}>

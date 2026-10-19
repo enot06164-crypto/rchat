@@ -2,10 +2,12 @@
 
 // ---------------------------------------------------------------------------
 // «Дудл»-паттерн фона чата (узор Telegram) — stroke opacity 0.05.
+// ---------------------------------------------------------------------------
 $chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.05' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='45' cy='45' r='14'/%3E%3Ccircle cx='45' cy='45' r='4'/%3E%3Cpath d='M150 25 l7 15 16 2 -12 11 3 16 -14 -8 -14 8 3 -16 -12 -11 16 -2 z'/%3E%3Cpath d='M255 60 c8 -12 24 -6 24 6 0 10 -12 18 -24 28 -12 -10 -24 -18 -24 -28 0 -12 16 -18 24 -6 z'/%3E%3Cpath d='M38 150 h40 M58 130 v40'/%3E%3Ccircle cx='190' cy='150' r='20' stroke-dasharray='3 7'/%3E%3Cpath d='M25 258 q15 -14 30 0 t30 0 t30 0 t30 0'/%3E%3Ccircle cx='250' cy='252' r='9'/%3E%3Ccircle cx='105' cy='215' r='3'/%3E%3C/g%3E%3C/svg%3E");
 
 /* ------------------------------------------------------------------------- */
-/* Сброс и базовая типографика                                               */
+/* Сброс и базовая типографика (Telegram WebK base.scss)                       */
+/* ------------------------------------------------------------------------- */
 * {
   margin: 0;
   padding: 0;
@@ -21,12 +23,13 @@ body,
 body {
   background: $bg-app;
   color: $text-primary;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+  font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  font-size: 15px;
-  line-height: 1.35;
+  font-size: 16px;
+  line-height: 1.3125;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  user-select: none;
 }
 
 button {
@@ -44,16 +47,17 @@ textarea {
   border: none;
   outline: none;
   background: transparent;
+  user-select: text;
 }
 
 ::placeholder {
-  color: $text-secondary;
+  color: $text-muted;
 }
 
-/* Кастомные скроллбары */
+/* Кастомные скроллбары (WebK: тонкие, полупрозрачные) */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a2a2e transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -66,20 +70,24 @@ textarea {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #2a2a2e;
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #3a3a40;
+  background: rgba(255, 255, 255, 0.28);
 }
 
 /* ------------------------------------------------------------------------- */
-/* Каркас: сайдбар 360px + чат + шторка 360px                                */
+/* Каркас: колонки-карточки Telegram WebK                                     */
+/* ------------------------------------------------------------------------- */
 .app-shell {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
   height: 100%;
+  background: $bg-page;
 }
 
 .splash {
@@ -96,7 +104,7 @@ textarea {
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    border: 3px solid $bg-surface-hover;
+    border: 3px solid rgba(255, 255, 255, 0.12);
     border-top-color: $accent-purple;
     animation: spin 0.9s linear infinite;
   }
@@ -114,41 +122,78 @@ textarea {
   }
 }
 
-@keyframes slide-in {
+// Фирменные анимации WebK (base.scss)
+@keyframes fade-in-opacity {
   from {
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes drawer-in {
-  from {
-    transform: translateX(40px);
-    opacity: 0.3;
-  }
-  to {
-    transform: translateX(0);
     opacity: 1;
   }
 }
 
-@keyframes menu-pop {
+@keyframes fade-out-opacity {
   from {
-    opacity: 0;
-    transform: scale(0.95);
+    opacity: 1;
   }
   to {
+    opacity: 0;
+  }
+}
+
+// Смена иконки в кнопке отправки (WebK grow-icon / hide-icon)
+@keyframes grow-icon {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.1);
     opacity: 1;
+  }
+  100% {
     transform: scale(1);
   }
 }
 
+@keyframes hide-icon {
+  from {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+}
+
+// Появление сообщения (WebK .bubble → fade-in-opacity)
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+// Меню (WebK .btn-menu): scale(0.85) → scale3d(1, 1, 1)
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale3d(1, 1, 1);
+  }
+}
+
 /* ------------------------------------------------------------------------- */
-/* Аватары                                                                   */
+/* Аватары (WebK: вертикальный градиент + скруглённый шрифт)                  */
+/* ------------------------------------------------------------------------- */
 .avatar {
   border-radius: 50%;
   flex: none;
@@ -156,108 +201,144 @@ textarea {
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
   user-select: none;
-  background: $accent-purple;
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(0, 0, 0, 0.12) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .icon-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   flex: none;
   color: $text-secondary;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background-color $transition-fast, color $transition-fast,
+    transform $transition-fast;
 
   &:hover {
     background: $bg-surface-hover;
     color: $text-primary;
   }
+
+  &:active {
+    transform: scale(0.94);
+  }
+
+  &.is-active {
+    color: $accent-purple;
+    background: $accent-purple-light;
+  }
 }
 
 /* ------------------------------------------------------------------------- */
-/* Сайдбар 360px                                                             */
+/* Левая колонка (#column-left)                                                */
+/* ------------------------------------------------------------------------- */
 .sidebar {
   background: $bg-sidebar;
+  border-radius: $radius-bubble;
   display: flex;
   flex-direction: column;
   position: relative;
-  border-right: 1px solid $border-subtle;
+  overflow: hidden;
+  box-shadow: 0px 0px 4px 0px rgba(0, 0, 0, 0.24);
 
+  // Шапка: гамбургер + овальный поиск
   &__header {
     height: 56px;
     flex: none;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 12px;
+    gap: 8px;
+    padding: 0 8px;
     position: relative;
   }
 
-  // Овальный поиск WebK
+  // Гамбургер (в WebK — .left-sidebar-burger, 40×40px)
+  &__burger {
+    position: relative;
+  }
+
+  // Поле поиска (.input-search WebK: 42px, радиус 21px)
   &__search {
     flex: 1;
     min-width: 0;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 14px;
+    height: 42px;
+    padding: 0 12px;
     background: $bg-surface;
-    border-radius: 20px;
+    border: 1px solid #2f2f2f;
+    border-radius: 21px;
     color: $text-secondary;
+    transition: border-color $transition-fast, background-color $transition-fast;
+
+    &.is-focused {
+      border-color: $accent-purple;
+      background: transparent;
+    }
 
     input {
       flex: 1;
       min-width: 0;
+      font-size: 15px;
+    }
+
+    &-icon {
+      flex: none;
+      transition: color $transition-fast;
+    }
+
+    &.is-focused &-icon {
+      color: $accent-purple;
+    }
+
+    &-clear {
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      color: $text-secondary;
+      transition: background-color $transition-fast, color $transition-fast;
+
+      &:hover {
+        background: $bg-surface-hover;
+        color: $text-primary;
+      }
     }
   }
 
-  // Мини-аватар с тонким кольцом онлайна
-  &__me-avatar {
-    position: relative;
-    flex: none;
-    border-radius: 50%;
-    padding: 0;
-    line-height: 0;
-
-    .avatar {
-      box-shadow: 0 0 0 2px $bg-sidebar;
-    }
-  }
-
-  &__me-ring {
-    position: absolute;
-    inset: -3px;
-    border-radius: 50%;
-    border: 2px solid $online-green;
-    pointer-events: none;
-  }
-
-  &__me-status {
-    font-size: 12px;
-    color: $text-secondary;
-
-    &.is-online {
-      color: $online-green;
-    }
-  }
-
+  // Вкладки папок (.menu-horizontal-div WebK)
   &__tabs {
     display: flex;
-    padding: 0 10px;
+    padding: 0 8px;
     gap: 4px;
+    flex: none;
 
     button {
       flex: 1;
-      padding: 9px 6px;
-      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 4px 8px;
+      font-size: 14px;
       color: $text-secondary;
-      border-bottom: 2px solid transparent;
-      transition: color 0.15s ease, border-color 0.15s ease;
+      border-bottom: 3px solid transparent;
+      border-radius: $radius-bubble-small $radius-bubble-small 0 0;
+      transition: color $transition-fast, border-color $transition-fast;
 
       &.active {
         color: $text-primary;
@@ -270,7 +351,20 @@ textarea {
     }
   }
 
-  // Плавающий фиолетовый карандаш (новый чат)
+  &__tab-badge {
+    font-size: 12px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: $text-secondary;
+
+    &--accent {
+      background: $accent-purple;
+      color: #fff;
+    }
+  }
+
+  // Плавающая кнопка нового чата (.btn-corner WebK, 54px)
   .fab {
     position: absolute;
     right: 16px;
@@ -283,60 +377,115 @@ textarea {
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
-    transition: background 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    transition: background-color $transition-fast,
+      transform 0.2s $ease-spring;
+    z-index: 3;
 
     &:hover {
       background: $accent-purple-hover;
-      transform: scale(1.04);
+      transform: scale(1.05);
     }
 
     &:active {
-      transform: scale(0.96);
+      transform: scale(0.95);
     }
   }
 }
 
-// Меню профиля (иконка аватара с кольцом)
+// Главное меню аккаунта (WebK .btn-menu: blur(25px), scale(0.85) → 1)
 .me-menu {
   position: absolute;
-  top: 60px;
-  right: 10px;
-  width: 240px;
-  background: $bg-surface;
-  border-radius: 12px;
-  border: 1px solid $border-subtle;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  top: 52px;
+  left: 8px;
+  width: 268px;
+  background: $bg-menu;
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border-radius: $radius-bubble;
+  box-shadow: $shadow-menu;
   padding: 6px;
   z-index: 40;
-  animation: menu-pop 0.14s ease;
+  transform-origin: top left;
+  animation: menu-pop 0.2s $ease-standard;
 
-  &__header {
-    padding: 10px 12px 12px;
-    border-bottom: 1px solid $border-subtle;
-    margin-bottom: 6px;
+  &__account {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 10px 12px;
+  }
+
+  &__avatar-wrap {
+    position: relative;
+    flex: none;
+  }
+
+  &__online-ring {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: $online-green;
+    border: 2px solid $bg-surface;
+  }
+
+  &__info {
+    min-width: 0;
   }
 
   &__name {
-    font-weight: 600;
-    margin-bottom: 2px;
+    font-weight: 500;
+    font-size: 15px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
+  &__status {
+    font-size: 13px;
+    color: $text-secondary;
+
+    &.is-online {
+      color: $online-green;
+    }
+  }
+
+  &__divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 2px 6px 6px;
+  }
+
   &__item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     width: 100%;
-    padding: 9px 12px;
-    border-radius: 8px;
+    padding: 9px 10px;
+    border-radius: $radius-panel;
     color: $text-primary;
-    transition: background 0.12s ease;
+    font-size: 15px;
+    text-align: left;
+    transition: background-color $transition-fast;
+
+    svg {
+      flex: none;
+      color: $text-secondary;
+    }
 
     &:hover {
       background: $bg-surface-hover;
+    }
+
+    &--danger {
+      color: $danger;
+
+      svg {
+        color: $danger;
+      }
     }
   }
 }
@@ -345,7 +494,7 @@ textarea {
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 6px 76px;
+  padding: 0 8px 76px;
   min-height: 0;
 
   &__empty {
@@ -359,18 +508,18 @@ textarea {
 .chat-item {
   display: flex;
   align-items: center;
-  gap: 11px;
-  min-height: 72px;
+  gap: 12px;
+  min-height: 64px;
   padding: 8px 10px;
-  border-radius: 12px;
+  border-radius: $radius-panel;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background-color $transition-fast;
 
   &:hover {
     background: $bg-surface-hover;
   }
 
-  // Активный чат — элегантная фиолетовая заливка
+  // Активный чат — фиолетовая заливка, как в WebK (.chatlist-chat.active)
   &--active,
   &--active:hover {
     background: $accent-purple;
@@ -391,7 +540,7 @@ textarea {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
   }
 
   &__top {
@@ -402,7 +551,8 @@ textarea {
   }
 
   &__title {
-    font-weight: 600;
+    font-weight: 500;
+    font-size: 15px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -426,7 +576,7 @@ textarea {
     align-items: center;
     gap: 4px;
     min-width: 0;
-    font-size: 13px;
+    font-size: 14px;
     color: $text-secondary;
     white-space: nowrap;
     overflow: hidden;
@@ -441,35 +591,33 @@ textarea {
     }
   }
 
-  // Фиолетовая капсула непрочитанных
   &__badge {
     flex: none;
     min-width: 22px;
-    padding: 3px 7px;
-    border-radius: 12px;
+    padding: 2px 7px;
+    border-radius: 11px;
     background: $badge-unread;
     color: #fff;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
     text-align: center;
   }
 }
 
 /* ------------------------------------------------------------------------- */
-/* Чат (центральная колонка)                                                 */
+/* Чат: центральная колонка + правая колонка                                   */
+/* ------------------------------------------------------------------------- */
 .chat-view {
   display: flex;
-  flex-direction: column;
+  gap: 16px;
   height: 100%;
   min-width: 0;
-  position: relative;
-  background-color: $bg-app;
-  background-image: $chat-pattern,
-    radial-gradient(900px 620px at 50% 12%, rgba(135, 116, 225, 0.08), transparent 72%);
 
   &--empty {
     align-items: center;
     justify-content: center;
+    background: $bg-app;
+    border-radius: $radius-bubble;
   }
 
   &__placeholder {
@@ -479,20 +627,38 @@ textarea {
     text-align: center;
   }
 
+  // Центральная карточка чата (#column-center)
+  &__center {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border-radius: $radius-bubble;
+    overflow: hidden;
+    background-color: $bg-app;
+    background-image: $chat-pattern,
+      radial-gradient(
+        900px 620px at 50% 8%,
+        rgba(135, 116, 225, 0.07),
+        transparent 72%
+      );
+    box-shadow: 0px 0px 4px 0px rgba(0, 0, 0, 0.24);
+  }
+
+  // Шапка чата (.topbar WebK)
   &__header {
     height: 56px;
     flex: none;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 14px;
+    gap: 12px;
+    padding: 0 12px;
     background: $bg-surface;
-    border-bottom: 1px solid $border-subtle;
     cursor: pointer;
-    transition: background 0.12s ease;
+    transition: background-color $transition-fast;
 
     &:hover {
-      background: #1a1a1d;
+      background: #262626;
     }
   }
 
@@ -502,26 +668,33 @@ textarea {
   }
 
   &__title {
-    font-weight: 600;
+    font-weight: 500;
+    font-size: 16px;
     color: $text-primary;
     display: block;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 19px;
+    line-height: 20px;
   }
 
   &__subtitle {
-    font-size: 12px;
+    font-size: 14px;
     color: $text-secondary;
     display: block;
-    line-height: 16px;
+    line-height: 18px;
+
+    &.is-online {
+      color: $accent-purple;
+    }
   }
 
+  // Кнопки действий (.chat-utils WebK)
   &__actions {
     display: flex;
     align-items: center;
     gap: 2px;
+    flex: none;
   }
 }
 
@@ -534,7 +707,7 @@ textarea {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  padding: 0 12px;
+  padding: 0 8px;
 }
 
 /* Лента */
@@ -542,51 +715,86 @@ textarea {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 8px 8px;
+  overflow-x: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  position: relative;
+
+  &__inner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    // 10px справа — место под «хвостик» пузыря (WebK .bubble-tail, 11×20)
+    padding: 12px 10px 10px;
+    min-height: 0;
+  }
 
   &__empty {
     margin: auto;
-    color: $text-secondary;
-    font-size: 13px;
     padding: 32px;
+  }
+
+  &__empty-card {
     text-align: center;
+    color: $text-secondary;
+  }
+
+  &__empty-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: $text-primary;
+    margin-bottom: 6px;
+  }
+
+  &__empty-subtitle {
+    font-size: 14px;
+    max-width: 320px;
   }
 }
 
-// Капсула-разделитель дат
+// Капсула-разделитель дат (WebK .is-date)
+.date-chip-row {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 8px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
 .date-chip {
-  align-self: center;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
   color: rgba(255, 255, 255, 0.86);
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 14px;
-  margin: 10px 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 3px 12px;
+  border-radius: 13px;
   user-select: none;
 }
 
-// Кнопка «вниз» с бейджем пропущенных сообщений
+// Кнопка «вниз» с бейджем (WebK .bubbles-go-down)
 .feed-down {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: 16px;
+  bottom: 76px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: $accent-purple;
-  color: #fff;
+  background: $bg-surface;
+  color: $text-primary;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-  transition: background 0.15s ease, transform 0.12s ease;
+  box-shadow: $shadow-elevated;
+  z-index: 4;
+  animation: fade-in-opacity 0.2s $ease-standard;
+  transition: background-color $transition-fast, transform $transition-fast;
 
   &:hover {
-    background: $accent-purple-hover;
+    background: #2b2b2b;
   }
 
   &:active {
@@ -595,30 +803,48 @@ textarea {
 
   &__badge {
     position: absolute;
-    top: -5px;
-    right: -5px;
+    top: -6px;
+    right: -6px;
     min-width: 20px;
-    padding: 2px 5px;
+    padding: 1px 5px;
     border-radius: 10px;
-    background: rgba(14, 14, 14, 0.82);
-    border: 1px solid $border-subtle;
+    background: $accent-purple;
+    color: #fff;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 500;
+    text-align: center;
   }
 }
 
+/* ------------------------------------------------------------------------- */
+/* Пузыри сообщений (WebK .bubble + группировка .is-group-first/.is-group-last)*/
+/* ------------------------------------------------------------------------- */
 .bubble-row {
   display: flex;
   align-items: flex-end;
-  gap: 7px;
-  max-width: 68%;
+  gap: 8px;
+  max-width: 84%;
+  margin-bottom: 2px;
+  animation: bubble-in 0.16s $ease-standard;
 
   &--own {
     align-self: flex-end;
+    flex-direction: row-reverse;
   }
 
   &--in {
     align-self: flex-start;
+  }
+
+  // Между группами разных авторов — увеличенный отступ
+  &--group-first:not(:first-child) {
+    margin-top: 6px;
+  }
+
+  &__avatar-slot {
+    width: 34px;
+    flex: none;
+    align-self: flex-end;
   }
 
   &__avatar {
@@ -628,19 +854,21 @@ textarea {
 
 .bubble {
   position: relative;
-  padding: 7px 10px 6px;
+  padding: 4px 9px 5px;
   border-radius: $radius-bubble;
-  animation: slide-in 0.16s ease;
-  min-width: 86px;
+  min-width: 56px;
+  max-width: 100%;
+  box-shadow: 0 1px 2px 0 rgba(16, 35, 47, 0.15);
+  user-select: text;
 
   &--in {
     background: $bubble-in;
-    border: 1px solid $bubble-in-border;
     color: $text-primary;
-    border-bottom-left-radius: 4px;
+    border-top-left-radius: $radius-bubble-small;
+    border-bottom-left-radius: $radius-bubble-small;
 
     .bubble__tail {
-      left: -8px;
+      left: -9px;
       transform: scaleX(-1);
 
       path {
@@ -649,18 +877,18 @@ textarea {
     }
   }
 
-  // Сливово-фиолетовый градиент исходящих
   &--own {
     background-image: linear-gradient(
       135deg,
       $bubble-out-start 0%,
       $bubble-out-end 100%
     );
-    color: $text-primary;
-    border-bottom-right-radius: 4px;
+    color: #fff;
+    border-top-right-radius: $radius-bubble-small;
+    border-bottom-right-radius: $radius-bubble-small;
 
     .bubble__tail {
-      right: -8px;
+      right: -9px;
 
       path {
         fill: $bubble-out-end;
@@ -668,16 +896,40 @@ textarea {
     }
   }
 
+  // Внешние углы в группе возвращаются к большому радиусу
+  &--group-first.bubble--in {
+    border-top-left-radius: $radius-bubble;
+  }
+
+  &--group-first.bubble--own {
+    border-top-right-radius: $radius-bubble;
+  }
+
+  &--group-last.bubble--in {
+    border-bottom-left-radius: $radius-bubble;
+  }
+
+  &--group-last.bubble--own {
+    border-bottom-right-radius: $radius-bubble;
+  }
+
   &--deleted {
     opacity: 0.55;
   }
 
-  // Имя автора в групповых чатах (цвет из палитры ядра)
+  // Подсветка активного пузыря (WebK .bubble.is-active)
+  &--active {
+    outline: 2px solid rgba(135, 116, 225, 0.55);
+    outline-offset: 1px;
+  }
+
+  // Имя автора в групповых чатах (цвет палитры ядра)
   &__author {
     display: block;
-    font-size: 13px;
-    font-weight: 600;
-    margin: 0 0 1px 2px;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 18px;
+    margin: 0 0 1px;
     user-select: none;
   }
 
@@ -686,60 +938,57 @@ textarea {
     display: flex;
     flex-direction: column;
     margin: 0 0 4px;
-    padding: 3px 0 3px 8px;
+    padding: 2px 0 2px 7px;
     border-left: 3px solid $bubble-reply-bar;
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.18);
+    background: rgba(0, 0, 0, 0.22);
     min-width: 0;
+    max-width: 320px;
 
     &-name {
-      font-size: 12px;
-      font-weight: 600;
-      line-height: 16px;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 17px;
     }
 
     &-text {
-      font-size: 12px;
-      line-height: 16px;
+      font-size: 13px;
+      line-height: 17px;
       color: rgba(255, 255, 255, 0.72);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 320px;
     }
   }
 
   &__body {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    padding-right: 62px;
-    min-height: 18px;
+    line-height: 1.3125;
   }
 
+  // Штамп времени и галочек — обтекает текст (WebK .time { float: right })
   &__meta {
-    position: absolute;
-    right: 10px;
-    bottom: 5px;
-    display: flex;
+    float: right;
+    display: inline-flex;
     align-items: center;
     gap: 3px;
-    color: rgba(255, 255, 255, 0.6);
+    margin: 6px -3px -2px 8px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 12px;
+    line-height: 1;
+    user-select: none;
   }
 
   &--in &__meta {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  &__time {
-    font-size: 11px;
-    line-height: 1;
+    color: rgba(255, 255, 255, 0.4);
   }
 
   &__status {
     display: flex;
 
     svg.status-read {
-      color: #9684e5;
+      color: rgba(255, 255, 255, 0.85);
     }
 
     svg.status-failed {
@@ -752,31 +1001,72 @@ textarea {
     bottom: 0;
     pointer-events: none;
   }
+
+  // Кнопка быстрого ответа при наведении (WebK .bubble-beside-button)
+  &__hover-reply {
+    position: absolute;
+    top: 2px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: $bg-surface;
+    color: $text-secondary;
+    box-shadow: $shadow-elevated;
+    opacity: 0;
+    transform: scale(0.8);
+    pointer-events: none;
+    transition: opacity $transition-fast, transform $transition-fast,
+      background-color $transition-fast;
+  }
 }
 
-/* Контекстное меню сообщения */
+.bubble-row:hover .bubble__hover-reply {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: all;
+}
+
+.bubble-row--in .bubble__hover-reply {
+  right: -36px;
+}
+
+.bubble-row--own .bubble__hover-reply {
+  left: -36px;
+}
+
+/* Контекстное меню сообщения (WebK .btn-menu: blur + scale) */
 .context-menu {
   position: fixed;
   z-index: 60;
   min-width: 200px;
-  background: $bg-surface;
-  border-radius: 10px;
-  border: 1px solid $border-subtle;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  background: $bg-menu;
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border-radius: $radius-panel;
+  box-shadow: $shadow-menu;
   padding: 5px;
-  animation: menu-pop 0.14s ease;
+  animation: menu-pop 0.2s $ease-standard;
   transform-origin: top left;
 
   &__item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     width: 100%;
-    padding: 9px 12px;
+    padding: 8px 10px;
     border-radius: 8px;
     color: $text-primary;
+    font-size: 15px;
     text-align: left;
-    transition: background 0.12s ease;
+    transition: background-color $transition-fast;
+
+    svg {
+      flex: none;
+      color: $text-secondary;
+    }
 
     &:hover:not(:disabled) {
       background: $bg-surface-hover;
@@ -798,39 +1088,48 @@ textarea {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Капсула ввода                                                             */
+/* Строка ввода (WebK .chat-input-wrapper + .new-message-wrapper)               */
+/* ------------------------------------------------------------------------- */
 .composer-wrap {
   flex: none;
+  padding-bottom: 12px;
 }
 
 .composer-error {
   color: $danger;
-  font-size: 12px;
-  padding: 0 6px 6px;
+  font-size: 13px;
+  padding: 0 12px 6px;
 }
 
+// Плашка ввода: поверхность, радиус 15px, мягкая тень (WebK)
 .composer {
   display: flex;
   flex-direction: column;
-  background: $bg-composer;
-  border-radius: 24px;
-  padding: 6px 10px 6px 6px;
-  margin-bottom: 16px;
+  background: $bg-surface;
+  border-radius: $radius-bubble;
+  box-shadow: $shadow-elevated;
+  padding: 4px 6px;
+  min-height: 48px;
 
-  // Строка реплая над полем ввода
+  // Строка ответа (WebK .reply-wrapper)
   &__reply {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 6px 6px 8px;
-    border-bottom: 1px solid $border-subtle;
+    gap: 10px;
+    padding: 8px 6px 8px 8px;
+    animation: fade-in-opacity 0.15s ease-in-out;
   }
 
-  &__reply-bar {
-    align-self: stretch;
-    width: 3px;
-    border-radius: 3px;
-    background: $bubble-reply-bar;
+  &__reply-icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: $accent-purple-light;
+    color: $accent-purple;
   }
 
   &__reply-body {
@@ -838,27 +1137,62 @@ textarea {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
   }
 
   &__reply-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: $text-accent;
+    font-size: 13px;
+    font-weight: 500;
+    color: $accent-purple;
   }
 
   &__reply-text {
-    font-size: 12px;
+    font-size: 13px;
     color: $text-secondary;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
+  &__reply-cancel {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    color: $text-secondary;
+    transition: background-color $transition-fast, color $transition-fast;
+
+    &:hover {
+      background: $accent-purple-light;
+      color: $accent-purple;
+    }
+  }
+
+  // Основная строка: скрепка | поле | смайлик | отправка
   &__row {
     display: flex;
     align-items: flex-end;
-    gap: 6px;
+    gap: 2px;
+  }
+
+  &__icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: $text-secondary;
+    transition: background-color $transition-fast, color $transition-fast;
+
+    &:hover {
+      background: $bg-surface-hover;
+      color: $accent-purple;
+    }
   }
 
   textarea {
@@ -866,72 +1200,87 @@ textarea {
     min-width: 0;
     resize: none;
     max-height: 160px;
-    line-height: 1.4;
-    padding: 9px 2px;
+    line-height: 1.3125;
+    padding: 10px 4px;
     overflow-y: auto;
     background: transparent;
     border: none;
   }
-}
 
-.composer-icon {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  color: $text-secondary;
-  transition: background 0.15s ease, color 0.15s ease;
+  // Круглая кнопка отправки (WebK .btn-send, 40px)
+  &__send {
+    flex: none;
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: $accent-purple;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 2px;
+    transition: background-color $transition-fast, transform $transition-fast;
 
-  &:hover {
-    background: $bg-surface-hover;
-    color: $text-accent;
-  }
-}
+    &:hover:not(:disabled) {
+      background: $accent-purple-hover;
+    }
 
-.send-button {
-  flex: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: $accent-purple;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s ease, opacity 0.15s ease, transform 0.12s ease;
+    &:active:not(:disabled) {
+      transform: scale(0.94);
+    }
 
-  &:hover:not(:disabled) {
-    background: $accent-purple-hover;
-  }
+    &-icon {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity $transition-fast, transform $transition-fast;
 
-  &:active:not(:disabled) {
-    transform: scale(0.94);
-  }
+      &--send {
+        opacity: 0;
+        transform: scale(0.5) rotate(-30deg);
+      }
+    }
 
-  &:disabled {
-    opacity: 0.45;
-    cursor: default;
+    &.is-ready &-icon--mic {
+      opacity: 0;
+      transform: scale(0.5) rotate(30deg);
+    }
+
+    &.is-ready &-icon--send {
+      opacity: 1;
+      transform: scale(1) rotate(0);
+      animation: grow-icon 0.2s $ease-standard;
+    }
   }
 }
 
 /* ------------------------------------------------------------------------- */
-/* Шторка «Информация» (360px, выезжает справа)                              */
+/* Правая колонка «Информация» (#column-right WebK)                             */
+/* ------------------------------------------------------------------------- */
 .info-drawer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 360px;
-  max-width: 100%;
-  background: $bg-surface;
-  border-left: 1px solid $border-subtle;
-  display: flex;
-  flex-direction: column;
-  z-index: 25;
-  animation: drawer-in 0.2s ease;
+  flex: 0 0 auto;
+  width: 0;
+  overflow: hidden;
+  transition: width $transition-in, opacity $transition-out;
+  opacity: 0;
+
+  &.is-open {
+    width: 360px;
+    opacity: 1;
+  }
+
+  &__inner {
+    width: 360px;
+    height: 100%;
+    background: $bg-surface;
+    border-radius: $radius-bubble;
+    box-shadow: 0px 0px 4px 0px rgba(0, 0, 0, 0.24);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
   &__header {
     height: 56px;
@@ -939,12 +1288,13 @@ textarea {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 10px;
-    border-bottom: 1px solid $border-subtle;
+    padding: 0 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   &__title {
-    font-weight: 600;
+    font-weight: 500;
+    font-size: 16px;
   }
 
   &__scroll {
@@ -958,22 +1308,21 @@ textarea {
     flex-direction: column;
     align-items: center;
     gap: 6px;
-    padding: 26px 16px 16px;
-    border-bottom: 1px solid $border-subtle;
+    padding: 24px 16px 16px;
   }
 
   &__name {
     font-size: 17px;
-    font-weight: 600;
-    margin-top: 8px;
+    font-weight: 500;
+    margin-top: 10px;
   }
 
   &__status {
-    font-size: 13px;
+    font-size: 14px;
     color: $text-secondary;
 
     &.is-online {
-      color: $text-accent;
+      color: $accent-purple;
     }
   }
 
@@ -984,25 +1333,27 @@ textarea {
     width: 100%;
     margin-top: 14px;
     padding: 12px 4px;
-    border-top: 1px solid $border-subtle;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
     cursor: pointer;
     user-select: none;
+    font-size: 15px;
   }
 
   &__tabs {
     display: flex;
-    padding: 0 10px;
+    padding: 0 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 
     button {
       flex: 1;
       padding: 11px 4px 9px;
-      font-size: 13px;
+      font-size: 14px;
       color: $text-secondary;
-      border-bottom: 2px solid transparent;
+      border-bottom: 3px solid transparent;
+      transition: color $transition-fast, border-color $transition-fast;
 
       &.active {
         color: $text-primary;
-        font-weight: 500;
         border-bottom-color: $accent-purple;
       }
 
@@ -1016,16 +1367,16 @@ textarea {
     padding: 32px 16px;
     text-align: center;
     color: $text-secondary;
-    font-size: 13px;
+    font-size: 14px;
   }
 }
 
 .info-row {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 10px 16px;
-  transition: background 0.12s ease;
+  gap: 12px;
+  padding: 9px 16px;
+  transition: background-color $transition-fast;
 
   &:hover {
     background: $bg-surface-hover;
@@ -1035,7 +1386,7 @@ textarea {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
   }
 
   &__name {
@@ -1046,7 +1397,7 @@ textarea {
   }
 
   &__subtitle {
-    font-size: 12px;
+    font-size: 13px;
     color: $text-secondary;
   }
 }
@@ -1054,22 +1405,22 @@ textarea {
 // Тумблер уведомлений (локальный)
 .switch {
   position: relative;
-  width: 38px;
-  height: 22px;
-  border-radius: 11px;
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
   background: $badge-muted;
   flex: none;
-  transition: background 0.15s ease;
+  transition: background-color $transition-fast;
 
   &__thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
+    top: 3px;
+    left: 3px;
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: #9e9ea3;
-    transition: transform 0.15s ease, background 0.15s ease;
+    background: #fff;
+    transition: transform $transition-fast;
   }
 
   &--on {
@@ -1077,35 +1428,37 @@ textarea {
 
     .switch__thumb {
       transform: translateX(16px);
-      background: #fff;
     }
   }
 }
 
 /* ------------------------------------------------------------------------- */
-/* Модальные окна                                                            */
+/* Модальные окна                                                              */
+/* ------------------------------------------------------------------------- */
 .modal-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 50;
+  animation: fade-in-opacity 0.15s ease-in-out;
 }
 
 .modal {
   width: 360px;
   max-width: calc(100vw - 32px);
   background: $bg-surface;
-  border-radius: 14px;
-  border: 1px solid $border-subtle;
+  border-radius: $radius-bubble;
   padding: 18px 18px 16px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: $shadow-menu;
+  animation: menu-pop 0.2s $ease-standard;
 
   &__title {
-    font-size: 16px;
-    font-weight: 600;
+    font-size: 17px;
+    font-weight: 500;
     margin-bottom: 14px;
   }
 
@@ -1113,19 +1466,19 @@ textarea {
     width: 100%;
     background: $bg-composer;
     border-radius: $radius-panel;
-    padding: 10px 12px;
+    padding: 11px 12px;
     margin-bottom: 4px;
     border: 1px solid transparent;
-    transition: border-color 0.15s ease;
+    transition: border-color $transition-fast;
 
     &:focus {
-      border-color: rgba(135, 116, 225, 0.65);
+      border-color: $accent-purple;
     }
   }
 
   &__error {
     color: $danger;
-    font-size: 12px;
+    font-size: 13px;
     padding: 4px 2px 6px;
   }
 
@@ -1133,16 +1486,17 @@ textarea {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 12px;
   }
 }
 
 /* Кнопки */
 .button {
-  padding: 8px 14px;
+  padding: 9px 16px;
   border-radius: $radius-panel;
-  font-size: 14px;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  font-size: 15px;
+  font-weight: 500;
+  transition: background-color $transition-fast, opacity $transition-fast;
 
   &:disabled {
     opacity: 0.5;
@@ -1173,7 +1527,8 @@ textarea {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Экран авторизации                                                         */
+/* Экран авторизации                                                           */
+/* ------------------------------------------------------------------------- */
 .auth {
   height: 100%;
   display: flex;
@@ -1187,15 +1542,14 @@ textarea {
     width: 360px;
     max-width: calc(100vw - 32px);
     background: $bg-surface;
-    border: 1px solid $border-subtle;
-    border-radius: 14px;
+    border-radius: $radius-bubble;
     padding: 24px 24px 20px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   }
 
   &__logo {
-    font-size: 26px;
-    font-weight: 700;
+    font-size: 28px;
+    font-weight: 500;
     letter-spacing: 1px;
     color: $accent-purple;
     text-align: center;
@@ -1203,7 +1557,7 @@ textarea {
 
   &__subtitle {
     color: $text-secondary;
-    font-size: 13px;
+    font-size: 14px;
     text-align: center;
     margin: 6px 0 18px;
   }
@@ -1215,9 +1569,10 @@ textarea {
 
     button {
       flex: 1;
-      padding: 9px 0;
+      padding: 10px 0;
       color: $text-secondary;
-      border-bottom: 2px solid transparent;
+      border-bottom: 3px solid transparent;
+      transition: color $transition-fast, border-color $transition-fast;
 
       &.active {
         color: $text-primary;
@@ -1230,20 +1585,20 @@ textarea {
     width: 100%;
     background: $bg-composer;
     border-radius: $radius-panel;
-    padding: 10px 12px;
+    padding: 12px;
     margin-bottom: 10px;
     border: 1px solid transparent;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: border-color $transition-fast, background-color $transition-fast;
 
     &:focus {
-      border-color: rgba(135, 116, 225, 0.65);
+      border-color: $accent-purple;
       background: #262626;
     }
   }
 
   &__error {
     color: $danger;
-    font-size: 12px;
+    font-size: 13px;
     padding: 2px 2px 10px;
   }
 

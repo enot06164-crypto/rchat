@@ -17,14 +17,20 @@ interface FeedItem {
   date: string | null;
   message: Message;
   showAuthor: boolean;
+  isFirstInGroup: boolean;
+  isLastInGroup: boolean;
 }
 
-/** Капсула-разделитель дат (WebK): «Сегодня», «Вчера», «16 сентября». */
+/** Капсула-разделитель дат (WebK `.is-date`): «Сегодня», «Вчера», «16 сентября». */
 function DateChip(props: { label: string }) {
-  return <div class="date-chip">{props.label}</div>;
+  return (
+    <div class="date-chip-row">
+      <div class="date-chip">{props.label}</div>
+    </div>
+  );
 }
 
-/** Лента сообщений + разделители дат + кнопка «вниз» со счётчиком. */
+/** Лента сообщений + группировка пузырей WebK + разделители дат + кнопка «вниз». */
 export function MessageList(props: { chatId: string }) {
   const isGroup = createMemo(
     () =>
@@ -36,7 +42,9 @@ export function MessageList(props: { chatId: string }) {
     const result: FeedItem[] = [];
     let lastDay = Number.NaN;
     let prevSender: string | null = null;
-    for (const message of list) {
+
+    for (let i = 0; i < list.length; i++) {
+      const message = list[i];
       const day = new Date(message.created_at_ms).setHours(0, 0, 0, 0);
       let date: string | null = null;
       if (day !== lastDay) {
@@ -44,11 +52,27 @@ export function MessageList(props: { chatId: string }) {
         lastDay = day;
         prevSender = null;
       }
+
+      const next = list[i + 1];
+      const nextDay =
+        next !== undefined
+          ? new Date(next.created_at_ms).setHours(0, 0, 0, 0)
+          : Number.NaN;
+      const sameNextSender =
+        next !== undefined &&
+        nextDay === day &&
+        next.sender_user_id === message.sender_user_id;
+
+      const isFirstInGroup = message.sender_user_id !== prevSender;
+      const isLastInGroup = !sameNextSender;
+
       result.push({
         key: message.local_id,
         date,
         message,
-        showAuthor: isGroup() && message.sender_user_id !== prevSender,
+        showAuthor: isGroup() && isFirstInGroup,
+        isFirstInGroup,
+        isLastInGroup,
       });
       prevSender = message.sender_user_id;
     }
@@ -83,8 +107,8 @@ export function MessageList(props: { chatId: string }) {
     if (bottom) setMissed(0);
   };
 
-  // Смена чата — мягко вниз; новые сообщения — вниз только если пользователь
-  // у конца ленты, иначе копим счётчик для кнопки «вниз» (как в Telegram).
+  // Смена чата — мгновенно вниз; новые сообщения — вниз только если пользователь
+  // у конца ленты, иначе копим счётчик для кнопки «вниз» (как в Telegram WebK).
   createEffect(
     on(
       () => props.chatId,
@@ -110,27 +134,38 @@ export function MessageList(props: { chatId: string }) {
 
   return (
     <div class="message-list" ref={container} onScroll={onScroll}>
-      <Show
-        when={items().length > 0}
-        fallback={
-          <div class="message-list__empty">Нет сообщений. Напишите первое!</div>
-        }
-      >
-        <For each={items()}>
-          {(item) => (
-            <>
-              <Show when={item.date !== null}>
-                <DateChip label={item.date ?? ""} />
-              </Show>
-              <MessageBubble
-                message={item.message}
-                showAuthor={item.showAuthor}
-                isGroup={isGroup()}
-              />
-            </>
-          )}
-        </For>
-      </Show>
+      <div class="message-list__inner">
+        <Show
+          when={items().length > 0}
+          fallback={
+            <div class="message-list__empty">
+              <div class="message-list__empty-card">
+                <div class="message-list__empty-title">Здесь пока пусто</div>
+                <div class="message-list__empty-subtitle">
+                  Отправьте первое сообщение — переписка защищена сквозным шифрованием.
+                </div>
+              </div>
+            </div>
+          }
+        >
+          <For each={items()}>
+            {(item) => (
+              <>
+                <Show when={item.date !== null}>
+                  <DateChip label={item.date ?? ""} />
+                </Show>
+                <MessageBubble
+                  message={item.message}
+                  showAuthor={item.showAuthor}
+                  isGroup={isGroup()}
+                  isFirstInGroup={item.isFirstInGroup}
+                  isLastInGroup={item.isLastInGroup}
+                />
+              </>
+            )}
+          </For>
+        </Show>
+      </div>
 
       <Show when={showDown()}>
         <button

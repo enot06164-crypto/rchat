@@ -14,12 +14,17 @@ const TABS: { key: InfoTab; title: string }[] = [
 ];
 
 /**
- * Правая шторка «Информация» (WebK): выезжает справа ~360px по клику на
- * шапку чата. Большой аватар, имя, статус, локальный тумблер уведомлений
- * и вкладки с фиолетовым индикатором. Медиа/файлы/ссылки — честные
- * пустые состояния (отправка вложений появится позже).
+ * Правая колонка «Информация» (Telegram WebK `#column-right`): отдельная
+ * колонка 360px, которая при открытии плавно вытесняет центральную область
+ * чата (а не перекрывает пузыри). Большой аватар, имя, статус, локальный
+ * тумблер уведомлений и вкладки с фиолетовым индикатором. Медиа/файлы/
+ * ссылки — честные пустые состояния (отправка вложений появится позже).
  */
-export function InfoDrawer(props: { chat: Chat; onClose: () => void }) {
+export function InfoDrawer(props: {
+  chat: Chat;
+  open: boolean;
+  onClose: () => void;
+}) {
   const [tab, setTab] = createSignal<InfoTab>("members");
   const [notify, setNotify] = createSignal(true);
 
@@ -86,8 +91,16 @@ export function InfoDrawer(props: { chat: Chat; onClose: () => void }) {
   };
 
   return (
-    <aside class="info-drawer" aria-label="Информация о чате">
-      <header class="info-drawer__header">
+    <aside
+      classList={{
+        "info-drawer": true,
+        "is-open": props.open,
+      }}
+      aria-label="Информация о чате"
+      aria-hidden={!props.open}
+    >
+      <div class="info-drawer__inner">
+        <header class="info-drawer__header">
         <button
           class="icon-button"
           title="Закрыть"
@@ -171,6 +184,7 @@ export function InfoDrawer(props: { chat: Chat; onClose: () => void }) {
             <div class="info-drawer__empty">Ссылки пока нет</div>
           </Match>
         </Switch>
+        </div>
       </div>
     </aside>
   );

@@ -54,14 +54,20 @@ interface MenuPos {
 }
 
 /**
- * Пузырь сообщения Amethyst Dark: входящие #18181b с хвостом слева и тонким
- * бордером, исходящие — градиент #2b2140→#3d2e5c с хвостом справа; реплай —
- * цитата с фиолетовой полосой; ПКМ открывает контекстное меню.
+ * Пузырь сообщения Telegram WebK (Amethyst Dark):
+ * - Группировка последовательных сообщений одного автора (`.bubble--group-first`,
+ *   `.bubble--group-last`) со скруглениями 15px / 5px из `_chatVariables.scss`.
+ * - Оригинальный SVG-хвостик `#message-tail-filled` (`11×20`) из `Telegram-web-k/index.html`
+ *   на последнем сообщении группы.
+ * - Обтекаемый штамп времени и галочек (`.bubble__meta`) внутри `.bubble__body`.
+ * - Двойной клик — быстрый реплай; ПКМ — контекстное меню с `backdrop-filter: blur(25px)`.
  */
 export function MessageBubble(props: {
   message: Message;
   showAuthor: boolean;
   isGroup: boolean;
+  isFirstInGroup?: boolean;
+  isLastInGroup?: boolean;
 }) {
   const own = () =>
     state.session !== null &&
@@ -70,6 +76,8 @@ export function MessageBubble(props: {
   const body = () =>
     deleted() ? "Сообщение удалено" : (props.message.body ?? "");
   const quoted = () => findQuoted(props.message);
+  const firstInGroup = () => props.isFirstInGroup ?? true;
+  const lastInGroup = () => props.isLastInGroup ?? true;
 
   const senderAvatar = () => {
     const members = state.members[props.message.chat_id];
@@ -83,10 +91,9 @@ export function MessageBubble(props: {
   const [menuPos, setMenuPos] = createSignal<MenuPos | null>(null);
   const openMenu = (event: MouseEvent): void => {
     event.preventDefault();
-    // Не даём меню вылезти за края окна (≈210×176 px).
     setMenuPos({
-      x: Math.min(event.clientX, window.innerWidth - 218),
-      y: Math.min(event.clientY, window.innerHeight - 184),
+      x: Math.min(event.clientX, window.innerWidth - 220),
+      y: Math.min(event.clientY, window.innerHeight - 190),
     });
   };
   const closeMenu = (event: MouseEvent): void => {
@@ -111,20 +118,43 @@ export function MessageBubble(props: {
         "bubble-row": true,
         "bubble-row--own": own(),
         "bubble-row--in": !own(),
+        "bubble-row--group-first": firstInGroup(),
+        "bubble-row--group-last": lastInGroup(),
       }}
     >
-      <Show when={!own()}>
-        <Avatar info={senderAvatar()} size={34} class="bubble-row__avatar" />
+      <Show when={!own() && props.isGroup}>
+        <div class="bubble-row__avatar-slot">
+          <Show when={lastInGroup()}>
+            <Avatar info={senderAvatar()} size={34} class="bubble-row__avatar" />
+          </Show>
+        </div>
       </Show>
+
       <div
         classList={{
           bubble: true,
           "bubble--own": own(),
           "bubble--in": !own(),
           "bubble--deleted": deleted(),
+          "bubble--group-first": firstInGroup(),
+          "bubble--group-last": lastInGroup(),
+          "bubble--active": menuPos() !== null,
         }}
         onContextMenu={openMenu}
+        onDblClick={() => {
+          if (!deleted()) setReplyTo(props.message);
+        }}
       >
+        <Show when={!deleted()}>
+          <button
+            class="bubble__hover-reply"
+            title="Ответить"
+            aria-label="Ответить"
+            onClick={() => setReplyTo(props.message)}
+          >
+            <Reply size={16} />
+          </button>
+        </Show>
         <Show when={!own() && props.isGroup && props.showAuthor}>
           <span
             class="bubble__author"
@@ -144,10 +174,12 @@ export function MessageBubble(props: {
             <span
               class="bubble__quote-name"
               style={{
-                color: senderColor(
-                  quoted()!.sender_user_id,
-                  quoted()!.chat_id
-                ),
+                color: own()
+                  ? "#ffffff"
+                  : senderColor(
+                      quoted()!.sender_user_id,
+                      quoted()!.chat_id
+                    ),
               }}
             >
               {senderName(quoted()!.sender_user_id, quoted()!.chat_id)}
@@ -156,31 +188,41 @@ export function MessageBubble(props: {
           </div>
         </Show>
 
-        <div class="bubble__body">{body()}</div>
-        <div class="bubble__meta">
-          <span class="bubble__time">
-            {formatTime(props.message.created_at_ms)}
-          </span>
-          <Show when={own() && !deleted()}>
-            <span class="bubble__status">
-              <StatusIcon
-                status={props.message.status}
-                serverId={props.message.server_id}
-                readUpTo={readUpToFor(props.message.chat_id)}
-              />
+        <div class="bubble__body">
+          {body()}
+          <span class="bubble__meta">
+            <span class="bubble__time">
+              {formatTime(props.message.created_at_ms)}
             </span>
-          </Show>
+            <Show when={own() && !deleted()}>
+              <span class="bubble__status">
+                <StatusIcon
+                  status={props.message.status}
+                  serverId={props.message.server_id}
+                  readUpTo={readUpToFor(props.message.chat_id)}
+                />
+              </span>
+            </Show>
+          </span>
         </div>
-        <svg
-          class="bubble__tail"
-          width="9"
-          height="20"
-          viewBox="0 0 9 20"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-        >
-          <path d="M0 0 C0 8 1 13 4 16.5 C5.3 18 6.8 19.2 9 20 L0 20 Z" />
-        </svg>
+
+        <Show when={lastInGroup()}>
+          <svg
+            class="bubble__tail"
+            width="11"
+            height="20"
+            viewBox="0 0 11 20"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <g transform="translate(9 -14)" fill-rule="evenodd">
+              <path
+                d="M-6 16h6v17c-.193-2.84-.876-5.767-2.05-8.782-.904-2.325-2.446-4.485-4.625-6.48A1 1 0 01-6 16z"
+                transform="matrix(1 0 0 -1 0 49)"
+              />
+            </g>
+          </svg>
+        </Show>
       </div>
 
       <Show when={menuPos() !== null}>
@@ -200,16 +242,16 @@ export function MessageBubble(props: {
               setMenuPos(null);
             }}
           >
-            <Reply size={17} />
-            Ответить
+            <Reply size={18} />
+            <span>Ответить</span>
           </button>
           <button
             role="menuitem"
             class="context-menu__item"
             onClick={copyBody}
           >
-            <Copy size={17} />
-            Копировать текст
+            <Copy size={18} />
+            <span>Копировать текст</span>
           </button>
           <button
             role="menuitem"
@@ -217,8 +259,8 @@ export function MessageBubble(props: {
             disabled
             title="Пересылка появится позже"
           >
-            <Forward size={17} />
-            Переслать
+            <Forward size={18} />
+            <span>Переслать</span>
           </button>
           <Show
             when={
@@ -238,8 +280,8 @@ export function MessageBubble(props: {
                 );
               }}
             >
-              <Trash2 size={17} />
-              Удалить
+              <Trash2 size={18} />
+              <span>Удалить</span>
             </button>
           </Show>
         </div>
@@ -256,12 +298,7 @@ function StatusIcon(props: {
   const read = () =>
     props.serverId !== null && props.serverId <= props.readUpTo;
   return (
-    <Switch
-      fallback={
-        // status "none" у входящих — иконка не нужна
-        null
-      }
-    >
+    <Switch fallback={null}>
       <Match when={props.status === "pending" || props.status === "sending"}>
         <Clock size={13} />
       </Match>

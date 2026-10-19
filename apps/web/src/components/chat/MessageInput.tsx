@@ -3,9 +3,13 @@ import { Mic, Paperclip, SendHorizontal, Smile, X } from "lucide-solid";
 import { clearReply, sendCurrentText, state } from "../../services/store";
 
 /**
- * «Парящая капсула» ввода (Amethyst Dark): скрепка и смайл слева, textarea
- * без рамки, справа — микрофон на пустом поле и фиолетовый самолётик,
- * когда есть текст. Над полем — строка реплая (реальный `reply_to_server_id`).
+ * Строка ввода Telegram WebK (`.chat-input-wrapper` + `.new-message-wrapper`):
+ * порядок кнопок как в `Telegram-web-k/src/components/chat/input.ts` —
+ * скрепка слева, текстовое поле по центру, смайлик справа от поля и
+ * круглая кнопка отправки (40px) последней.
+ * Иконки микрофона и самолётика живут в DOM одновременно и плавно
+ * сменяют друг друга (`grow-icon` / `hide-icon` из WebK).
+ * Над строкой — блок ответа (`.reply-wrapper`): иконка, автор, текст, отмена.
  */
 export function MessageInput(props: { chatId: string }) {
   const [value, setValue] = createSignal("");
@@ -40,7 +44,14 @@ export function MessageInput(props: { chatId: string }) {
       <div class="composer">
         <Show when={reply() !== null}>
           <div class="composer__reply">
-            <span class="composer__reply-bar" />
+            <span class="composer__reply-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M6.2 2.4 1.6 7l4.6 4.6V8.5h3.2c1.9 0 3.1 1 3.4 2.9.5-3.3-1.3-5.6-4.4-5.6H6.2V2.4Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
             <div class="composer__reply-body">
               <span class="composer__reply-name">
                 {reply() !== null &&
@@ -51,7 +62,7 @@ export function MessageInput(props: { chatId: string }) {
               </span>
             </div>
             <button
-              class="composer-icon"
+              class="composer__reply-cancel"
               title="Отменить ответ"
               aria-label="Отменить ответ"
               onClick={() => clearReply()}
@@ -63,19 +74,13 @@ export function MessageInput(props: { chatId: string }) {
 
         <div class="composer__row">
           <button
-            class="composer-icon"
+            class="composer__icon composer__icon--attach"
             title="Прикрепить файл (скоро)"
             aria-label="Прикрепить файл"
           >
             <Paperclip size={20} />
           </button>
-          <button
-            class="composer-icon"
-            title="Эмодзи (скоро)"
-            aria-label="Эмодзи"
-          >
-            <Smile size={22} />
-          </button>
+
           <textarea
             ref={textarea}
             rows={1}
@@ -92,28 +97,32 @@ export function MessageInput(props: { chatId: string }) {
               }
             }}
           />
-          <Show
-            when={canSend()}
-            fallback={
-              <button
-                class="send-button"
-                disabled
-                aria-label="Голосовое сообщение"
-                title="Голосовые сообщения появятся позже"
-              >
-                <Mic size={20} />
-              </button>
-            }
+
+          <button
+            class="composer__icon"
+            title="Эмодзи (скоро)"
+            aria-label="Эмодзи"
           >
-            <button
-              class="send-button"
-              aria-label="Отправить сообщение"
-              title="Отправить (Enter)"
-              onClick={submit}
-            >
-              <SendHorizontal size={19} />
-            </button>
-          </Show>
+            <Smile size={22} />
+          </button>
+
+          <button
+            classList={{
+              "composer__send": true,
+              "is-ready": canSend(),
+            }}
+            disabled={!canSend()}
+            aria-label={canSend() ? "Отправить сообщение" : "Голосовое сообщение"}
+            title={canSend() ? "Отправить (Enter)" : "Голосовые сообщения появятся позже"}
+            onClick={submit}
+          >
+            <span class="composer__send-icon composer__send-icon--mic">
+              <Mic size={20} />
+            </span>
+            <span class="composer__send-icon composer__send-icon--send">
+              <SendHorizontal size={20} />
+            </span>
+          </button>
         </div>
       </div>
     </div>
