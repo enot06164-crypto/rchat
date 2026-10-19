@@ -13,9 +13,9 @@
   Если ядру понадобилась новая зависимость — сначала ответьте, почему это не
   адаптер; при необходимости обновите белый список в тесте осознанно.
 - **Новый адаптер — новый крейт**, подключаемый в composition root
-  (`rchat-cli/src/app.rs` для клиента, `rchat-server-storage-sqlite` для
-  серверного бинарника). Версии зависимостей задаются в workspace
-  `[workspace.dependencies]`.
+  (`rchat-cli/src/app.rs` и `rchat-ffi/src/config.rs` для клиента,
+  `rchat-server-storage-sqlite` для серверного бинарника). Версии
+  зависимостей задаются в workspace `[workspace.dependencies]`.
 - **Тесты — вместе с расширением**, по слоям из `docs/testing.md`.
   Инструменты (TestServer, MockStorage, помехи транспорту) дают `rchat-testkit`.
 
@@ -100,6 +100,24 @@ let mut events = client.subscribe();       // UiEvent
 
 Образец жизненного цикла — `rchat-cli/src/app.rs` (`watch`, `send --wait`,
 `status`).
+
+### 4.1. C-ABI/JSON (`rchat-ffi`)
+
+`rchat-ffi` — второй composition root. Ядро остаётся свободным от JSON:
+сериализация и C-ABI живут только в этом крейте.
+
+- Новая команда: добавьте ветку в `src/commands.rs` (валидация полей,
+  вызов метода `Client`, ответ через `json.rs`), опишите её в
+  `docs/ffi.md` и покройте вызовом в `tests/ffi.rs`.
+- Новое событие: добавьте вариант в `UiEvent` (ядро), ветку в
+  `src/json.rs`, строку в таблицу событий `docs/ffi.md` и тест.
+- Не добавляйте в ядро `serde`, `serde_json` или C-типы: FFI — адаптер,
+  как CLI.
+- C-ABI-инварианты: не пропускать panic через границу, проверять NULL и
+  UTF-8, освобождать только строки из `rchat_send_json`/
+  `rchat_receive_json` через `rchat_free_string`, не логировать пароли и
+  токены. Изменение формата запросов/ответов/событий требует повышения
+  `API_VERSION`.
 
 ## 5. Новое серверное хранилище (`Repo`)
 

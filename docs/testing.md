@@ -19,6 +19,7 @@ workspace.
 | Сквозные E2E звонков | `crates/rchat-e2e-tests/tests/call_signaling.rs` | Реальные клиенты: invite → accept → end, decline, busy, запрет групп, доставка событий всем устройствам участника. |
 | Сквозные сценарии сбоев («мок-стек») | `crates/rchat-e2e-tests/tests/mock_stack.rs` | Outbox и синхронизация при разрывах/задержках/дублях/битых кадрах; реальный сервер, но канал в памяти и in-memory хранилище из testkit. |
 | CLI smoke | `crates/rchat-cli/tests/cli_smoke.rs` | Реальный бинарник `rchat-cli` отдельными процессами: регистрация, чат, отправка, sync/history/status, офлайн-очередь, рестарты сервера, групповой жизненный цикл (`group-*`), профили аккаунтов (`--account`, `accounts`, `account-delete`), звонки (`call invite --wait`, `watch`, accept/decline/end). |
+| C-ABI/JSON | `crates/rchat-ffi/tests/ffi.rs` | Прямые вызовы C-функций: создание/уничтожение handle, `ping`, ошибки JSON и NULL, два независимых клиента, E2E-сообщение, transient-события звонка, освобождение строк. |
 | Тесты testkit | `crates/rchat-testkit/tests/testkit.rs` | Транзакционность `MockStorage` (включая инъекцию сбоя) и порядок применения помех транспорта. |
 
 ## 2. Как запускать
@@ -28,6 +29,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --bin rchat-server --bin rchat-cli
+cargo build -p rchat-ffi
 ```
 
 Отдельные наборы и подробный вывод:
@@ -35,6 +37,7 @@ cargo build --bin rchat-server --bin rchat-cli
 ```bash
 cargo test -p rchat-e2e-tests --test mock_stack -- --nocapture
 cargo test -p rchat-cli --test cli_smoke
+cargo test -p rchat-ffi
 cargo test -p rchat-core dependency_rules
 ```
 
@@ -42,13 +45,14 @@ cargo test -p rchat-core dependency_rules
 TLS — на `rustls` без системной библиотеки OpenSSL. Тестам не нужны
 сетевые порты вне loopback; канальные сценарии работают вообще без сокетов.
 
-Те же команды выполняет CI (`.github/workflows/ci.yml`).
+Те же команды (плюс сборку `rchat-ffi` и C-ABI smoke) выполняет CI
+(`.github/workflows/ci.yml`).
 
 ## 3. Testkit (`rchat-testkit`)
 
 Крейт — **только dev-зависимость** тестовых крейтов; в обычную сборку
-приложения он не попадает (см. состав зависимостей `rchat-cli` и
-`rchat-e2e-tests`).
+приложения он не попадает (см. состав зависимостей `rchat-cli`,
+`rchat-e2e-tests` и `rchat-ffi`).
 
 ### 3.1. TestServer
 
@@ -261,6 +265,24 @@ RCHAT_PASSWORD=secret-bob ./target/debug/rchat-cli \
 роли (accept/decline — только callee, end — любой участник), запрет
 групповых звонков, завершение звонка при выходе caller из `--wait`.
 Автоматически это покрыто серверными и E2E-тестами звонков (см. §3).
+
+### C-ABI вручную
+
+```bash
+cargo build -p rchat-ffi
+rm -rf /tmp/rchat-ffi-smoke-data
+cc -std=c11 -Wall -Wextra \
+    -I crates/rchat-ffi/include \
+    crates/rchat-ffi/examples/ffi_smoke.c \
+    -L target/debug -lrchat_ffi -o /tmp/rchat-ffi-smoke
+LD_LIBRARY_PATH=target/debug /tmp/rchat-ffi-smoke
+```
+
+Пример создаёт handle с `auto_start:false`, выполняет `ping`, проверяет
+`@type:"ok"` и освобождает строки. Проверяются загрузка символов C-ABI,
+заголовок, создание/уничтожение handle и JSON-ответ. Сетевые команды и
+события требуют запущенного сервера и покрыты `cargo test -p rchat-ffi`;
+схема — `docs/ffi.md`.
 
 ## 7. Особенности
 

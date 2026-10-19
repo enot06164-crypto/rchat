@@ -11,6 +11,7 @@ members = [
     "crates/rchat-crypto-provider",
     "crates/rchat-testkit",
     "crates/rchat-e2e-tests",
+    "crates/rchat-ffi",
 ]
 
 [workspace.package]
@@ -30,6 +31,7 @@ rchat-server-storage-sqlite = { path = "crates/rchat-server-storage-sqlite" }
 rchat-transport-ws = { path = "crates/rchat-transport-ws" }
 rchat-crypto-provider = { path = "crates/rchat-crypto-provider" }
 rchat-testkit = { path = "crates/rchat-testkit" }
+rchat-ffi = { path = "crates/rchat-ffi" }
 
 async-trait = "0.1.92"
 argon2 = "0.6.0"
@@ -46,6 +48,8 @@ rpassword = "7.5.4"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 sha2 = "0.11.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"

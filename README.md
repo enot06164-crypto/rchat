@@ -14,7 +14,9 @@
 рассылается персональными Olm-конвертами, ротация — при исключении участника
 и отзыве устройства). Инварианты и правила — в `docs/protocol.md` §4,
 устройство — в `docs/architecture.md` §7.5, оговорки — в
-`docs/threat-model.md`.
+`docs/threat-model.md`. Также добавлены мультиаккаунтные профили CLI,
+сигнализация звонков и встраиваемый **C-ABI/JSON-интерфейс** (`rchat-ffi`,
+стиль tdjson); готовых языковых биндингов пока нет.
 
 [vodozemac]: https://github.com/matrix-org/vodozemac
 
@@ -32,6 +34,7 @@
 | `rchat-testkit` | тестовые инструменты: `TestServer`, `MockStorage`, транспорт с управляемыми помехами |
 | `rchat-e2e-tests` | сквозные сценарии (реальный Olm/Megolm и «мок-стек») |
 | `rchat-cli` | CLI — composition root: собирает ядро с конкретными адаптерами |
+| `rchat-ffi` | C-ABI/JSON-интерфейс для встраивания (cdylib/staticlib), один handle — один профиль |
 
 Направление зависимостей — только «вниз»: ядро не знает об адаптерах.
 Правило закреплено тестом `crates/rchat-core/tests/dependency_rules.rs`.
@@ -175,6 +178,36 @@ RCHAT_ACCOUNT=home ./target/debug/rchat-cli --data-dir /tmp/rchat register bob
 
 Полная справка — `rchat-cli --help` и `rchat-cli <команда> --help`.
 
+## Встраивание: C-ABI и JSON
+
+```bash
+cargo build -p rchat-ffi --release
+```
+
+Библиотека (`librchat_ffi.so`/`.dylib`/`.dll` и staticlib) и заголовок
+`crates/rchat-ffi/include/rchat.h` дают tdjson-подобный интерфейс:
+
+```c
+#include <stdio.h>
+#include "rchat.h"
+
+RchatHandle *h = rchat_create(
+    "{\"data_dir\":\"/tmp/rchat-ffi\","
+    "\"server\":\"wss://chat.example\","
+    "\"auto_start\":false}");
+char *response = rchat_send_json(h, "{\"@type\":\"ping\"}");
+puts(response);
+rchat_free_string(response);
+rchat_destroy(h);
+```
+
+`rchat_send_json` синхронно выполняет JSON-запрос, `rchat_receive_json`
+забирает события (сообщения, receipts, звонки, статус соединения) с
+тайм-аутом. Один handle — один независимый профиль; несколько handle могут
+работать в одном процессе. Полная схема команд, событий, ошибок и
+ограничения — `docs/ffi.md`; минимальный пример —
+`crates/rchat-ffi/examples/ffi_smoke.c`.
+
 ## Проверки качества
 
 ```bash
@@ -182,6 +215,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --bin rchat-server --bin rchat-cli
+cargo build -p rchat-ffi
 ```
 
 Те же команды выполняет CI (`.github/workflows/ci.yml`, GitHub Actions без
@@ -194,6 +228,7 @@ Docker). Что именно покрывают тесты и как польз�
 - `docs/protocol.md` — протокол обмена (кадры, методы, синхронизация, версии);
 - `docs/group-e2e.md` — отдельная спецификация группового E2E (Megolm);
 - `docs/testing.md` — слои тестов, testkit, сценарии сбоев, ручной smoke;
+- `docs/ffi.md` — C-ABI/JSON: конфигурация, команды, события, ошибки, сборка;
 - `docs/threat-model.md` — модель угроз, гарантии и ограничения;
 - `docs/extension-guide.md` — как расширять: транспорт, хранилище, UI,
   протокол, криптопровайдер.
@@ -212,7 +247,9 @@ Docker). Что именно покрывают тесты и как польз�
 - удаление — только «для всех» (tombstone); уже расшифрованные копии не
   отзываются;
 - сервер — один процесс: реестр соединений и rate-limit в памяти;
-- сессии — по одной на устройство, без зависания на нескольких серверах.
+- сессии — по одной на устройство, без зависания на нескольких серверах;
+- C-ABI/JSON (`rchat-ffi`) поставляется без готовых языковых биндингов;
+  API-схема версии 1 может меняться до стабилизации 1.0.
 
 Полный список — `docs/architecture.md` §11 и `docs/threat-model.md`.
 

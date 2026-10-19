@@ -3,16 +3,17 @@
 Документ фиксирует принятые решения по структуре workspace, направлению
 зависимостей и ключевым механизмам клиента и сервера. Смежные документы:
 `README.md` (запуск), `docs/protocol.md` (обмен), `docs/testing.md`
-(тесты и testkit), `docs/threat-model.md` (модель угроз),
-`docs/extension-guide.md` (как расширять).
+(тесты и testkit), `docs/ffi.md` (C-ABI/JSON), `docs/threat-model.md`
+(модель угроз), `docs/extension-guide.md` (как расширять).
 
 ## 1. Обзор
 
 rchat — клиент-серверный мессенджер на Rust. Сервер хранит аккаунты,
 устройства, чаты и сообщения; клиент — локальный кеш, очередь отправки и
 E2E-состояние (сессии Olm). Первый клиент — CLI; ядро клиента не
-знает ни о транспорте, ни о хранилище, ни о CLI, поэтому позже к нему
-подключаются другие интерфейсы и транспорты.
+знает ни о транспорте, ни о хранилище, ни о CLI. Второй composition root —
+`rchat-ffi` (C-ABI/JSON для встраивания), поэтому другие интерфейсы и
+транспорты подключаются без изменений ядра.
 
 ## 2. Крейты и направление зависимостей
 
@@ -28,6 +29,7 @@ E2E-состояние (сессии Olm). Первый клиент — CLI; я
 | `rchat-testkit` | тестовые инструменты: реальный сервер на TCP-петле и каналах в памяти, in-memory `Storage`/`SecretStore`, транспорт с управляемыми помехами, фикстуры | `rchat-core`, `rchat-server`, `rchat-server-storage-sqlite`, `tokio`, `tempfile` |
 | `rchat-e2e-tests` | кросс-крейтовые end-to-end сценарии (реальный Olm и «мок-стек») | testkit, транспорты, хранилища |
 | `rchat-cli` | composition root CLI: собирает ядро с конкретными адаптерами | `rchat-core`, `rchat-transport-ws`, `rchat-client-storage-sqlite`, `clap`, `rpassword`, `directories` |
+| `rchat-ffi` | composition root для встраивания: C-ABI, JSON-запросы/ответы, очередь событий; `cdylib`/`staticlib` | `rchat-core`, `rchat-transport-ws`, `rchat-client-storage-sqlite`, `rchat-crypto-provider`, `serde_json` |
 
 Направление зависимостей — только «вниз»: адаптеры знают о ядре, ядро об
 адаптерах — нет. Правило закреплено тестом
@@ -35,6 +37,15 @@ E2E-состояние (сессии Olm). Первый клиент — CLI; я
 запрещённые крейты (транспорт, SQL/СУБД, HTTP-фреймворки, CLI-парсеры,
 криптографические библиотеки, реализации хранилищ секретов, `directories` и
 `rpassword`) и на осознанно минимальный белый список.
+
+У ядра два composition root: `rchat-cli` и `rchat-ffi`. Оба собирают
+конкретные транспорт, SQLite-хранилище, секреты и E2E-провайдер, но FFI
+делает это для C-хоста: один `RchatHandle` — один профиль (каталог данных),
+несколько handle в процессе полностью изолированы. `rchat_send_json`
+синхронно выполняет JSON-команду, `rchat_receive_json` читает очередь
+`UiEvent`; C-ABI не пропускает Rust-unwind через границу, проверяет UTF-8 и
+освобождает строки только через `rchat_free_string`. Схема —
+`docs/ffi.md`.
 
 ## 3. Протокол
 
@@ -413,7 +424,11 @@ cargo run -p rchat-cli -- --data-dir /tmp/alice group rename <chat_id> Прое�
 - каталог данных клиента (кроме файла секретов) не шифруется — SQLite-кеш
   сообщений (в нём E2E-текст в открытом виде) защищён только правами ФС;
 - `TlsTrust::Insecure` и `ws://` существуют только для локальных сценариев и
-  запрещены к использованию вне loopback.
+  запрещены к использованию вне loopback;
+- C-ABI/JSON (`rchat-ffi`) не имеет готовых языковых биндингов и SDK;
+  `rchat_send_json` блокирующий, очередь событий ограничена (переполнение
+  сигнализируется `event_lagged`), JSON-схема версии 1 может меняться до
+  стабилизации 1.0.
 
 ## 12. Тестирование
 
@@ -448,4 +463,7 @@ cargo run -p rchat-cli -- --data-dir /tmp/alice group rename <chat_id> Прое�
   (`rchat-e2e-tests/tests/call_signaling.rs` — реальные клиенты и
   мультиустройство; `cli_smoke.rs` — `call invite --wait`, `watch`,
   accept/decline/end).
+- C-ABI проверяется прямыми вызовами экспортированных функций
+  (`rchat-ffi/tests/ffi.rs`): настоящий сервер, два независимых handle,
+  E2E-сообщение, transient-события звонка, ошибки JSON и освобождение строк.
 - Детали, команды и ручной smoke — в `docs/testing.md`.

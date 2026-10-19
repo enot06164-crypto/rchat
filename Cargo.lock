@@ -1287,6 +1287,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rchat-ffi"
+version = "0.1.0"
+dependencies = [
+ "rchat-client-storage-sqlite",
+ "rchat-core",
+ "rchat-crypto-provider",
+ "rchat-proto",
+ "rchat-testkit",
+ "rchat-transport-ws",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "rchat-proto"
 version = "0.1.0"
 dependencies = [

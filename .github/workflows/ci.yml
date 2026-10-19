@@ -39,3 +39,13 @@ jobs:
 
       - name: Сборка исполняемых целей
         run: cargo build --locked --bin rchat-server --bin rchat-cli
+
+      - name: C-ABI smoke
+        run: |
+          cargo build --locked -p rchat-ffi
+          rm -rf /tmp/rchat-ffi-smoke-data
+          cc -std=c11 -Wall -Wextra \
+            -I crates/rchat-ffi/include \
+            crates/rchat-ffi/examples/ffi_smoke.c \
+            -L target/debug -lrchat_ffi -o /tmp/rchat-ffi-smoke
+          LD_LIBRARY_PATH=target/debug /tmp/rchat-ffi-smoke
