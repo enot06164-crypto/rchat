@@ -120,6 +120,7 @@ export function MessageBubble(props: {
         "bubble-row--in": !own(),
         "bubble-row--group-first": firstInGroup(),
         "bubble-row--group-last": lastInGroup(),
+        "bubble-row--with-avatar": !own() && props.isGroup,
       }}
     >
       <Show when={!own() && props.isGroup}>
@@ -205,25 +206,27 @@ export function MessageBubble(props: {
             </Show>
           </span>
         </div>
-
-        <Show when={lastInGroup()}>
-          <svg
-            class="bubble__tail"
-            width="11"
-            height="20"
-            viewBox="0 0 11 20"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-          >
-            <g transform="translate(9 -14)" fill-rule="evenodd">
-              <path
-                d="M-6 16h6v17c-.193-2.84-.876-5.767-2.05-8.782-.904-2.325-2.446-4.485-4.625-6.48A1 1 0 01-6 16z"
-                transform="matrix(1 0 0 -1 0 49)"
-              />
-            </g>
-          </svg>
-        </Show>
       </div>
+
+      {/* Хвостик (WebK .bubble-tail) — слой ПОД пузырём: скруглённый угол
+          «дорисовывается» хвостиком, поэтому шва не видно. */}
+      <Show when={lastInGroup()}>
+        <svg
+          class="bubble__tail"
+          width="11"
+          height="20"
+          viewBox="0 0 11 20"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <g transform="translate(9 -14)" fill-rule="evenodd">
+            <path
+              d="M-6 16h6v17c-.193-2.84-.876-5.767-2.05-8.782-.904-2.325-2.446-4.485-4.625-6.48A1 1 0 01-6 16z"
+              transform="matrix(1 0 0 -1 0 49)"
+            />
+          </g>
+        </svg>
+      </Show>
 
       <Show when={menuPos() !== null}>
         <div
