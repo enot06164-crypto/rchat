@@ -133,14 +133,30 @@ pub(crate) async fn dispatch(
                 Some(Value::Null) | None => String::new(),
                 Some(_) => return Err(FfiError::invalid("field text must be a string")),
             };
-            let attachment = match request.get("attachment") {
-                None | Some(Value::Null) => None,
-                Some(item) => Some(parse_attachment(item)?),
-            };
-            if text.trim().is_empty() && attachment.is_none() {
+            // Вложения: одно или несколько (альбом).
+            let mut attachments: Vec<Attachment> = Vec::new();
+            if let Some(items) = request.get("attachments").and_then(Value::as_array) {
+                for item in items {
+                    attachments.push(parse_attachment(item)?);
+                }
+            }
+            if let Some(item) = request.get("attachment") {
+                if !item.is_null() {
+                    attachments.push(parse_attachment(item)?);
+                }
+            }
+            if text.trim().is_empty() && attachments.is_empty() {
                 return Err(FfiError::invalid("message must have text or attachment"));
             }
-            let local_id = match attachment {
+            if attachments.len() > 1 {
+                // Альбом: несколько вложений одним набором (общий grouped_id).
+                let local_ids = handle
+                    .client
+                    .send_album(&chat_id, &text, attachments, reply_to)
+                    .await?;
+                return Ok(json!({"local_ids": local_ids}));
+            }
+            let local_id = match attachments.into_iter().next() {
                 Some(item) => {
                     handle
                         .client

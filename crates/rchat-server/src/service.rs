@@ -1579,6 +1579,7 @@ impl Server {
             plaintext_dev: content.plaintext.clone(),
             group_ciphertext: content.group_ciphertext.clone(),
             group_session_id: content.group_session_id.clone(),
+            grouped_id: request.grouped_id.clone(),
         };
 
         // События по одному на каждое неотозванное устройство участника.

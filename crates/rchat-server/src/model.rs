@@ -169,6 +169,8 @@ pub struct MessageRecord {
     pub group_ciphertext: Option<Vec<u8>>,
     /// Идентификатор Megolm-сессии (base64); пусто, если не применимо.
     pub group_session_id: String,
+    /// Идентификатор альбома (медиагруппы); пусто для обычных сообщений.
+    pub grouped_id: String,
 }
 
 /// Ciphertext сообщения для одного устройства получателя.

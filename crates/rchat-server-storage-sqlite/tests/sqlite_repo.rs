@@ -54,6 +54,7 @@ fn message(server_id: u64, chat_id: &str, device_id: &str, client_id: &str) -> M
         sender_device_id: device_id.to_string(),
         client_message_id: client_id.to_string(),
         content_kind: "text".to_string(),
+        grouped_id: String::new(),
         reply_to_server_id: 0,
         created_at_ms: 2_000,
         edited_at_ms: 0,

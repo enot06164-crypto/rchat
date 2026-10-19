@@ -443,57 +443,102 @@ async function loadChatHistory(chatId: string): Promise<void> {
 
 export async function sendCurrentText(
   text: string,
-  attachment: AttachmentUpload | null = null
+  attachments: AttachmentUpload[] = []
 ): Promise<void> {
   const chatId = state.activeChatId;
   const session = state.session;
   const trimmed = text.trim();
   if (chatId === null || session === null) return;
-  if (trimmed === "" && attachment === null) return;
+  if (trimmed === "" && attachments.length === 0) return;
 
   setState("sendError", null);
   const replyTo = state.replyTo;
-  const optimistic: Message = {
-    local_id: `web-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    server_id: null,
-    chat_id: chatId,
-    sender_user_id: session.user_id,
-    sender_device_id: "",
-    content_kind: attachment?.kind ?? "text",
-    body: trimmed === "" ? null : trimmed,
-    attachment:
-      attachment === null
-        ? null
-        : ({
+  // Альбом: несколько вложений делят общий grouped_id.
+  const groupedId =
+    attachments.length > 1
+      ? `g-${Date.now()}-${Math.random().toString(16).slice(2)}`
+      : null;
+  const now = Date.now();
+  const optimisticMessages: Message[] =
+    attachments.length === 0
+      ? [
+          {
+            local_id: `web-${now}-${Math.random().toString(16).slice(2)}`,
+            server_id: null,
+            chat_id: chatId,
+            sender_user_id: session.user_id,
+            sender_device_id: "",
+            content_kind: "text",
+            body: trimmed,
+            attachment: null,
+            grouped_id: groupedId,
+            reply_to_server_id: replyTo !== null ? replyTo.server_id : null,
+            status: "pending",
+            created_at_ms: now,
+            edited_at_ms: null,
+            deleted_at_ms: null,
+          },
+        ]
+      : attachments.map((attachment, index) => ({
+          local_id: `web-${now}-${index}-${Math.random().toString(16).slice(2)}`,
+          server_id: null,
+          chat_id: chatId,
+          sender_user_id: session.user_id,
+          sender_device_id: "",
+          content_kind: attachment.kind,
+          body:
+            trimmed === "" || index + 1 < attachments.length ? null : trimmed,
+          attachment: {
             kind: attachment.kind,
             name: attachment.name,
             mime: attachment.mime,
             size: attachment.size,
-          } satisfies AttachmentInfo),
-    reply_to_server_id: replyTo !== null ? replyTo.server_id : null,
-    status: "pending",
-    created_at_ms: Date.now(),
-    edited_at_ms: null,
-    deleted_at_ms: null,
-  };
-  setState("messages", chatId, (prev = []) => upsertSorted(prev, optimistic));
+            thumb:
+              attachment.thumb_base64 === undefined
+                ? undefined
+                : {
+                    kind: "photo",
+                    name: "poster.jpg",
+                    mime: attachment.thumb_mime ?? "image/jpeg",
+                    size: attachment.size,
+                  },
+            waveform: attachment.waveform_base64 ?? null,
+          } satisfies AttachmentInfo,
+          grouped_id: groupedId,
+          reply_to_server_id: replyTo !== null ? replyTo.server_id : null,
+          status: "pending",
+          created_at_ms: now + index,
+          edited_at_ms: null,
+          deleted_at_ms: null,
+        }));
+  setState("messages", chatId, (prev = []) =>
+    optimisticMessages.reduce((acc, message) => upsertSorted(acc, message), prev)
+  );
 
   try {
     const result = (await chatApi.sendMessage(
       chatId,
       trimmed,
       replyTo !== null ? replyTo.server_id : null,
-      attachment
-    )) as { local_id: string };
+      attachments
+    )) as { local_id?: string; local_ids?: string[] };
     setState(
       "messages",
       chatId,
       (prev = []) =>
-        prev.map((m) =>
-          m.local_id === optimistic.local_id
-            ? { ...m, local_id: result.local_id, status: "sending" as MessageStatus }
-            : m
-        )
+        prev.map((m) => {
+          const index = optimisticMessages.findIndex(
+            (item) => item.local_id === m.local_id
+          );
+          if (index === -1) return m;
+          const localId =
+            result.local_ids?.[index] ?? result.local_id ?? m.local_id;
+          return {
+            ...m,
+            local_id: localId,
+            status: "sending" as MessageStatus,
+          };
+        })
     );
     clearReply();
   } catch (error) {
@@ -502,7 +547,7 @@ export async function sendCurrentText(
       chatId,
       (prev = []) =>
         prev.map((m) =>
-          m.local_id === optimistic.local_id
+          optimisticMessages.some((item) => item.local_id === m.local_id)
             ? { ...m, status: "failed" as MessageStatus }
             : m
         )

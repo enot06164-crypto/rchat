@@ -190,6 +190,13 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
     "#,
     ),
     (
+        6,
+        r#"
+    -- Альбомы (медиагруппы): сообщения одного альбома делят grouped_id.
+    ALTER TABLE messages ADD COLUMN grouped_id TEXT;
+    "#,
+    ),
+    (
         5,
         r#"
     -- Постер-кадр видео (второй блоб) и пики звуковой волны голосового.

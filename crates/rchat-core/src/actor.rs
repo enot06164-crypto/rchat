@@ -1458,7 +1458,10 @@ impl Ctx<'_> {
             &chat,
             &account,
             &payload,
-            message.reply_to_server_id,
+            &crate::send::SendOptions {
+                reply_to: message.reply_to_server_id,
+                grouped_id: message.grouped_id.clone(),
+            },
         )
         .await?;
         let mut bytes = Vec::new();

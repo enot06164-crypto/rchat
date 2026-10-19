@@ -861,7 +861,7 @@ impl Client {
         if text.is_empty() {
             return Err(CoreError::InvalidInput("empty message".into()));
         }
-        self.send_payload(chat_id, Payload::text(text), reply_to)
+        self.send_payload(chat_id, Payload::text(text), reply_to, None)
             .await
     }
 
@@ -877,6 +877,19 @@ impl Client {
         text: &str,
         attachment: Attachment,
         reply_to: Option<u64>,
+    ) -> Result<String, CoreError> {
+        self.send_attachment_in_group(chat_id, text, attachment, reply_to, None)
+            .await
+    }
+
+    /// Отправка вложения; `grouped_id` заполняется только для альбомов.
+    async fn send_attachment_in_group(
+        &self,
+        chat_id: &str,
+        text: &str,
+        attachment: Attachment,
+        reply_to: Option<u64>,
+        grouped_id: Option<&str>,
     ) -> Result<String, CoreError> {
         attachment.validate().map_err(CoreError::InvalidInput)?;
         if text.is_empty() && attachment.data.is_empty() {
@@ -912,7 +925,37 @@ impl Client {
                 ..attachment
             },
         );
-        self.send_payload(chat_id, payload, reply_to).await
+        self.send_payload(chat_id, payload, reply_to, grouped_id)
+            .await
+    }
+
+    /// Отправляет альбом (медиагруппу): несколько вложений одним набором.
+    ///
+    /// Вложения уходят отдельными сообщениями с общим `grouped_id` — так же,
+    /// как альбомы в Telegram, где медиа одного альбома объединены.
+    /// Подпись прикрепляется к последнему элементу.
+    pub async fn send_album(
+        &self,
+        chat_id: &str,
+        text: &str,
+        attachments: Vec<Attachment>,
+        reply_to: Option<u64>,
+    ) -> Result<Vec<String>, CoreError> {
+        if attachments.is_empty() {
+            return Err(CoreError::InvalidInput("empty album".into()));
+        }
+        let grouped_id = random_hex(8)?;
+        let count = attachments.len();
+        let mut local_ids = Vec::with_capacity(count);
+        for (index, attachment) in attachments.into_iter().enumerate() {
+            let is_last = index + 1 == count;
+            let caption = if is_last { text } else { "" };
+            let local_id = self
+                .send_attachment_in_group(chat_id, caption, attachment, reply_to, Some(&grouped_id))
+                .await?;
+            local_ids.push(local_id);
+        }
+        Ok(local_ids)
     }
 
     /// Содержимое вложения сообщения: из локального кэша или скачиванием
@@ -1106,6 +1149,7 @@ impl Client {
         chat_id: &str,
         payload: Payload,
         reply_to: Option<u64>,
+        grouped_id: Option<&str>,
     ) -> Result<String, CoreError> {
         self.start().await?;
         self.refresh_before_compose().await;
@@ -1144,7 +1188,10 @@ impl Client {
             &chat,
             &account,
             &payload,
-            reply_to,
+            &crate::send::SendOptions {
+                reply_to,
+                grouped_id: grouped_id.map(str::to_string),
+            },
         )
         .await?;
         let mut request_bytes = Vec::new();
@@ -1162,6 +1209,7 @@ impl Client {
             body: Some(payload.text.clone()),
             attachment: payload.attachment.clone(),
             reply_to_server_id: reply_to,
+            grouped_id: grouped_id.map(str::to_string),
             status: Some(MessageStatus::Pending),
             created_at_ms: now,
             edited_at_ms: None,

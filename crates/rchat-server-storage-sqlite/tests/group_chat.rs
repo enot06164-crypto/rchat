@@ -86,6 +86,7 @@ fn group_send_request(
         chat_id: chat_id.to_string(),
         client_message_id: client_id.to_string(),
         content_kind: "text".to_string(),
+        grouped_id: String::new(),
         reply_to_server_id: 0,
         recipients: key_recipients
             .iter()
@@ -438,6 +439,7 @@ async fn remove_member_owner_only() {
                 chat_id: chat.chat_id.clone(),
                 client_message_id: "m1".to_string(),
                 content_kind: "text".to_string(),
+                grouped_id: String::new(),
                 reply_to_server_id: 0,
                 plaintext_dev: "привет".to_string(),
                 ..Default::default()
@@ -882,6 +884,7 @@ async fn dev_group_plaintext_and_direct_stays_strict() {
                 chat_id: chat.chat_id.clone(),
                 client_message_id: "m1".to_string(),
                 content_kind: "text".to_string(),
+                grouped_id: String::new(),
                 reply_to_server_id: 0,
                 plaintext_dev: "привет".to_string(),
                 ..Default::default()
@@ -904,6 +907,7 @@ async fn dev_group_plaintext_and_direct_stays_strict() {
                 chat_id: chat.chat_id.clone(),
                 client_message_id: "m2".to_string(),
                 content_kind: "text".to_string(),
+                grouped_id: String::new(),
                 reply_to_server_id: 0,
                 group_ciphertext: vec![1, 2, 3],
                 group_session_id: "s".to_string(),
@@ -945,6 +949,7 @@ async fn dev_group_plaintext_and_direct_stays_strict() {
                 chat_id: direct.chat_id,
                 client_message_id: "m2".to_string(),
                 content_kind: "text".to_string(),
+                grouped_id: String::new(),
                 reply_to_server_id: 0,
                 recipients: vec![proto::RecipientPayload {
                     device_id: "f1".to_string(),

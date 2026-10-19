@@ -157,7 +157,8 @@ pub(crate) const CHAT_COLUMNS: &str =
 pub(crate) const MEMBER_COLUMNS: &str = "chat_id, user_id, joined_at_ms, role";
 pub(crate) const MESSAGE_COLUMNS: &str = "server_id, chat_id, sender_user_id, sender_device_id, \
      client_message_id, content_kind, reply_to_server_id, created_at_ms, edited_at_ms, \
-     deleted_at_ms, sender_curve25519, olm_type, plaintext_dev, group_ciphertext, group_session_id";
+     deleted_at_ms, sender_curve25519, olm_type, plaintext_dev, group_ciphertext, group_session_id, \
+     grouped_id";
 pub(crate) const RECIPIENT_COLUMNS: &str =
     "server_id, device_id, ciphertext, e2e_version, olm_type, sender_curve25519, payload_kind";
 
@@ -263,8 +264,8 @@ pub(crate) fn insert_message_row(
         "INSERT INTO messages(server_id, chat_id, sender_user_id, sender_device_id,
              client_message_id, content_kind, reply_to_server_id, created_at_ms,
              edited_at_ms, deleted_at_ms, sender_curve25519, olm_type, plaintext_dev,
-             group_ciphertext, group_session_id)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             group_ciphertext, group_session_id, grouped_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             message.server_id as i64,
             message.chat_id,
@@ -280,7 +281,8 @@ pub(crate) fn insert_message_row(
             message.olm_type as i64,
             message.plaintext_dev,
             message.group_ciphertext,
-            message.group_session_id
+            message.group_session_id,
+            message.grouped_id
         ],
     )
     .map_err(|e| map_sql("insert message", e))?;

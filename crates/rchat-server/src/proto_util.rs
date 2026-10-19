@@ -142,6 +142,7 @@ pub fn message_view(
             message.group_session_id.clone()
         },
         recipient_payload_kind: recipient.map(|r| r.payload_kind).unwrap_or(0),
+        grouped_id: message.grouped_id.clone(),
     }
 }
 

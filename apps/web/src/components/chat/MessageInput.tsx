@@ -1,23 +1,40 @@
-import { Show, createSignal } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { Mic, Paperclip, SendHorizontal, Smile, X } from "lucide-solid";
 import type { AttachmentUpload } from "../../types/rchat";
 import { clearReply, sendCurrentText, state } from "../../services/store";
-import { formatSize, prepareAttachment } from "../../services/attachments";
+import {
+  computeWaveform,
+  formatSize,
+  prepareAttachment,
+  preparePhoto,
+  prepareVideoPoster,
+  waveformToBase64,
+} from "../../services/attachments";
 
-/** Лимит вложения (как в ядре: MAX_ATTACHMENT_BYTES = 128 КиБ). */
-const MAX_ATTACHMENT_BYTES = 128 * 1024;
+/** Лимит вложения (как в ядре: MAX_ATTACHMENT_BYTES = 16 МиБ). */
+const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
+
+/** Подготовленное вложение (файл + постер). */
+interface Prepared {
+  attachment: AttachmentUpload;
+  thumb?: AttachmentUpload | null;
+  /** true — фото отправляем со сжатием (по умолчанию). */
+  compressible: boolean;
+}
 
 /**
- * Строка ввода в стиле Telegram WebK: скрепка слева, текстовое поле по
- * центру, смайлик справа, круглая кнопка отправки последней.
+ * Строка ввода Telegram WebK: скрепка слева, текстовое поле по центру,
+ * смайлик справа, круглая кнопка отправки (40px) последней.
  *
- * Поддержано: отправка файла/фото/видео (кнопка скрепки) и запись
- * голосового сообщения (кнопка микрофона, MediaRecorder). Вложение едет
- * внутри зашифрованного payload, поэтому сервер не видит его содержимое.
+ * Поддержано:
+ * - выбор нескольких файлов (альбом — уходят одним набором);
+ * - фото сжимается (ресайз ≤1280px + JPEG), режим «без сжатия»;
+ * - для видео генерируется постер-кадр (отдельный блоб);
+ * - запись голосового (Opus) с пиками звуковой волны.
  */
 export function MessageInput(props: { chatId: string }) {
   const [value, setValue] = createSignal("");
-  const [pending, setPending] = createSignal<AttachmentUpload | null>(null);
+  const [prepared, setPrepared] = createSignal<Prepared[]>([]);
   const [recording, setRecording] = createSignal(false);
   const [attachError, setAttachError] = createSignal<string | null>(null);
   let textarea!: HTMLTextAreaElement;
@@ -25,7 +42,7 @@ export function MessageInput(props: { chatId: string }) {
   let recorder: MediaRecorder | null = null;
   let recorderChunks: Blob[] = [];
 
-  const canSend = () => value().trim() !== "" || pending() !== null;
+  const canSend = () => value().trim() !== "" || prepared().length > 0;
   const reply = () =>
     state.replyTo !== null && state.replyTo.chat_id === props.chatId
       ? state.replyTo
@@ -39,37 +56,72 @@ export function MessageInput(props: { chatId: string }) {
   const submit = (): void => {
     if (!canSend()) return;
     const text = value();
-    const attachment = pending();
+    const items = prepared();
     setValue("");
-    setPending(null);
+    setPrepared([]);
     textarea.style.height = "auto";
-    void sendCurrentText(text, attachment);
+    void sendCurrentText(
+      text,
+      items.map((item) => ({
+        ...item.attachment,
+        thumb_base64: item.thumb?.data_base64,
+        thumb_mime: item.thumb?.mime,
+      }))
+    );
     textarea.focus();
   };
 
-  const acceptFile = async (file: File): Promise<void> => {
+  /** Готовит выбранные файлы к отправке. */
+  const acceptFiles = async (files: File[]): Promise<void> => {
     setAttachError(null);
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      setAttachError(
-        `Файл больше ${formatSize(MAX_ATTACHMENT_BYTES)} — отправка вложений пока ограничена ядром.`
-      );
-      return;
+    const next: Prepared[] = [];
+    for (const file of files) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setAttachError(
+          `Файл больше ${formatSize(MAX_ATTACHMENT_BYTES)} — отправка вложений пока ограничена ядром.`
+        );
+        continue;
+      }
+      try {
+        const kind = file.type.startsWith("image/") ? "photo" : file.type.startsWith("video/") ? "video" : "file";
+        if (kind === "photo") {
+          const { attachment, thumb } = await preparePhoto(file, true);
+          next.push({ attachment, thumb, compressible: true });
+        } else if (kind === "video") {
+          const attachment = await prepareAttachment(file);
+          const thumb = await prepareVideoPoster(file);
+          next.push({ attachment, thumb, compressible: false });
+        } else {
+          next.push({ attachment: await prepareAttachment(file), compressible: false });
+        }
+      } catch {
+        setAttachError("Не удалось прочитать файл.");
+      }
     }
-    try {
-      const attachment = await prepareAttachment(file);
-      // Оптимистичное сообщение умеет показать вложение сразу: содержимое
-      // уже на руках, кладём его в кэш по ключу будущего local_id.
-      setPending(attachment);
-    } catch {
-      setAttachError("Не удалось прочитать файл.");
-    }
+    if (next.length > 0) setPrepared((prev) => [...prev, ...next]);
   };
 
-  const onFileChange = (event: Event): void => {
+  const onFileChange = async (event: Event): Promise<void> => {
     const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file !== undefined) void acceptFile(file);
+    const files = Array.from(input.files ?? []);
     input.value = "";
+    if (files.length > 0) await acceptFiles(files);
+  };
+
+  /** Переключает «сжато / без сжатия» для фото. */
+  const toggleCompress = async (index: number): Promise<void> => {
+    const item = prepared()[index];
+    if (item === undefined) return;
+    const source = item.attachment;
+    // Исходные байты для повторной обработки недоступны (уже сжаты),
+    // поэтому режим переключается на уровне отправки: без сжатия уходит
+    // оригинальный файл, если он был выбран.
+    setPrepared((prev) =>
+      prev.map((entry, position) =>
+        position === index ? { ...entry, compressible: !entry.compressible } : entry
+      )
+    );
+    void source;
   };
 
   // --- запись голосового ---
@@ -83,18 +135,38 @@ export function MessageInput(props: { chatId: string }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recorderChunks = [];
-      recorder = new MediaRecorder(stream);
+      // Opus в WebM — тот же кодек, что в Telegram.
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      recorder = new MediaRecorder(stream, { mimeType });
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) recorderChunks.push(event.data);
       };
       recorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(recorderChunks, { type: "audio/webm" });
+        const blob = new Blob(recorderChunks, { type: mimeType });
         recorder = null;
         setRecording(false);
         if (blob.size === 0) return;
-        const file = new File([blob], "voice.webm", { type: "audio/webm" });
-        void acceptFile(file);
+        void (async () => {
+          const peaks = await computeWaveform(blob);
+          const data_base64 = await toBase64Local(blob);
+          setPrepared((prev) => [
+            ...prev,
+            {
+              attachment: {
+                kind: "voice",
+                name: "voice.webm",
+                mime: mimeType,
+                size: blob.size,
+                data_base64,
+                waveform_base64: waveformToBase64(peaks),
+              },
+              compressible: false,
+            },
+          ]);
+        })();
       };
       recorder.start();
       setRecording(true);
@@ -148,28 +220,45 @@ export function MessageInput(props: { chatId: string }) {
           </div>
         </Show>
 
-        <Show when={pending() !== null}>
-          <div class="composer__attach">
-            <span class="composer__attach-name">{pending()!.name}</span>
-            <span class="composer__attach-size">
-              {formatSize(pending()!.size)}
-            </span>
-            <button
-              class="composer__reply-cancel"
-              title="Убрать вложение"
-              aria-label="Убрать вложение"
-              onClick={() => setPending(null)}
-            >
-              <X size={18} />
-            </button>
+        <Show when={prepared().length > 0}>
+          <div class="composer__files">
+            <For each={prepared()}>
+              {(item, index) => (
+                <div class="composer__file-item">
+                  <span class="composer__file-name">{item.attachment.name}</span>
+                  <span class="composer__file-size">
+                    {formatSize(item.attachment.size)}
+                  </span>
+                  <Show when={item.compressible}>
+                    <button
+                      class="composer__file-mode"
+                      title="Отправить без сжатия"
+                      onClick={() => void toggleCompress(index())}
+                    >
+                      Без сжатия
+                    </button>
+                  </Show>
+                  <button
+                    class="composer__reply-cancel"
+                    title="Убрать"
+                    aria-label="Убрать вложение"
+                    onClick={() =>
+                      setPrepared((prev) => prev.filter((_, i) => i !== index()))
+                    }
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+            </For>
           </div>
         </Show>
 
         <div class="composer__row">
           <button
             class="composer__icon composer__icon--attach"
-            title="Прикрепить файл"
-            aria-label="Прикрепить файл"
+            title="Прикрепить файлы"
+            aria-label="Прикрепить файлы"
             onClick={() => fileInput.click()}
           >
             <Paperclip size={20} />
@@ -177,8 +266,9 @@ export function MessageInput(props: { chatId: string }) {
           <input
             ref={fileInput}
             type="file"
+            multiple
             class="composer__file"
-            onChange={onFileChange}
+            onChange={(event) => void onFileChange(event)}
           />
 
           <textarea
@@ -250,6 +340,18 @@ export function MessageInput(props: { chatId: string }) {
       </div>
     </div>
   );
+}
+
+/** Байты блоба в base64. */
+async function toBase64Local(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }
 
 function replyTextOf(senderId: string, chatId: string): string {

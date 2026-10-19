@@ -269,6 +269,14 @@ where
     })
 }
 
+/// Параметры отправки, не относящиеся к содержимому.
+pub(crate) struct SendOptions {
+    /// Ответ на сообщение с этим `server_id`.
+    pub reply_to: Option<u64>,
+    /// Идентификатор альбома (медиагруппы); пусто для обычных сообщений.
+    pub grouped_id: Option<String>,
+}
+
 /// Компонует `SendMessageRequest` для чата. Возвращает запрос и список
 /// устройств, которым в этом запросе выдан ключ групповой сессии (для
 /// фиксации в хранилище после постановки в outbox).
@@ -279,7 +287,7 @@ pub(crate) async fn compose_send_request<F, Fut>(
     chat: &ChatRecord,
     account: &LocalAccount,
     payload: &Payload,
-    reply_to: Option<u64>,
+    options: &SendOptions,
 ) -> Result<(proto::SendMessageRequest, Vec<String>), CoreError>
 where
     F: FnOnce(Vec<String>) -> Fut,
@@ -290,11 +298,12 @@ where
         chat_id: chat.chat_id.clone(),
         client_message_id: local_id.to_string(),
         content_kind: content.content_kind,
-        reply_to_server_id: reply_to.unwrap_or(0),
+        reply_to_server_id: options.reply_to.unwrap_or(0),
         recipients: content.recipients,
         plaintext_dev: content.plaintext_dev,
         group_ciphertext: content.group_ciphertext,
         group_session_id: content.group_session_id,
+        grouped_id: options.grouped_id.clone().unwrap_or_default(),
     };
     check_request_size(inner, &request)?;
     Ok((request, content.group_key_shares))

@@ -1105,6 +1105,86 @@ textarea {
   margin: 4px 0 0;
 }
 
+// Альбом (медиагруппа): сетка медиа + подпись
+.bubble-row--album {
+  max-width: 84%;
+}
+
+.bubble--album-body {
+  padding: 4px;
+}
+
+.bubble__album {
+  display: grid;
+  gap: 3px;
+  width: 320px;
+  max-width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.bubble__album-item {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+
+  .bubble__image,
+  .bubble__video {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    object-fit: cover;
+    border-radius: 0;
+  }
+}
+
+// Видео: постер + бейдж воспроизведения
+.bubble__video-wrap {
+  position: relative;
+}
+
+.bubble__video-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+
+// Голосовое: звуковая волна + плеер
+.bubble__voice-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+}
+
+.bubble__waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+}
+
+.bubble__waveform-bar {
+  flex: 1;
+  min-width: 2px;
+  max-width: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
 // Кнопка быстрого ответа (аналог WebK .bubble-beside-button).
 // Кнопка живёт за пределами пузыря, поэтому должна оставаться «ловителем»
 // курсора всегда (иначе при переходе мыши к ней пузырь теряет :hover и
@@ -1317,6 +1397,47 @@ textarea {
 
   &__attach-size {
     color: $text-secondary;
+  }
+
+  // Список готовых вложений (в т.ч. альбом) над строкой ввода
+  &__files {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px 2px;
+  }
+
+  &__file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px 4px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 13px;
+  }
+
+  &__file-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__file-size {
+    color: $text-secondary;
+    white-space: nowrap;
+  }
+
+  &__file-mode {
+    flex: none;
+    padding: 3px 8px;
+    border-radius: 10px;
+    background: $accent-purple-light;
+    color: $accent-purple;
+    font-size: 12px;
+    white-space: nowrap;
   }
 
   // Скрытый выбор файла (его открывает кнопка скрепки)

@@ -93,6 +93,7 @@ pub(crate) fn message_from_row(row: &Row<'_>) -> rusqlite::Result<MessageRecord>
         plaintext_dev: row.get("plaintext_dev")?,
         group_ciphertext: row.get("group_ciphertext")?,
         group_session_id: row.get("group_session_id")?,
+        grouped_id: row.get("grouped_id")?,
     })
 }
 

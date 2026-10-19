@@ -415,12 +415,35 @@ pub struct AttachmentUpload {
     pub size: u64,
     /// Содержимое файла в base64.
     pub data_base64: String,
+    /// Постер-кадр видео (base64) — уходит отдельным блобом.
+    pub thumb_base64: Option<String>,
+    /// MIME-тип постера.
+    pub thumb_mime: Option<String>,
+    /// Пики звуковой волны голосового (base64) — для отрисовки в UI.
+    pub waveform_base64: Option<String>,
 }
 
 /// Метаданные вложения сообщения (без содержимого).
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Attachment {
     /// Вид: `photo`, `video`, `file`, `voice`.
+    pub kind: String,
+    /// Имя файла.
+    pub name: String,
+    /// MIME-тип.
+    pub mime: String,
+    /// Размер в байтах.
+    pub size: u64,
+    /// Наличие постера-кадра (видео).
+    pub thumb: Option<AttachmentThumb>,
+    /// Пики звуковой волны (голосовое).
+    pub waveform: Option<String>,
+}
+
+/// Метаданные постера-кадра (видео).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AttachmentThumb {
+    /// Вид: всегда `photo`.
     pub kind: String,
     /// Имя файла.
     pub name: String,
@@ -458,6 +481,9 @@ pub struct Message {
     pub body: Option<String>,
     /// Метаданные вложения; содержимое — через `download_attachment`.
     pub attachment: Option<Attachment>,
+    /// Идентификатор альбома (медиагруппы); сообщения с одинаковым id —
+    /// один альбом.
+    pub grouped_id: Option<String>,
     pub reply_to_server_id: Option<u64>,
     pub status: MessageStatus,
     pub created_at_ms: u64,

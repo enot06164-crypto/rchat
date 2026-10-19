@@ -621,6 +621,7 @@ mod tests {
                 plaintext_dev: String::new(),
                 group_ciphertext: vec![7; 16],
                 group_session_id: "sid".into(),
+                grouped_id: String::new(),
             }),
         );
         let bytes = encode_envelope(&env).expect("encode");

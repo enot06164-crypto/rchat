@@ -159,6 +159,11 @@ pub fn message_from_proto(message: &proto::Message, payload: Option<Payload>) ->
         } else {
             Some(message.reply_to_server_id)
         },
+        grouped_id: if message.grouped_id.is_empty() {
+            None
+        } else {
+            Some(message.grouped_id.clone())
+        },
         status: None,
         created_at_ms: message.created_at_ms,
         edited_at_ms: if message.edited_at_ms == 0 {

@@ -55,6 +55,10 @@ export interface AttachmentInfo {
   name: string;
   mime: string;
   size: number;
+  /** Постер-кадр видео (отдельный блоб, как thumbnail в Telegram). */
+  thumb?: AttachmentInfo;
+  /** Пики звуковой волны (голосовое) — base64. */
+  waveform?: string | null;
 }
 
 /** Вложение при отправке: содержимое в base64. */
@@ -64,6 +68,12 @@ export interface AttachmentUpload {
   mime: string;
   size: number;
   data_base64: string;
+  /** Постер-кадр видео (base64) — уходит отдельным блобом. */
+  thumb_base64?: string | undefined;
+  /** MIME-тип постера. */
+  thumb_mime?: string;
+  /** Пики звуковой волны (base64) — для отрисовки в UI. */
+  waveform_base64?: string;
 }
 
 export interface Message {
@@ -76,6 +86,8 @@ export interface Message {
   body: string | null;
   /** Метаданные вложения; содержимое лежит в ядре (скачивается отдельно). */
   attachment: AttachmentInfo | null;
+  /** Идентификатор альбома: сообщения с одинаковым id — один альбом. */
+  grouped_id?: string | null;
   reply_to_server_id: number | null;
   status: MessageStatus;
   created_at_ms: number;

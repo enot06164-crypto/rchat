@@ -64,6 +64,9 @@ message Message {
   // Вид ciphertext для запрашивающего устройства (RecipientPayloadKind).
   // При пустом ciphertext не значим.
   RecipientPayloadKind recipient_payload_kind = 18;
+  // Идентификатор альбома (медиагруппы): сообщения с одинаковым grouped_id
+  // относятся к одному альбому. Пусто для обычных сообщений.
+  string grouped_id = 19;
 }
 
 message SendMessageRequest {
@@ -85,6 +88,8 @@ message SendMessageRequest {
   // сессии. Для личных E2E-чатов должны быть пустыми.
   bytes group_ciphertext = 7;
   string group_session_id = 8;
+  // Идентификатор альбома: у сообщений одного альбома он общий.
+  string grouped_id = 9;
 }
 
 message SendMessageResponse {

@@ -843,7 +843,7 @@ fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), 
         None => None,
     };
     conn.execute(
-        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)"),
+        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)"),
         rusqlite::params![
             message.local_id,
             opt_to_sql_u64(message.server_id),
@@ -871,6 +871,7 @@ fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), 
             thumb_size,
             message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.mime.as_str()),
             message.attachment.as_ref().map(|a| a.waveform.as_slice()).filter(|d| !d.is_empty()),
+            message.grouped_id.as_deref(),
         ],
     )
     .map_err(|e| map_sql("insert_message", e))?;
@@ -1025,7 +1026,7 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
             tx.execute(
                 &format!(
                     "INSERT INTO messages({MESSAGE_COLUMNS})
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
                      ON CONFLICT DO NOTHING"
                 ),
                 rusqlite::params![
@@ -1055,6 +1056,7 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                     message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.size as i64),
                     message.attachment.as_ref().and_then(|a| a.thumb.as_ref()).map(|t| t.mime.as_str()),
                     message.attachment.as_ref().map(|a| a.waveform.as_slice()).filter(|d| !d.is_empty()),
+                    message.grouped_id.as_deref(),
                 ],
             )
             .map_err(|e| map_sql("sync insert_message", e))?;

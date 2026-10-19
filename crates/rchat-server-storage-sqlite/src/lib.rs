@@ -22,7 +22,7 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
@@ -262,6 +262,13 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         CREATE INDEX sync_events_created_idx ON sync_events(created_at_ms);
         CREATE INDEX sync_events_device_seq_idx ON sync_events(device_id, seq);
         "#,
+    ),
+    (
+        5,
+        r#"
+    -- Альбомы (медиагруппы): сообщения одного альбома делят grouped_id.
+    ALTER TABLE messages ADD COLUMN grouped_id TEXT NOT NULL DEFAULT '';
+    "#,
     ),
     (
         4,

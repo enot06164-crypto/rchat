@@ -121,6 +121,7 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
         body: row.get(6)?,
         attachment,
         reply_to_server_id: reply_to.map(from_sql_u64),
+        grouped_id: row.get(26)?,
         status: status.and_then(MessageStatus::from_i64),
         created_at_ms: from_sql_u64(row.get(9)?),
         edited_at_ms: edited.map(from_sql_u64),
@@ -134,7 +135,7 @@ pub(crate) const MESSAGE_COLUMNS: &str = "local_id, server_id, chat_id, sender_u
      attachment_size, attachment_data, attachment_blob_ref, attachment_key, \
      attachment_nonce, attachment_thumb_ref, attachment_thumb_key, \
      attachment_thumb_nonce, attachment_thumb_size, attachment_thumb_mime, \
-     attachment_waveform";
+     attachment_waveform, grouped_id";
 
 /// Строка `outbox` → доменная запись. Позиции колонок фиксированы
 /// константой [`OUTBOX_COLUMNS`].

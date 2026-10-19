@@ -155,6 +155,7 @@ pub(crate) fn message(message: &MessageRecord) -> Value {
         "body": message.body,
         "attachment": attachment,
         "reply_to_server_id": message.reply_to_server_id,
+        "grouped_id": message.grouped_id,
         "status": message_status(message.status),
         "created_at_ms": message.created_at_ms,
         "edited_at_ms": message.edited_at_ms,

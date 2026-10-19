@@ -141,6 +141,9 @@ pub struct MessageRecord {
     /// Вложение (файл/фото/видео/голос), если оно есть.
     pub attachment: Option<Attachment>,
     pub reply_to_server_id: Option<u64>,
+    /// Идентификатор альбома (медиагруппы): у сообщений одного альбома он
+    /// общий; для обычных сообщений — `None`.
+    pub grouped_id: Option<String>,
     /// Статус отправки; заполнен только для собственных сообщений.
     pub status: Option<MessageStatus>,
     pub created_at_ms: u64,

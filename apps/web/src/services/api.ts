@@ -250,11 +250,15 @@ export const chatApi = {
     chatId: string,
     text: string,
     replyToServerId: number | null = null,
-    attachment: AttachmentUpload | null = null
+    attachments: AttachmentUpload[] = []
   ) => {
     const payload: Record<string, unknown> = { chat_id: chatId, text };
     if (replyToServerId !== null) payload.reply_to_server_id = replyToServerId;
-    if (attachment !== null) payload.attachment = attachment;
+    if (attachments.length === 1) {
+      payload.attachment = attachments[0];
+    } else if (attachments.length > 1) {
+      payload.attachments = attachments;
+    }
     return api.call<unknown>("send_message", payload) as Promise<{
       local_id: string;
     }>;
@@ -268,6 +272,7 @@ export const chatApi = {
       mime: string;
       size: number;
       data_base64: string;
+      thumb_base64: string | null;
     }>("download_attachment", { server_id: serverId }),
   deleteMessage: (chatId: string, serverId: number) =>
     api.call<unknown>("delete_message", { chat_id: chatId, server_id: serverId }),

@@ -8,6 +8,7 @@ import {
   Download,
   FileText,
   Forward,
+  Play,
   Reply,
   Trash2,
 } from "lucide-solid";
@@ -18,7 +19,11 @@ import {
   setReplyTo,
   state,
 } from "../../services/store";
-import { attachmentUrl, formatSize } from "../../services/attachments";
+import {
+  attachmentThumbUrl,
+  attachmentUrl,
+  formatSize,
+} from "../../services/attachments";
 import { Avatar } from "../Avatar";
 import { formatTime } from "../../utils/format";
 
@@ -62,9 +67,8 @@ interface MenuPos {
  *   `.bubble--group-last`) со скруглениями 15px / 5px (по мотивам WebK).
  * - Собственный SVG-хвостик (`11×20`) у последнего сообщения группы: угол
  *   пузыря на стороне хвостика прямой, скругление даёт сам хвостик.
- * - Вложение (фото/видео/файл/голос) — содержимое подтягивается из ядра
- *   отдельной командой и кэшируется.
- * - Обтекаемый штамп времени и галочек (`.bubble__meta`) внутри `.bubble__body`.
+ * - Фото/видео/файл/голосовое: содержимое тянется из ядра и кэшируется;
+ *   у видео — постер-кадр, у голосового — звуковая волна.
  * - Двойной клик — быстрый реплай; ПКМ — контекстное меню.
  */
 export function MessageBubble(props: {
@@ -334,28 +338,133 @@ export function MessageBubble(props: {
   );
 }
 
-/** Содержимое вложения: фото, видео, файл или голосовое. */
-function AttachmentView(props: { message: Message }) {
+/** Альбом (медиагруппа): сетка медиа + подпись последнего элемента. */
+export function AlbumBubble(props: { messages: Message[] }) {
+  const first = () => props.messages[0];
+  const last = () => props.messages[props.messages.length - 1];
+  const own = () =>
+    state.session !== null &&
+    first().sender_user_id === state.session.user_id;
+  const caption = () => last().body ?? "";
+
+  return (
+    <div
+      classList={{
+        "bubble-row": true,
+        "bubble-row--own": own(),
+        "bubble-row--in": !own(),
+        "bubble-row--group-last": true,
+        "bubble-row--album": true,
+      }}
+    >
+      <Show when={!own()}>
+        <div class="bubble-row__avatar-slot" />
+      </Show>
+      <div class="bubble bubble--album-body">
+        <div
+          class="bubble__album"
+          style={{ "--album-items": props.messages.length }}
+        >
+          {props.messages.map((message) => (
+            <AlbumItem message={message} />
+          ))}
+        </div>
+        <Show when={caption() !== ""}>
+          <div class="bubble__body">
+            {caption()}
+            <span class="bubble__meta">
+              <span class="bubble__time">
+                {formatTime(last().created_at_ms)}
+              </span>
+              <Show when={own()}>
+                <span class="bubble__status">
+                  <StatusIcon
+                    status={last().status}
+                    serverId={last().server_id}
+                    readUpTo={readUpToFor(last().chat_id)}
+                  />
+                </span>
+              </Show>
+            </span>
+          </div>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+/** Один элемент альбома (медиа). */
+function AlbumItem(props: { message: Message }) {
   const [url, setUrl] = createSignal<string | null>(null);
-  const [failed, setFailed] = createSignal(false);
+  const [thumb, setThumb] = createSignal<string | null>(null);
+
+  createEffect(() => {
+    void attachmentUrl(props.message).then(setUrl);
+    void attachmentThumbUrl(props.message).then(setThumb);
+  });
 
   const kind = () => props.message.attachment?.kind ?? "file";
 
-  // Содержимое тянем из ядра, когда у сообщения появился server_id: у
-  // оптимистичного сообщения его ещё нет, а после отправки приходит echo.
+  return (
+    <div class="bubble__album-item">
+      <Switch>
+        <Match when={kind() === "photo"}>
+          <Show
+            when={url() !== null}
+            fallback={<div class="bubble__attach-skeleton">Загрузка…</div>}
+          >
+            <img class="bubble__image" src={url() ?? ""} alt="" />
+          </Show>
+        </Match>
+        <Match when={kind() === "video"}>
+          <Show
+            when={url() !== null}
+            fallback={<div class="bubble__attach-skeleton">Загрузка…</div>}
+          >
+            <video
+              class="bubble__video"
+              src={url() ?? ""}
+              poster={thumb() ?? undefined}
+              controls
+              preload="metadata"
+            />
+          </Show>
+        </Match>
+        <Match when={true}>
+          <div class="bubble__file">
+            <span class="bubble__file-icon">
+              <FileText size={18} />
+            </span>
+            <div class="bubble__file-body">
+              <span class="bubble__file-name">
+                {props.message.attachment?.name ?? "файл"}
+              </span>
+              <span class="bubble__file-size">
+                {formatSize(props.message.attachment?.size ?? 0)}
+              </span>
+            </div>
+          </div>
+        </Match>
+      </Switch>
+    </div>
+  );
+}
+
+/** Содержимое вложения: фото, видео (с постером), файл или голосовое. */
+function AttachmentView(props: { message: Message }) {
+  const [url, setUrl] = createSignal<string | null>(null);
+  const [thumb, setThumb] = createSignal<string | null>(null);
+  const [failed, setFailed] = createSignal(false);
+
   createEffect(() => {
-    const message = props.message;
-    const serverId = message.server_id;
-    if (serverId === null) return;
-    void attachmentUrl(message).then((value) => {
-      if (value === null) {
-        setFailed(true);
-        return;
-      }
-      setFailed(false);
-      setUrl(value);
+    void attachmentUrl(props.message).then((value) => {
+      if (value === null) setFailed(true);
+      else setUrl(value);
     });
+    void attachmentThumbUrl(props.message).then(setThumb);
   });
+
+  const kind = () => props.message.attachment?.kind ?? "file";
 
   return (
     <div class="bubble__attach">
@@ -378,12 +487,20 @@ function AttachmentView(props: { message: Message }) {
             when={url() !== null}
             fallback={<div class="bubble__attach-skeleton">Загрузка видео…</div>}
           >
-            <video
-              class="bubble__video"
-              src={url() ?? ""}
-              controls
-              preload="metadata"
-            />
+            <div class="bubble__video-wrap">
+              <video
+                class="bubble__video"
+                src={url() ?? ""}
+                poster={thumb() ?? undefined}
+                controls
+                preload="metadata"
+              />
+              <Show when={thumb() !== null}>
+                <span class="bubble__video-badge">
+                  <Play size={14} />
+                </span>
+              </Show>
+            </div>
           </Show>
         </Match>
         <Match when={kind() === "voice"}>
@@ -391,7 +508,12 @@ function AttachmentView(props: { message: Message }) {
             when={url() !== null}
             fallback={<div class="bubble__attach-skeleton">Загрузка голосового…</div>}
           >
-            <audio class="bubble__voice" src={url() ?? ""} controls />
+            <div class="bubble__voice-wrap">
+              <VoiceWaveform
+                waveform={props.message.attachment?.waveform ?? null}
+              />
+              <audio class="bubble__voice" src={url() ?? ""} controls />
+            </div>
           </Show>
         </Match>
         <Match when={true}>
@@ -425,6 +547,31 @@ function AttachmentView(props: { message: Message }) {
         </Match>
       </Switch>
     </div>
+  );
+}
+
+/** Пики звуковой волны (base64) — рисуются полоской, как в Telegram. */
+function VoiceWaveform(props: { waveform: string | null }) {
+  const peaks = (): number[] => {
+    if (props.waveform === null || props.waveform === "") return [];
+    try {
+      const binary = atob(props.waveform);
+      return Array.from(binary, (char) => char.charCodeAt(0));
+    } catch {
+      return [];
+    }
+  };
+  return (
+    <Show when={peaks().length > 0}>
+      <div class="bubble__waveform">
+        {peaks().map((value) => (
+          <span
+            class="bubble__waveform-bar"
+            style={{ height: `${Math.max(10, value)}%` }}
+          />
+        ))}
+      </div>
+    </Show>
   );
 }
 
