@@ -191,8 +191,8 @@ export function Sidebar() {
         </Show>
       </header>
 
-      <ChatList query={query()} />
       <SearchResults query={query()} />
+      <ChatList query={query()} />
 
       <button
         classList={{ fab: true, "is-open": newChatOpen() }}

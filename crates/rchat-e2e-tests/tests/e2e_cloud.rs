@@ -140,6 +140,62 @@ async fn private_chat_is_not_searchable_by_server() {
     let _ = bob_storage;
 }
 
+/// Облачная группа: общий ключ чата, сообщение читают все участники, поиск
+/// работает по всей группе.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cloud_group_chat_is_shared_between_members() {
+    let harness = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+    let carol_dir = root.path().join("carol");
+
+    let (alice, alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
+    alice.start().await.expect("start alice");
+    register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
+
+    let (bob, _bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
+    bob.start().await.expect("start bob");
+    register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
+
+    let (carol, _carol_storage) = build_client(&carol_dir, harness.port(), "carol-dev");
+    carol.start().await.expect("start carol");
+    register_user(&carol, "carol", "Carol", "pw-carol-1").await;
+
+    let chat = alice
+        .create_group_chat(
+            "Проект",
+            &["bob".to_string(), "carol".to_string()],
+            ChatMode::Cloud,
+        )
+        .await
+        .expect("create cloud group");
+    assert_eq!(chat.e2e_mode, proto::E2eMode::Cloud);
+    assert_eq!(chat.cloud_key.len(), 32);
+
+    let secret = "общее облачное сообщение 999";
+    let local_id = alice
+        .send_text(&chat.chat_id, secret, None)
+        .await
+        .expect("send group message");
+    wait_sent(&alice_storage, &local_id).await;
+
+    // Читают оба участника: ключ чата у них общий.
+    bob.sync_now().await.expect("sync bob");
+    wait_for_body(&bob, &chat.chat_id, secret).await;
+    carol.sync_now().await.expect("sync carol");
+    wait_for_body(&carol, &chat.chat_id, secret).await;
+
+    // Поиск по группе.
+    let hits = bob
+        .search_messages("общее облачное", 10)
+        .await
+        .expect("search messages");
+    assert_eq!(hits.len(), 1, "сообщение группы должно находиться");
+    assert_eq!(hits[0].body, secret);
+    assert_eq!(hits[0].chat_title, "Проект");
+}
+
 /// Режим по умолчанию меняется в настройках клиента и применяется к новым
 /// чатам; уже созданные чаты сохраняют свой режим.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

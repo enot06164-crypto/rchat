@@ -155,13 +155,23 @@ def client_body(alice_port: int, bob_port: int) -> None:
         recv_until(bob, lambda m: m["@type"] == "ok")
         print("register обеих сторон — ok")
 
-        # 4) прямой E2E-чат и сообщение
-        alice.send(json.dumps({"@type": "create_direct_chat", "peer_username": "bob"}))
+        # 4) прямой чат и сообщение. По умолчанию — облачный режим;
+        #    приватный (E2E) включается режимом `private`.
+        alice.send(
+            json.dumps(
+                {
+                    "@type": "create_direct_chat",
+                    "peer_username": "bob",
+                    "mode": "private",
+                }
+            )
+        )
         chat = recv_until(
             alice, lambda m: m["@type"] == "ok" and m["request"] == "create_direct_chat"
         )
         chat_id = chat["data"]["chat_id"]
         assert chat["data"]["e2e_mode"] == "olm_v1", chat
+        assert chat["data"]["privacy"] == "private", chat
 
         text = "привет из smoke_gateway"
         alice.send(
