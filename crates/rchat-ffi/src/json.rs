@@ -119,6 +119,17 @@ pub(crate) fn member(member: &MemberRecord) -> Value {
 }
 
 pub(crate) fn message(message: &MessageRecord) -> Value {
+    // Метаданные вложения — без байтов: содержимое отдаётся отдельно
+    // командой `download_attachment`.
+    let attachment = match &message.attachment {
+        Some(item) => json!({
+            "kind": item.kind.as_str(),
+            "name": item.name,
+            "mime": item.mime,
+            "size": item.size,
+        }),
+        None => Value::Null,
+    };
     json!({
         "local_id": message.local_id,
         "server_id": message.server_id,
@@ -127,6 +138,7 @@ pub(crate) fn message(message: &MessageRecord) -> Value {
         "sender_device_id": message.sender_device_id,
         "content_kind": message.content_kind,
         "body": message.body,
+        "attachment": attachment,
         "reply_to_server_id": message.reply_to_server_id,
         "status": message_status(message.status),
         "created_at_ms": message.created_at_ms,

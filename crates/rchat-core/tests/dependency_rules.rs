@@ -90,8 +90,10 @@ fn core_manifest_dependencies_are_minimal() {
     const ALLOWED: &[&str] = &[
         "rchat-proto",
         "async-trait",
+        "base64", // кодирование содержимого вложения в конверт сообщения
         "getrandom",
         "prost",
+        "serde_json", // конверт сообщения (текст + вложение) в UTF-8 JSON
         "thiserror",
         "tokio",
         "tracing",

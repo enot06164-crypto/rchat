@@ -12,6 +12,7 @@
  */
 
 import type {
+  AttachmentUpload,
   ErrorEnvelope,
   OkEnvelope,
   RchatEvent,
@@ -248,16 +249,26 @@ export const chatApi = {
   sendMessage: (
     chatId: string,
     text: string,
-    replyToServerId: number | null = null
+    replyToServerId: number | null = null,
+    attachment: AttachmentUpload | null = null
   ) => {
     const payload: Record<string, unknown> = { chat_id: chatId, text };
     if (replyToServerId !== null) payload.reply_to_server_id = replyToServerId;
+    if (attachment !== null) payload.attachment = attachment;
     return api.call<unknown>("send_message", payload) as Promise<{
       local_id: string;
     }>;
   },
   markRead: (chatId: string) =>
     api.call<unknown>("mark_read", { chat_id: chatId }),
+  downloadAttachment: (serverId: number) =>
+    api.call<{
+      kind: string;
+      name: string;
+      mime: string;
+      size: number;
+      data_base64: string;
+    }>("download_attachment", { server_id: serverId }),
   deleteMessage: (chatId: string, serverId: number) =>
     api.call<unknown>("delete_message", { chat_id: chatId, server_id: serverId }),
   login: (username: string, password: string) =>

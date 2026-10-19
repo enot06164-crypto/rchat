@@ -189,6 +189,19 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
     );
     "#,
     ),
+    (
+        3,
+        r#"
+    -- Вложения сообщений (файл/фото/видео/голос): байты лежат локально,
+    -- метаданные — рядом. Само вложение едет внутри зашифрованного payload,
+    -- поэтому сервер его не видит.
+    ALTER TABLE messages ADD COLUMN attachment_kind TEXT;
+    ALTER TABLE messages ADD COLUMN attachment_name TEXT;
+    ALTER TABLE messages ADD COLUMN attachment_mime TEXT;
+    ALTER TABLE messages ADD COLUMN attachment_size INTEGER;
+    ALTER TABLE messages ADD COLUMN attachment_data BLOB;
+    "#,
+    ),
 ];
 
 #[cfg(test)]

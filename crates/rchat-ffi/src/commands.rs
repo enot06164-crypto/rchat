@@ -6,6 +6,9 @@
 
 use std::time::Duration;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
+use rchat_core::payload::{Attachment, AttachmentKind};
 use rchat_core::traits::Storage;
 use serde_json::{json, Value};
 
@@ -123,10 +126,51 @@ pub(crate) async fn dispatch(
         }
         "send_message" => {
             let chat_id = string_field(request, "chat_id")?;
-            let text = text_field(request, "text")?;
             let reply_to = optional_u64_field(request, "reply_to_server_id")?;
-            let local_id = handle.client.send_text(&chat_id, &text, reply_to).await?;
+            // Текст может отсутствовать, если есть вложение; вложение — опционально.
+            let text = match request.get("text") {
+                Some(Value::String(value)) => value.clone(),
+                Some(Value::Null) | None => String::new(),
+                Some(_) => return Err(FfiError::invalid("field text must be a string")),
+            };
+            let attachment = match request.get("attachment") {
+                None | Some(Value::Null) => None,
+                Some(item) => Some(parse_attachment(item)?),
+            };
+            if text.trim().is_empty() && attachment.is_none() {
+                return Err(FfiError::invalid("message must have text or attachment"));
+            }
+            let local_id = match attachment {
+                Some(item) => {
+                    handle
+                        .client
+                        .send_attachment(&chat_id, &text, item, reply_to)
+                        .await?
+                }
+                None => handle.client.send_text(&chat_id, &text, reply_to).await?,
+            };
             Ok(json!({"local_id": local_id}))
+        }
+        "download_attachment" => {
+            let server_id = u64_field(request, "server_id")?;
+            let message = handle
+                .client
+                .message_by_server_id(server_id)
+                .await?
+                .ok_or_else(|| FfiError::new("not_found", format!("message {server_id}")))?;
+            let attachment = message.attachment.ok_or_else(|| {
+                FfiError::new(
+                    "not_found",
+                    format!("message {server_id} has no attachment"),
+                )
+            })?;
+            Ok(json!({
+                "kind": attachment.kind.as_str(),
+                "name": attachment.name,
+                "mime": attachment.mime,
+                "size": attachment.size,
+                "data_base64": BASE64.encode(&attachment.data),
+            }))
         }
         "get_messages" => {
             let chat_id = string_field(request, "chat_id")?;
@@ -304,6 +348,50 @@ fn text_field(request: &Value, name: &str) -> Result<String, FfiError> {
         return Err(FfiError::invalid(format!("field {name} must not be empty")));
     }
     Ok(text)
+}
+
+/// Разбор поля `attachment`: {kind, name, mime, size, data_base64}.
+fn parse_attachment(item: &Value) -> Result<Attachment, FfiError> {
+    let kind_raw = item
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| FfiError::invalid("attachment.kind must be a string"))?;
+    let kind = AttachmentKind::parse(kind_raw)
+        .ok_or_else(|| FfiError::invalid(format!("attachment.kind {kind_raw} is not supported")))?;
+    let name = item
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let mime = item
+        .get("mime")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let data = match item.get("data_base64").and_then(Value::as_str) {
+        Some(raw) => BASE64
+            .decode(raw)
+            .map_err(|e| FfiError::invalid(format!("attachment.data_base64: {e}")))?,
+        None => Vec::new(),
+    };
+    if data.is_empty() {
+        return Err(FfiError::invalid(
+            "attachment.data_base64 must not be empty",
+        ));
+    }
+    let size = item
+        .get("size")
+        .and_then(Value::as_u64)
+        .unwrap_or(data.len() as u64);
+    let attachment = Attachment {
+        kind,
+        name,
+        mime,
+        size,
+        data,
+    };
+    attachment.validate().map_err(FfiError::invalid)?;
+    Ok(attachment)
 }
 
 fn optional_string_field(request: &Value, name: &str) -> Result<Option<String>, FfiError> {

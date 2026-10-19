@@ -7,9 +7,18 @@ import {
   createSignal,
   onMount,
 } from "solid-js";
-import { Bell, EllipsisVertical, X } from "lucide-solid";
+import {
+  Bell,
+  EllipsisVertical,
+  FileText,
+  Link as LinkIcon,
+  Mic,
+  X,
+} from "lucide-solid";
 import type { Chat } from "../../types/rchat";
 import { ensureMembers, loadCommonGroups, state } from "../../services/store";
+import { formatSize } from "../../services/attachments";
+import { formatTime } from "../../utils/format";
 import { Avatar } from "../Avatar";
 
 type InfoTab = "members" | "media" | "files" | "voice" | "links" | "common";
@@ -98,6 +107,34 @@ export function InfoDrawer(props: {
       void loadCommonGroups(chat.peer_user_id).then(setCommonGroups);
     }
   };
+
+  // Содержимое вкладок: реальные вложения и ссылки из загруженных сообщений.
+  const messages = createMemo(() => state.messages[props.chat.chat_id] ?? []);
+
+  const mediaItems = createMemo(() =>
+    messages().filter(
+      (message) =>
+        message.attachment !== null &&
+        (message.attachment.kind === "photo" ||
+          message.attachment.kind === "video")
+    )
+  );
+  const fileItems = createMemo(() =>
+    messages().filter(
+      (message) => message.attachment?.kind === "file"
+    )
+  );
+  const voiceItems = createMemo(() =>
+    messages().filter((message) => message.attachment?.kind === "voice")
+  );
+  const linkItems = createMemo(() =>
+    messages()
+      .map((message) => ({
+        message,
+        url: firstUrl(message.body ?? ""),
+      }))
+      .filter((item) => item.url !== null)
+  );
 
   // Участники группы (для вкладки «Участники»).
   const memberRows = () => {
@@ -222,28 +259,108 @@ export function InfoDrawer(props: {
             </Match>
 
             <Match when={tab() === "media"}>
-              <EmptyState
-                title="Медиа пока нет"
-                hint="Ядро пока не хранит вложения — этап файлов."
-              />
+              <Show
+                when={mediaItems().length > 0}
+                fallback={
+                  <EmptyState
+                    title="Медиа пока нет"
+                    hint="Пришлите фото или видео — они появятся здесь."
+                  />
+                }
+              >
+                <For each={mediaItems()}>
+                  {(message) => (
+                    <div class="info-row">
+                      <Avatar info={state.session?.avatar} size={40} />
+                      <div class="info-row__body">
+                        <span class="info-row__name">
+                          {message.attachment?.name ?? "медиа"}
+                        </span>
+                        <span class="info-row__subtitle">
+                          {formatSize(message.attachment?.size ?? 0)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </Match>
             <Match when={tab() === "files"}>
-              <EmptyState
-                title="Файлов пока нет"
-                hint="Ядро пока не хранит вложения — этап файлов."
-              />
+              <Show
+                when={fileItems().length > 0}
+                fallback={
+                  <EmptyState
+                    title="Файлов пока нет"
+                    hint="Прикреплённые файлы появятся здесь."
+                  />
+                }
+              >
+                <For each={fileItems()}>
+                  {(message) => (
+                    <div class="info-row">
+                      <FileText size={20} />
+                      <div class="info-row__body">
+                        <span class="info-row__name">
+                          {message.attachment?.name ?? "файл"}
+                        </span>
+                        <span class="info-row__subtitle">
+                          {formatSize(message.attachment?.size ?? 0)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </Match>
             <Match when={tab() === "voice"}>
-              <EmptyState
-                title="Голосовых пока нет"
-                hint="Запись голосовых появится вместе с этапом файлов."
-              />
+              <Show
+                when={voiceItems().length > 0}
+                fallback={
+                  <EmptyState
+                    title="Голосовых пока нет"
+                    hint="Запишите голосовое кнопкой микрофона."
+                  />
+                }
+              >
+                <For each={voiceItems()}>
+                  {(message) => (
+                    <div class="info-row">
+                      <Mic size={20} />
+                      <div class="info-row__body">
+                        <span class="info-row__name">Голосовое</span>
+                        <span class="info-row__subtitle">
+                          {formatSize(message.attachment?.size ?? 0)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </Match>
             <Match when={tab() === "links"}>
-              <EmptyState
-                title="Ссылок пока нет"
-                hint="Ядро пока не извлекает ссылки из сообщений."
-              />
+              <Show
+                when={linkItems().length > 0}
+                fallback={
+                  <EmptyState
+                    title="Ссылок пока нет"
+                    hint="Ссылки из сообщений появятся здесь."
+                  />
+                }
+              >
+                <For each={linkItems()}>
+                  {(item) => (
+                    <div class="info-row">
+                      <LinkIcon size={20} />
+                      <div class="info-row__body">
+                        <span class="info-row__name">{item.url}</span>
+                        <span class="info-row__subtitle">
+                          {formatTime(item.message.created_at_ms)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </Match>
 
             <Match when={tab() === "common"}>
@@ -281,6 +398,12 @@ export function InfoDrawer(props: {
       </div>
     </aside>
   );
+}
+
+/** Первая ссылка в тексте сообщения (если есть). */
+function firstUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/\S+/);
+  return match === null ? null : match[0];
 }
 
 /** Честное пустое состояние: заголовок + пояснение, почему пусто. */

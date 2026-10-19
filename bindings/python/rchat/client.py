@@ -391,9 +391,15 @@ class RChatClient:
     def send_message(
         self,
         chat_id: str,
-        text: str,
+        text: str = "",
         reply_to_server_id: Optional[int] = None,
+        attachment: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Отправляет сообщение; `attachment` — вложение (см. docs/ffi.md §5.4).
+
+        Вложение едет внутри зашифрованного payload: сервер не видит его
+        содержимое. Формат: `{"kind", "name", "mime", "size", "data_base64"}`.
+        """
         request: Dict[str, Any] = {
             "@type": "send_message",
             "chat_id": chat_id,
@@ -401,12 +407,23 @@ class RChatClient:
         }
         if reply_to_server_id is not None:
             request["reply_to_server_id"] = int(reply_to_server_id)
+        if attachment is not None:
+            request["attachment"] = attachment
         data = self._command(request)
         if not isinstance(data, dict) or not isinstance(
             data.get("local_id"), str
         ):
             raise RChatError("internal", f"invalid send response: {data!r}")
         return data["local_id"]
+
+    def download_attachment(self, server_id: int) -> Dict[str, Any]:
+        """Содержимое вложения сообщения: kind/name/mime/size/data_base64."""
+        data = self._command(
+            {"@type": "download_attachment", "server_id": int(server_id)}
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid attachment response: {data!r}")
+        return data
 
     def get_messages(
         self,

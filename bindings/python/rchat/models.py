@@ -55,6 +55,16 @@ def _avatar(value: Any) -> Optional[AvatarInfo]:
         return None
 
 
+def _attachment(value: Any) -> Optional[Attachment]:
+    """Разбирает необязательные метаданные вложения."""
+    if not isinstance(value, MappingABC):
+        return None
+    try:
+        return Attachment.from_dict(value)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 @dataclass(eq=False)
 class Chat(_Model):
     chat_id: str
@@ -83,6 +93,25 @@ class Chat(_Model):
 
 
 @dataclass(eq=False)
+class Attachment(_Model):
+    """Метаданные вложения сообщения (содержимое — `download_attachment`)."""
+
+    kind: str
+    name: str
+    mime: str
+    size: int
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "Attachment":
+        return cls(
+            kind=str(data.get("kind") or "file"),
+            name=str(data.get("name") or ""),
+            mime=str(data.get("mime") or ""),
+            size=int(data.get("size") or 0),
+        )
+
+
+@dataclass(eq=False)
 class Message(_Model):
     local_id: str
     chat_id: str
@@ -93,6 +122,7 @@ class Message(_Model):
     created_at_ms: int
     server_id: Optional[int] = None
     body: Optional[str] = None
+    attachment: Optional[Attachment] = None
     reply_to_server_id: Optional[int] = None
     edited_at_ms: Optional[int] = None
     deleted_at_ms: Optional[int] = None
@@ -110,6 +140,7 @@ class Message(_Model):
             created_at_ms=int(data["created_at_ms"]),
             server_id=data.get("server_id"),
             body=data.get("body"),
+            attachment=_attachment(data.get("attachment")),
             reply_to_server_id=data.get("reply_to_server_id"),
             edited_at_ms=data.get("edited_at_ms"),
             deleted_at_ms=data.get("deleted_at_ms"),

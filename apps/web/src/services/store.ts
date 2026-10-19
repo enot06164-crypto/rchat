@@ -13,6 +13,8 @@ import {
   describeError,
 } from "./api";
 import type {
+  AttachmentInfo,
+  AttachmentUpload,
   Chat,
   ChatMember,
   ConnectionState,
@@ -439,11 +441,15 @@ async function loadChatHistory(chatId: string): Promise<void> {
   await job;
 }
 
-export async function sendCurrentText(text: string): Promise<void> {
+export async function sendCurrentText(
+  text: string,
+  attachment: AttachmentUpload | null = null
+): Promise<void> {
   const chatId = state.activeChatId;
   const session = state.session;
   const trimmed = text.trim();
-  if (chatId === null || session === null || trimmed === "") return;
+  if (chatId === null || session === null) return;
+  if (trimmed === "" && attachment === null) return;
 
   setState("sendError", null);
   const replyTo = state.replyTo;
@@ -453,8 +459,17 @@ export async function sendCurrentText(text: string): Promise<void> {
     chat_id: chatId,
     sender_user_id: session.user_id,
     sender_device_id: "",
-    content_kind: "text",
-    body: trimmed,
+    content_kind: attachment?.kind ?? "text",
+    body: trimmed === "" ? null : trimmed,
+    attachment:
+      attachment === null
+        ? null
+        : ({
+            kind: attachment.kind,
+            name: attachment.name,
+            mime: attachment.mime,
+            size: attachment.size,
+          } satisfies AttachmentInfo),
     reply_to_server_id: replyTo !== null ? replyTo.server_id : null,
     status: "pending",
     created_at_ms: Date.now(),
@@ -467,7 +482,8 @@ export async function sendCurrentText(text: string): Promise<void> {
     const result = (await chatApi.sendMessage(
       chatId,
       trimmed,
-      replyTo !== null ? replyTo.server_id : null
+      replyTo !== null ? replyTo.server_id : null,
+      attachment
     )) as { local_id: string };
     setState(
       "messages",

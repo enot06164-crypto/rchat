@@ -96,10 +96,15 @@ pub enum Command {
     /// Поставить текстовое сообщение в outbox.
     SendMessage {
         chat_id: String,
-        /// Непустой текст (пробельные строки отклоняются).
-        text: String,
+        /// Текст сообщения; может быть пустым, если есть вложение.
+        text: Option<String>,
+        /// Вложение (файл, фото, видео, голос). Едет внутри зашифрованного
+        /// payload: сервер не видит содержимое.
+        attachment: Option<AttachmentUpload>,
         reply_to_server_id: Option<u64>,
     },
+    /// Содержимое вложения сообщения (для отрисовки в UI).
+    DownloadAttachment { server_id: u64 },
     /// Локальная история сообщений.
     GetMessages {
         chat_id: String,
@@ -230,6 +235,7 @@ pub enum ResponseData {
     Members(Vec<ChatMember>),
     Chat(Chat),
     SendMessage(SendMessageData),
+    DownloadAttachment(DownloadAttachmentData),
     Messages(Vec<Message>),
     Message(Message),
     MarkRead(MarkReadData),
@@ -396,6 +402,49 @@ pub enum MemberRole {
     Owner,
 }
 
+/// Вложение сообщения при отправке (содержимое в base64).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AttachmentUpload {
+    /// Вид: `photo`, `video`, `file`, `voice`.
+    pub kind: String,
+    /// Имя файла.
+    pub name: String,
+    /// MIME-тип.
+    pub mime: String,
+    /// Размер в байтах.
+    pub size: u64,
+    /// Содержимое файла в base64.
+    pub data_base64: String,
+}
+
+/// Метаданные вложения сообщения (без содержимого).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct Attachment {
+    /// Вид: `photo`, `video`, `file`, `voice`.
+    pub kind: String,
+    /// Имя файла.
+    pub name: String,
+    /// MIME-тип.
+    pub mime: String,
+    /// Размер в байтах.
+    pub size: u64,
+}
+
+/// Ответ `download_attachment`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DownloadAttachmentData {
+    /// Вид: `photo`, `video`, `file`, `voice`.
+    pub kind: String,
+    /// Имя файла.
+    pub name: String,
+    /// MIME-тип.
+    pub mime: String,
+    /// Размер в байтах.
+    pub size: u64,
+    /// Содержимое файла в base64.
+    pub data_base64: String,
+}
+
 /// Объект сообщения.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Message {
@@ -404,9 +453,11 @@ pub struct Message {
     pub chat_id: String,
     pub sender_user_id: String,
     pub sender_device_id: String,
-    /// Например, `text`.
+    /// Например, `text`, `photo`, `video`, `file`, `voice`.
     pub content_kind: String,
     pub body: Option<String>,
+    /// Метаданные вложения; содержимое — через `download_attachment`.
+    pub attachment: Option<Attachment>,
     pub reply_to_server_id: Option<u64>,
     pub status: MessageStatus,
     pub created_at_ms: u64,
@@ -759,6 +810,7 @@ mod tests {
             "remove_chat_member",
             "rename_chat",
             "send_message",
+            "download_attachment",
             "get_messages",
             "fetch_history",
             "edit_message",

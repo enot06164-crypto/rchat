@@ -97,7 +97,9 @@ impl Default for ServerConfig {
             server_name: "rchat-server".to_string(),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             max_frame_bytes: rchat_proto::limits::MAX_FRAME_BYTES_DEFAULT,
-            max_message_bytes: rchat_proto::limits::MAX_MESSAGE_BYTES_DEFAULT,
+            // 256 КиБ: сообщение может нести вложение (фото/файл/голос)
+            // внутри зашифрованного payload; лимит кадра транспорта — 1 МиБ.
+            max_message_bytes: 256 * 1024,
             max_sync_page: rchat_proto::limits::MAX_SYNC_PAGE_DEFAULT,
             max_history_page: rchat_proto::limits::MAX_HISTORY_PAGE_DEFAULT,
             sync_retention_seconds: 7 * 24 * 60 * 60,

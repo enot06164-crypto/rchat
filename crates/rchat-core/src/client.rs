@@ -19,6 +19,7 @@ use crate::config::ClientConfig;
 use crate::convert;
 use crate::error::CoreError;
 use crate::events::{EventSubscription, UiEvent};
+use crate::payload::{Attachment, Payload};
 use crate::traits::{secret_keys, ClientStore, CryptoProvider, SecretStore, TransportFactory};
 use crate::types::{
     CallRecord, ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus,
@@ -843,11 +844,47 @@ impl Client {
         text: &str,
         reply_to: Option<u64>,
     ) -> Result<String, CoreError> {
-        self.start().await?;
-        self.refresh_before_compose().await;
         if text.is_empty() {
             return Err(CoreError::InvalidInput("empty message".into()));
         }
+        self.send_payload(chat_id, Payload::text(text), reply_to)
+            .await
+    }
+
+    /// Отправляет сообщение с вложением (файл, фото, видео, голос).
+    ///
+    /// Вложение едет внутри зашифрованного payload: сервер видит только
+    /// ciphertext, получатель расшифровывает конверт целиком. Текст может
+    /// быть пустым (сообщение только с вложением) — но не одновременно
+    /// пустым текстом и пустым вложением.
+    pub async fn send_attachment(
+        &self,
+        chat_id: &str,
+        text: &str,
+        attachment: Attachment,
+        reply_to: Option<u64>,
+    ) -> Result<String, CoreError> {
+        attachment.validate().map_err(CoreError::InvalidInput)?;
+        if text.is_empty() && attachment.data.is_empty() {
+            return Err(CoreError::InvalidInput("empty message".into()));
+        }
+        self.send_payload(
+            chat_id,
+            Payload::with_attachment(text, attachment),
+            reply_to,
+        )
+        .await
+    }
+
+    /// Общая часть отправки: собирает и шифрует payload, ставит его в outbox.
+    async fn send_payload(
+        &self,
+        chat_id: &str,
+        payload: Payload,
+        reply_to: Option<u64>,
+    ) -> Result<String, CoreError> {
+        self.start().await?;
+        self.refresh_before_compose().await;
         rchat_proto::validate::chat_id(chat_id)
             .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
         let chat = self
@@ -882,7 +919,7 @@ impl Client {
             fetch,
             &chat,
             &account,
-            text,
+            &payload,
             reply_to,
         )
         .await?;
@@ -897,8 +934,9 @@ impl Client {
             chat_id: chat_id.to_string(),
             sender_user_id: account.user_id.clone(),
             sender_device_id: device_id.clone(),
-            content_kind: "text".to_string(),
-            body: Some(text.to_string()),
+            content_kind: payload.content_kind(),
+            body: Some(payload.text.clone()),
+            attachment: payload.attachment.clone(),
             reply_to_server_id: reply_to,
             status: Some(MessageStatus::Pending),
             created_at_ms: now,
@@ -988,9 +1026,24 @@ impl Client {
 
         let client = self.clone();
         let fetch = move |ids: Vec<String>| async move { client.fetch_bundles(&ids).await };
-        let (request, key_shares) =
-            crate::send::compose_edit_request(&self.inner, fetch, &chat, &account, server_id, text)
-                .await?;
+        // Правка меняет только текст: вложение (если оно было) сохраняется.
+        let stored = self
+            .inner
+            .storage
+            .get_message_by_server(server_id)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("message {server_id}")))?;
+        let mut payload = Payload::text(text);
+        payload.attachment = stored.attachment;
+        let (request, key_shares) = crate::send::compose_edit_request(
+            &self.inner,
+            fetch,
+            &chat,
+            &account,
+            server_id,
+            &payload,
+        )
+        .await?;
         let response = self
             .request(proto::request::Method::EditMessage(request))
             .await?;
@@ -1017,11 +1070,13 @@ impl Client {
         } else {
             rchat_proto::now_ms()
         };
-        // Локально знаем точный текст: не дожидаемся события синхронизации.
+        // Локально знаем точный текст и вложение: не дожидаемся события
+        // синхронизации.
         self.apply_local(&[SyncApply::EditMessage {
             server_id,
             content_kind: view.content_kind,
             body: Some(text.to_string()),
+            attachment: payload.attachment,
             edited_at_ms,
         }])
         .await?;
@@ -1085,6 +1140,14 @@ impl Client {
         let cursor = self.inner.storage.get_sync_cursor().await?;
         self.inner.storage.apply_sync_batch(ops, cursor).await?;
         Ok(())
+    }
+
+    /// Локальная запись сообщения по `server_id` (с вложением, если оно есть).
+    pub async fn message_by_server_id(
+        &self,
+        server_id: u64,
+    ) -> Result<Option<MessageRecord>, CoreError> {
+        Ok(self.inner.storage.get_message_by_server(server_id).await?)
     }
 
     async fn load_message_record(&self, server_id: u64) -> Result<MessageRecord, CoreError> {

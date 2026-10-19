@@ -1,5 +1,6 @@
 //! Конвертация между wire-типами (`rchat-proto`) и доменными записями клиента.
 
+use crate::payload::Payload;
 use rchat_proto::proto;
 
 use crate::error::CoreError;
@@ -134,17 +135,25 @@ pub fn chat_from_proto(
     Ok((record, members))
 }
 
-/// Преобразует сообщение протокола в доменную запись. `body` — результат
-/// расшифрования (или plaintext dev-режима); `None` — расшифровать не удалось.
-pub fn message_from_proto(message: &proto::Message, body: Option<String>) -> MessageRecord {
+/// Преобразует сообщение протокола в доменную запись. `payload` — результат
+/// расшифрования (или plaintext dev-режима): конверт с текстом и вложением;
+/// `None` — расшифровать не удалось.
+pub fn message_from_proto(message: &proto::Message, payload: Option<Payload>) -> MessageRecord {
+    let body = payload.as_ref().map(|p| p.text.clone());
+    let attachment = payload.as_ref().and_then(|p| p.attachment.clone());
+    let content_kind = payload
+        .as_ref()
+        .map(|p| p.content_kind())
+        .unwrap_or_else(|| message.content_kind.clone());
     MessageRecord {
         local_id: server_message_local_id(message.server_id),
         server_id: Some(message.server_id),
         chat_id: message.chat_id.clone(),
         sender_user_id: message.sender_user_id.clone(),
         sender_device_id: message.sender_device_id.clone(),
-        content_kind: message.content_kind.clone(),
+        content_kind,
         body,
+        attachment,
         reply_to_server_id: if message.reply_to_server_id == 0 {
             None
         } else {

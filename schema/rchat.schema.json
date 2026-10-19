@@ -45,6 +45,71 @@
         }
       }
     },
+    "Attachment": {
+      "description": "Метаданные вложения сообщения (без содержимого).",
+      "type": "object",
+      "required": [
+        "kind",
+        "mime",
+        "name",
+        "size"
+      ],
+      "properties": {
+        "kind": {
+          "description": "Вид: `photo`, `video`, `file`, `voice`.",
+          "type": "string"
+        },
+        "mime": {
+          "description": "MIME-тип.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Имя файла.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Размер в байтах.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "AttachmentUpload": {
+      "description": "Вложение сообщения при отправке (содержимое в base64).",
+      "type": "object",
+      "required": [
+        "data_base64",
+        "kind",
+        "mime",
+        "name",
+        "size"
+      ],
+      "properties": {
+        "data_base64": {
+          "description": "Содержимое файла в base64.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Вид: `photo`, `video`, `file`, `voice`.",
+          "type": "string"
+        },
+        "mime": {
+          "description": "MIME-тип.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Имя файла.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Размер в байтах.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
     "Avatar": {
       "description": "Визуальные метаданные аватара.",
       "type": "object",
@@ -751,14 +816,24 @@
           "type": "object",
           "required": [
             "@type",
-            "chat_id",
-            "text"
+            "chat_id"
           ],
           "properties": {
             "@type": {
               "type": "string",
               "enum": [
                 "send_message"
+              ]
+            },
+            "attachment": {
+              "description": "Вложение (файл, фото, видео, голос). Едет внутри зашифрованного payload: сервер не видит содержимое.",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AttachmentUpload"
+                },
+                {
+                  "type": "null"
+                }
               ]
             },
             "chat_id": {
@@ -773,8 +848,32 @@
               "minimum": 0.0
             },
             "text": {
-              "description": "Непустой текст (пробельные строки отклоняются).",
-              "type": "string"
+              "description": "Текст сообщения; может быть пустым, если есть вложение.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Содержимое вложения сообщения (для отрисовки в UI).",
+          "type": "object",
+          "required": [
+            "@type",
+            "server_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "download_attachment"
+              ]
+            },
+            "server_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
             }
           }
         },
@@ -1200,6 +1299,41 @@
         }
       }
     },
+    "DownloadAttachmentData": {
+      "description": "Ответ `download_attachment`.",
+      "type": "object",
+      "required": [
+        "data_base64",
+        "kind",
+        "mime",
+        "name",
+        "size"
+      ],
+      "properties": {
+        "data_base64": {
+          "description": "Содержимое файла в base64.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Вид: `photo`, `video`, `file`, `voice`.",
+          "type": "string"
+        },
+        "mime": {
+          "description": "MIME-тип.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Имя файла.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Размер в байтах.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
     "E2eDecryptFailedData": {
       "description": "`data` события `e2e_decrypt_failed`.",
       "type": "object",
@@ -1496,6 +1630,17 @@
         "status"
       ],
       "properties": {
+        "attachment": {
+          "description": "Метаданные вложения; содержимое — через `download_attachment`.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Attachment"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "body": {
           "type": [
             "string",
@@ -1506,7 +1651,7 @@
           "type": "string"
         },
         "content_kind": {
-          "description": "Например, `text`.",
+          "description": "Например, `text`, `photo`, `video`, `file`, `voice`.",
           "type": "string"
         },
         "created_at_ms": {
@@ -1900,6 +2045,9 @@
         },
         {
           "$ref": "#/definitions/SendMessageData"
+        },
+        {
+          "$ref": "#/definitions/DownloadAttachmentData"
         },
         {
           "type": "array",

@@ -4,6 +4,8 @@
 
 use rchat_proto::proto::{ChatKind, ChatMemberRole, E2eMode};
 
+use crate::payload::Attachment;
+
 /// Локальный аккаунт (профиль) на этом устройстве.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalAccount {
@@ -123,6 +125,8 @@ pub struct MessageRecord {
     pub content_kind: String,
     /// Расшифрованный текст. Локальная копия; на сервер не отправляется.
     pub body: Option<String>,
+    /// Вложение (файл/фото/видео/голос), если оно есть.
+    pub attachment: Option<Attachment>,
     pub reply_to_server_id: Option<u64>,
     /// Статус отправки; заполнен только для собственных сообщений.
     pub status: Option<MessageStatus>,
@@ -204,6 +208,8 @@ pub enum SyncApply {
         content_kind: String,
         /// `None` — расшифровать не удалось; сохраняется прежний текст.
         body: Option<String>,
+        /// Новое вложение (если правка пришла с вложением).
+        attachment: Option<Attachment>,
         edited_at_ms: u64,
     },
     DeleteMessage {

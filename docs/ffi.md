@@ -289,7 +289,8 @@ rchat_destroy(handle);
 
 | `@type` | Поля | `data` |
 | --- | --- | --- |
-| `send_message` | `chat_id`, `text`, `reply_to_server_id?` | `{local_id}` |
+| `send_message` | `chat_id`, `text?`, `attachment?`, `reply_to_server_id?` | `{local_id}` |
+| `download_attachment` | `server_id` | `{kind, name, mime, size, data_base64}` |
 | `get_messages` | `chat_id`, `before_server_id?`, `limit?` | массив сообщений (локально) |
 | `fetch_history` | `chat_id`, `before_server_id?`, `limit?` | массив сообщений (с сервера) |
 | `edit_message` | `chat_id`, `server_id`, `text` | сообщение |
@@ -307,6 +308,53 @@ rchat_destroy(handle);
 `mark_read` без `up_to_server_id` использует `last_server_id` чата; если
 отмечать нечего, возвращает `0`.
 
+### 5.4. Вложения (файл, фото, видео, голос)
+
+Вложение едет **внутри зашифрованного payload** сообщения: конверт
+`{v, t, a}` шифруется целиком (olm/megolm), поэтому сервер не видит ни текст,
+ни байты файла. Содержимое хранится локально в профиле устройства, поэтому
+после перезапуска клиента вложение остаётся доступным.
+
+`send_message` с вложением:
+
+```json
+{
+  "@type": "send_message",
+  "chat_id": "<chat_id>",
+  "text": "смотри",
+  "attachment": {
+    "kind": "photo",
+    "name": "pic.png",
+    "mime": "image/png",
+    "size": 20480,
+    "data_base64": "<base64>"
+  }
+}
+```
+
+- `kind`: `photo`, `video`, `file`, `voice`;
+- `text` можно опустить, если есть вложение (но не пустые оба);
+- `data_base64` — содержимое файла; лимит вложения — 128 КиБ
+  (`MAX_ATTACHMENT_BYTES`), он же ограничен лимитом кадра сообщения сервера
+  (`max_message_bytes`, по умолчанию 256 КиБ);
+- при пересборке outbox (новые prekey) конверт шифруется заново целиком.
+
+`get_messages`/`fetch_history` возвращают в объекте сообщения **метаданные**
+вложения (без байтов), чтобы не гонять содержимое списком:
+
+```json
+"attachment": {"kind": "photo", "name": "pic.png", "mime": "image/png", "size": 20480}
+```
+
+Содержимое забирается отдельно:
+
+```json
+{"@type": "download_attachment", "server_id": 42}
+```
+
+Ответ: `{"kind": "photo", "name": "pic.png", "mime": "image/png", "size": 20480,
+"data_base64": "..."}`.
+
 Объект сообщения:
 
 ```json
@@ -318,6 +366,7 @@ rchat_destroy(handle);
   "sender_device_id": "<device_id>",
   "content_kind": "text",
   "body": "привет",
+  "attachment": null,
   "reply_to_server_id": null,
   "status": "none",
   "created_at_ms": 1700000000000,
@@ -326,8 +375,10 @@ rchat_destroy(handle);
 }
 ```
 
-`server_id`, `body`, `reply_to_server_id` — `null`, если значение неизвестно
-(например, сообщение ещё в очереди или было удалено). `status`:
+`server_id`, `body`, `attachment`, `reply_to_server_id` — `null`, если значение
+неизвестно (например, сообщение ещё в очереди или было удалено). `content_kind`
+для вложения равен его виду (`photo`, `video`, `file`, `voice`), для текста —
+`text`. `status`:
 `pending`, `sending`, `sent`, `failed`, `none` (для входящих сообщений).
 
 Объект receipt:

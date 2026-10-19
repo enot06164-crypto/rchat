@@ -16,6 +16,7 @@ use crate::client::{Command, Inner, LoopState, SessionInfo};
 use crate::convert;
 use crate::error::{rejected_from, CoreError};
 use crate::events::UiEvent;
+use crate::payload::Payload;
 use crate::traits::{secret_keys, CryptoProvider, PeerDevice, Transport};
 use crate::types::{
     ConnectionState, LocalAccount, MessageRecord, MessageStatus, OutboxState, ReceiptRecord,
@@ -496,10 +497,18 @@ impl Ctx<'_> {
                     CoreError::Protocol("message edited event without message".into())
                 })?;
                 let body = self.decrypt_message(message).await;
+                let (body, attachment) = match &body {
+                    Some(payload) => (Some(payload.text.clone()), payload.attachment.clone()),
+                    None => (None, None),
+                };
                 Ok(SyncApply::EditMessage {
                     server_id: message.server_id,
-                    content_kind: message.content_kind.clone(),
+                    content_kind: body
+                        .as_ref()
+                        .map(|_| message.content_kind.clone())
+                        .unwrap_or_else(|| message.content_kind.clone()),
                     body,
+                    attachment,
                     edited_at_ms: message.edited_at_ms,
                 })
             }
@@ -629,7 +638,7 @@ impl Ctx<'_> {
     /// Расшифровывает содержимое сообщения для этого устройства.
     /// Возвращает `None`, если расшифровка невозможна: сообщение остаётся
     /// видимым, но без текста (контролируемая деградация, без обхода проверок).
-    async fn decrypt_message(&mut self, message: &proto::Message) -> Option<String> {
+    async fn decrypt_message(&mut self, message: &proto::Message) -> Option<Payload> {
         // Групповое сообщение проверяем до режима E2E: содержимое — общий
         // megolm-ciphertext, персональная копия (если есть) несёт ключ сессии.
         // Копии может не быть вовсе — ключ выдан более ранним сообщением.
@@ -650,7 +659,7 @@ impl Ctx<'_> {
             return if message.plaintext_dev.is_empty() {
                 None
             } else {
-                Some(message.plaintext_dev.clone())
+                Some(Payload::decode(message.plaintext_dev.as_bytes()))
             };
         }
         let crypto = match self.inner.crypto.as_ref() {
@@ -669,16 +678,7 @@ impl Ctx<'_> {
         let sender = self.sender_peer_for(message).await?;
         let encrypted = self.encrypted_copy_for(message);
         match crypto.decrypt_from(&sender, &encrypted).await {
-            Ok(plaintext) => match String::from_utf8(plaintext) {
-                Ok(text) => Some(text),
-                Err(_) => {
-                    warn!(
-                        server_id = message.server_id,
-                        "decrypted message is not utf-8"
-                    );
-                    None
-                }
-            },
+            Ok(plaintext) => Some(Payload::decode(&plaintext)),
             Err(error) => {
                 warn!(error = %error, server_id = message.server_id, "decrypt failed");
                 self.inner.emit(UiEvent::E2eDecryptFailed {
@@ -752,7 +752,7 @@ impl Ctx<'_> {
         &mut self,
         message: &proto::Message,
         crypto: &Arc<dyn CryptoProvider>,
-    ) -> Option<String> {
+    ) -> Option<Payload> {
         let payload_kind = proto::RecipientPayloadKind::try_from(message.recipient_payload_kind)
             .unwrap_or(proto::RecipientPayloadKind::Message);
         // Своё собственное устройство-отправитель не имеет входящей сессии
@@ -809,16 +809,7 @@ impl Ctx<'_> {
             )
             .await
         {
-            Ok(plaintext) => match String::from_utf8(plaintext) {
-                Ok(text) => Some(text),
-                Err(_) => {
-                    warn!(
-                        server_id = message.server_id,
-                        "decrypted message is not utf-8"
-                    );
-                    None
-                }
-            },
+            Ok(plaintext) => Some(Payload::decode(&plaintext)),
             Err(error) => {
                 // Ключ сессии мог ещё не дойти (например, история до входа
                 // в чат) или сообщение повреждено: показываем без текста.
@@ -1425,10 +1416,13 @@ impl Ctx<'_> {
             .get_message(&item.local_id)
             .await?
             .ok_or_else(|| CoreError::Internal("outbox message missing".into()))?;
-        let text = message
-            .body
-            .clone()
-            .ok_or_else(|| CoreError::Internal("message body missing; cannot rebuild".into()))?;
+        let mut payload =
+            Payload::text(message.body.clone().ok_or_else(|| {
+                CoreError::Internal("message body missing; cannot rebuild".into())
+            })?);
+        // Вложение перешифровывается вместе с текстом: конверт едет в одном
+        // ciphertext, поэтому пересборка outbox обязана его учесть.
+        payload.attachment = message.attachment.clone();
         let chat = self
             .inner
             .storage
@@ -1463,7 +1457,7 @@ impl Ctx<'_> {
             fetch,
             &chat,
             &account,
-            &text,
+            &payload,
             message.reply_to_server_id,
         )
         .await?;

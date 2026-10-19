@@ -277,6 +277,71 @@ pub fn assert_server_has_no_plaintext(db_path: &Path, needle: &str) -> (usize, u
     (message_count, recipient_count)
 }
 
+/// Ждёт, пока в чате появится не меньше `count` сообщений, и возвращает
+/// последнее из них.
+pub async fn wait_for_message(
+    storage: &Arc<ClientSqliteStorage>,
+    chat_id: &str,
+    count: usize,
+) -> MessageRecord {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        let messages = storage
+            .list_messages(chat_id, None, 100)
+            .await
+            .expect("list messages");
+        if messages.len() >= count {
+            // Список отдаётся новыми первыми — самое свежее сообщение первое.
+            return messages[0].clone();
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "не дождались {count} сообщений в чате {chat_id}"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// Проверяет, что сервер нигде не хранит переданные байты (содержимое
+/// вложения должно ехать только внутри шифротекста).
+pub fn assert_server_has_no_bytes(db_path: &Path, needle: &[u8]) {
+    if needle.is_empty() {
+        return;
+    }
+    let conn = Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .expect("open server db");
+    // Открытый текст (только для dev-чатов) не должен содержать байты файла.
+    let mut stmt = conn
+        .prepare("SELECT plaintext_dev FROM messages")
+        .expect("prepare messages");
+    let rows = stmt
+        .query_map([], |row| row.get::<_, Option<String>>(0))
+        .expect("query messages");
+    for row in rows {
+        if let Some(text) = row.expect("row") {
+            assert!(
+                !contains_bytes(text.as_bytes(), needle),
+                "сервер хранит содержимое вложения открытым текстом"
+            );
+        }
+    }
+
+    // Шифротекст получателей — тоже без открытых байтов.
+    let mut stmt = conn
+        .prepare("SELECT ciphertext FROM message_recipients")
+        .expect("prepare recipients");
+    let rows = stmt
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))
+        .expect("query recipients");
+    for row in rows {
+        let ciphertext = row.expect("row");
+        assert!(
+            !contains_bytes(&ciphertext, needle),
+            "сервер хранит содержимое вложения в открытом шифротексте"
+        );
+    }
+}
+
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())

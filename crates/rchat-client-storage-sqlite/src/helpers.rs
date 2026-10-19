@@ -1,6 +1,7 @@
 //! Преобразования значений SQLite ↔ доменные типы и общие фрагменты SQL.
 
 use rchat_core::error::StorageError;
+use rchat_core::payload::{Attachment, AttachmentKind};
 use rchat_core::types::{
     ChatRecord, DeviceRecord, MemberRecord, MessageRecord, MessageStatus, OutboxRecord,
     ReceiptRecord, UserRecord,
@@ -69,6 +70,23 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
     let reply_to: Option<i64> = row.get(7)?;
     let edited: Option<i64> = row.get(10)?;
     let deleted: Option<i64> = row.get(11)?;
+    let attachment_kind: Option<String> = row.get(12)?;
+    let attachment_name: Option<String> = row.get(13)?;
+    let attachment_mime: Option<String> = row.get(14)?;
+    let attachment_size: Option<i64> = row.get(15)?;
+    let attachment_data: Option<Vec<u8>> = row.get(16)?;
+    let attachment = match (attachment_kind, attachment_data) {
+        (Some(kind), Some(data)) => Some(Attachment {
+            kind: AttachmentKind::parse(&kind).unwrap_or(AttachmentKind::File),
+            name: attachment_name.unwrap_or_default(),
+            mime: attachment_mime.unwrap_or_default(),
+            size: attachment_size
+                .map(from_sql_u64)
+                .unwrap_or(data.len() as u64),
+            data,
+        }),
+        _ => None,
+    };
     Ok(MessageRecord {
         local_id: row.get(0)?,
         server_id: server_id.map(from_sql_u64),
@@ -77,6 +95,7 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
         sender_device_id: row.get(4)?,
         content_kind: row.get(5)?,
         body: row.get(6)?,
+        attachment,
         reply_to_server_id: reply_to.map(from_sql_u64),
         status: status.and_then(MessageStatus::from_i64),
         created_at_ms: from_sql_u64(row.get(9)?),
@@ -87,7 +106,8 @@ pub(crate) fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mess
 
 pub(crate) const MESSAGE_COLUMNS: &str = "local_id, server_id, chat_id, sender_user_id, \
      sender_device_id, content_kind, body, reply_to_server_id, status, created_at_ms, \
-     edited_at_ms, deleted_at_ms";
+     edited_at_ms, deleted_at_ms, attachment_kind, attachment_name, attachment_mime, \
+     attachment_size, attachment_data";
 
 /// Строка `outbox` → доменная запись. Позиции колонок фиксированы
 /// константой [`OUTBOX_COLUMNS`].

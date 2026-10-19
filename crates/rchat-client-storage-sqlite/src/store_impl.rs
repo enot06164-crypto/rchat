@@ -707,8 +707,12 @@ impl Storage for ClientSqliteStorage {
 // ---------------------------------------------------------------------------
 
 fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), StorageError> {
+    let attachment_size = match &message.attachment {
+        Some(attachment) => Some(to_sql_u64("attachment size", attachment.size)?),
+        None => None,
+    };
     conn.execute(
-        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"),
+        &format!("INSERT INTO messages({MESSAGE_COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"),
         rusqlite::params![
             message.local_id,
             opt_to_sql_u64(message.server_id),
@@ -722,6 +726,11 @@ fn insert_message_sql(conn: &Connection, message: &MessageRecord) -> Result<(), 
             to_sql_u64("insert_message created", message.created_at_ms)?,
             opt_to_sql_u64(message.edited_at_ms),
             opt_to_sql_u64(message.deleted_at_ms),
+            message.attachment.as_ref().map(|a| a.kind.as_str()),
+            message.attachment.as_ref().map(|a| a.name.as_str()),
+            message.attachment.as_ref().map(|a| a.mime.as_str()),
+            attachment_size,
+            message.attachment.as_ref().map(|a| a.data.as_slice()),
         ],
     )
     .map_err(|e| map_sql("insert_message", e))?;
@@ -869,10 +878,14 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
     match apply {
         SyncApply::UpsertChat { chat, members } => upsert_chat_sql(tx, chat, members),
         SyncApply::InsertMessage(message) => {
+            let attachment_size = match &message.attachment {
+                Some(attachment) => Some(to_sql_u64("attachment size", attachment.size)?),
+                None => None,
+            };
             tx.execute(
                 &format!(
                     "INSERT INTO messages({MESSAGE_COLUMNS})
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                      ON CONFLICT DO NOTHING"
                 ),
                 rusqlite::params![
@@ -888,6 +901,11 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                     to_sql_u64("insert message created", message.created_at_ms)?,
                     opt_to_sql_u64(message.edited_at_ms),
                     opt_to_sql_u64(message.deleted_at_ms),
+                    message.attachment.as_ref().map(|a| a.kind.as_str()),
+                    message.attachment.as_ref().map(|a| a.name.as_str()),
+                    message.attachment.as_ref().map(|a| a.mime.as_str()),
+                    attachment_size,
+                    message.attachment.as_ref().map(|a| a.data.as_slice()),
                 ],
             )
             .map_err(|e| map_sql("sync insert_message", e))?;
@@ -910,12 +928,22 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
             server_id,
             content_kind,
             body,
+            attachment,
             edited_at_ms,
         } => {
+            let attachment_size = match &attachment {
+                Some(item) => Some(to_sql_u64("sync edit attachment size", item.size)?),
+                None => None,
+            };
             tx.execute(
                 "UPDATE messages
                  SET content_kind = ?2,
                      body = COALESCE(?3, body),
+                     attachment_kind = COALESCE(?5, attachment_kind),
+                     attachment_name = COALESCE(?6, attachment_name),
+                     attachment_mime = COALESCE(?7, attachment_mime),
+                     attachment_size = COALESCE(?8, attachment_size),
+                     attachment_data = COALESCE(?9, attachment_data),
                      edited_at_ms = ?4
                  WHERE server_id = ?1",
                 rusqlite::params![
@@ -923,6 +951,11 @@ fn apply_one(tx: &Transaction<'_>, apply: &SyncApply) -> Result<(), StorageError
                     content_kind,
                     body,
                     to_sql_u64("sync edit edited_at", *edited_at_ms)?,
+                    attachment.as_ref().map(|a| a.kind.as_str()),
+                    attachment.as_ref().map(|a| a.name.as_str()),
+                    attachment.as_ref().map(|a| a.mime.as_str()),
+                    attachment_size,
+                    attachment.as_ref().map(|a| a.data.as_slice()),
                 ],
             )
             .map_err(|e| map_sql("sync edit_message", e))?;

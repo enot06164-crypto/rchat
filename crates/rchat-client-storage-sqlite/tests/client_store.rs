@@ -53,6 +53,7 @@ fn outgoing_message(local_id: &str, chat_id: &str) -> MessageRecord {
         sender_user_id: "u_alice".to_string(),
         sender_device_id: "d_alice".to_string(),
         content_kind: "text".to_string(),
+        attachment: None,
         body: Some(format!("привет {local_id}")),
         reply_to_server_id: None,
         status: Some(MessageStatus::Pending),
@@ -86,6 +87,7 @@ fn incoming_message(server_id: u64, chat_id: &str) -> MessageRecord {
         sender_user_id: "u_bob".to_string(),
         sender_device_id: "d_bob".to_string(),
         content_kind: "text".to_string(),
+        attachment: None,
         body: Some(format!("ответ {server_id}")),
         reply_to_server_id: None,
         status: None,
@@ -371,6 +373,7 @@ async fn sync_batch_applies_edits_receipts_and_device_changes() {
             server_id: 1,
             content_kind: "text".to_string(),
             body: Some("исправлено".to_string()),
+            attachment: None,
             edited_at_ms: 9_000,
         },
         SyncApply::UpsertReceipt(ReceiptRecord {

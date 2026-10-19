@@ -8,6 +8,7 @@ use rchat_proto::proto;
 
 use crate::client::Inner;
 use crate::error::{CoreError, CryptoError};
+use crate::payload::Payload;
 use crate::traits::PeerDevice;
 use crate::types::{ChatRecord, DeviceRecord, LocalAccount};
 
@@ -76,7 +77,7 @@ pub(crate) async fn compose_content<F, Fut>(
     fetch_bundles: F,
     chat: &ChatRecord,
     account: &LocalAccount,
-    text: &str,
+    payload: &Payload,
 ) -> Result<ComposedContent, CoreError>
 where
     F: FnOnce(Vec<String>) -> Fut,
@@ -84,6 +85,10 @@ where
 {
     let mut recipients: Vec<proto::RecipientPayload> = Vec::new();
     let mut plaintext_dev = String::new();
+    // Конверт (текст + вложение) шифруется целиком: байты файла не видны
+    // серверу, как и текст.
+    let payload_bytes = payload.encode();
+    let content_kind = payload.content_kind();
 
     match chat.e2e_mode {
         proto::E2eMode::OlmV1 => {
@@ -151,7 +156,7 @@ where
                 // Группа: один общий megolm-ciphertext; recipients несут
                 // только ключ сессии тем устройствам, кому он ещё не выдан.
                 let encryption = crypto
-                    .group_encrypt(&chat.chat_id, text.as_bytes(), true)
+                    .group_encrypt(&chat.chat_id, &payload_bytes, true)
                     .await?;
                 let already = inner
                     .storage
@@ -193,7 +198,7 @@ where
                     }
                 }
                 return Ok(ComposedContent {
-                    content_kind: "text".to_string(),
+                    content_kind,
                     recipients,
                     plaintext_dev,
                     group_ciphertext: encryption.ciphertext,
@@ -224,7 +229,7 @@ where
                 // внутри encrypt_for — явная ошибка без fallback на plaintext.
             }
 
-            let encrypted = crypto.encrypt_for(&targets, text.as_bytes()).await?;
+            let encrypted = crypto.encrypt_for(&targets, &payload_bytes).await?;
             for message in &encrypted {
                 recipients.push(proto::RecipientPayload {
                     device_id: message.device_id.clone(),
@@ -245,7 +250,7 @@ where
                     "sending plaintext in explicitly plaintext dev chat"
                 );
             }
-            plaintext_dev = text.to_string();
+            plaintext_dev = String::from_utf8_lossy(&payload_bytes).into_owned();
         }
         proto::E2eMode::Unspecified => {
             return Err(CoreError::Protocol(
@@ -255,7 +260,7 @@ where
     }
 
     Ok(ComposedContent {
-        content_kind: "text".to_string(),
+        content_kind,
         recipients,
         plaintext_dev,
         group_ciphertext: Vec::new(),
@@ -273,14 +278,14 @@ pub(crate) async fn compose_send_request<F, Fut>(
     fetch_bundles: F,
     chat: &ChatRecord,
     account: &LocalAccount,
-    text: &str,
+    payload: &Payload,
     reply_to: Option<u64>,
 ) -> Result<(proto::SendMessageRequest, Vec<String>), CoreError>
 where
     F: FnOnce(Vec<String>) -> Fut,
     Fut: std::future::Future<Output = Result<Vec<PeerDevice>, CoreError>>,
 {
-    let content = compose_content(inner, fetch_bundles, chat, account, text).await?;
+    let content = compose_content(inner, fetch_bundles, chat, account, payload).await?;
     let request = proto::SendMessageRequest {
         chat_id: chat.chat_id.clone(),
         client_message_id: local_id.to_string(),
@@ -303,13 +308,13 @@ pub(crate) async fn compose_edit_request<F, Fut>(
     chat: &ChatRecord,
     account: &LocalAccount,
     server_id: u64,
-    text: &str,
+    payload: &Payload,
 ) -> Result<(proto::EditMessageRequest, Vec<String>), CoreError>
 where
     F: FnOnce(Vec<String>) -> Fut,
     Fut: std::future::Future<Output = Result<Vec<PeerDevice>, CoreError>>,
 {
-    let content = compose_content(inner, fetch_bundles, chat, account, text).await?;
+    let content = compose_content(inner, fetch_bundles, chat, account, payload).await?;
     let request = proto::EditMessageRequest {
         server_id,
         content_kind: content.content_kind,

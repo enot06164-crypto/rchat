@@ -1,10 +1,12 @@
-import { Match, Show, Switch, createSignal, onCleanup } from "solid-js";
+import { Match, Show, Switch, createEffect, createSignal, onCleanup } from "solid-js";
 import {
   Check,
   CheckCheck,
   CircleAlert,
   Clock,
   Copy,
+  Download,
+  FileText,
   Forward,
   Reply,
   Trash2,
@@ -16,6 +18,7 @@ import {
   setReplyTo,
   state,
 } from "../../services/store";
+import { attachmentUrl, formatSize } from "../../services/attachments";
 import { Avatar } from "../Avatar";
 import { formatTime } from "../../utils/format";
 
@@ -54,13 +57,15 @@ interface MenuPos {
 }
 
 /**
- * Пузырь сообщения в стиле Telegram WebK (Amethyst Dark):
+ * Пузырь сообщения Telegram WebK (Amethyst Dark):
  * - Группировка последовательных сообщений одного автора (`.bubble--group-first`,
  *   `.bubble--group-last`) со скруглениями 15px / 5px (по мотивам WebK).
  * - Собственный SVG-хвостик (`11×20`) у последнего сообщения группы: угол
  *   пузыря на стороне хвостика прямой, скругление даёт сам хвостик.
+ * - Вложение (фото/видео/файл/голос) — содержимое подтягивается из ядра
+ *   отдельной командой и кэшируется.
  * - Обтекаемый штамп времени и галочек (`.bubble__meta`) внутри `.bubble__body`.
- * - Двойной клик — быстрый реплай; ПКМ — контекстное меню с `backdrop-filter: blur(25px)`.
+ * - Двойной клик — быстрый реплай; ПКМ — контекстное меню.
  */
 export function MessageBubble(props: {
   message: Message;
@@ -78,6 +83,7 @@ export function MessageBubble(props: {
   const quoted = () => findQuoted(props.message);
   const firstInGroup = () => props.isFirstInGroup ?? true;
   const lastInGroup = () => props.isLastInGroup ?? true;
+  const attachment = () => props.message.attachment;
 
   const senderAvatar = () => {
     const members = state.members[props.message.chat_id];
@@ -86,9 +92,6 @@ export function MessageBubble(props: {
     const chat = state.chats.find((c) => c.chat_id === props.message.chat_id);
     return chat?.avatar;
   };
-
-  // Контекстное меню (ПКМ по пузырю); закрывается кликом вне меню.
-  const [menuPos, setMenuPos] = createSignal<MenuPos | null>(null);
 
   // Кнопка быстрого ответа показывается при наведении на пузырь. Кнопка живёт
   // за пределами пузыря, поэтому наведения на строку недостаточно: курсор
@@ -112,6 +115,8 @@ export function MessageBubble(props: {
     if (hideTimer !== undefined) clearTimeout(hideTimer);
   });
 
+  // Контекстное меню (ПКМ по пузырю); закрывается кликом вне меню.
+  const [menuPos, setMenuPos] = createSignal<MenuPos | null>(null);
   const openMenu = (event: MouseEvent): void => {
     event.preventDefault();
     setMenuPos({
@@ -155,7 +160,6 @@ export function MessageBubble(props: {
           </Show>
         </div>
       </Show>
-
       <div
         classList={{
           bubble: true,
@@ -165,6 +169,7 @@ export function MessageBubble(props: {
           "bubble--group-first": firstInGroup(),
           "bubble--group-last": lastInGroup(),
           "bubble--active": menuPos() !== null,
+          "bubble--has-media": attachment() !== null && !deleted(),
         }}
         onContextMenu={openMenu}
         onDblClick={() => {
@@ -182,7 +187,6 @@ export function MessageBubble(props: {
             onMouseEnter={showReply}
             onMouseLeave={hideReply}
             onClick={() => {
-              // Клик по невидимой кнопке (курсор в поле мимо пузыря) — игнор.
               if (!hovered()) return;
               setReplyTo(props.message);
             }}
@@ -190,6 +194,7 @@ export function MessageBubble(props: {
             <Reply size={16} />
           </button>
         </Show>
+
         <Show when={!own() && props.isGroup && props.showAuthor}>
           <span
             class="bubble__author"
@@ -223,9 +228,31 @@ export function MessageBubble(props: {
           </div>
         </Show>
 
-        <div class="bubble__body">
-          {body()}
-          <span class="bubble__meta">
+        <Show when={attachment() !== null && !deleted()}>
+          <AttachmentView message={props.message} />
+        </Show>
+
+        <Show when={body() !== ""}>
+          <div class="bubble__body">
+            {body()}
+            <span class="bubble__meta">
+              <span class="bubble__time">
+                {formatTime(props.message.created_at_ms)}
+              </span>
+              <Show when={own() && !deleted()}>
+                <span class="bubble__status">
+                  <StatusIcon
+                    status={props.message.status}
+                    serverId={props.message.server_id}
+                    readUpTo={readUpToFor(props.message.chat_id)}
+                  />
+                </span>
+              </Show>
+            </span>
+          </div>
+        </Show>
+        <Show when={body() === ""}>
+          <div class="bubble__meta bubble__meta--alone">
             <span class="bubble__time">
               {formatTime(props.message.created_at_ms)}
             </span>
@@ -238,25 +265,9 @@ export function MessageBubble(props: {
                 />
               </span>
             </Show>
-          </span>
-        </div>
+          </div>
+        </Show>
       </div>
-
-      {/* Хвостик (слой ПОД пузырём: скруглённый угол «дорисовывается» хвостиком).
-          Форма наша — по мотивам Telegram WebK, где угол на стороне хвостика
-          прямой, а кривую даёт сам хвостик. */}
-      <Show when={lastInGroup()}>
-        <svg
-          class="bubble__tail"
-          width="11"
-          height="20"
-          viewBox="0 0 11 20"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-        >
-          <path d="M11 0 C11 10 6 16 0 20 L11 20 Z" />
-        </svg>
-      </Show>
 
       <Show when={menuPos() !== null}>
         <div
@@ -319,6 +330,100 @@ export function MessageBubble(props: {
           </Show>
         </div>
       </Show>
+    </div>
+  );
+}
+
+/** Содержимое вложения: фото, видео, файл или голосовое. */
+function AttachmentView(props: { message: Message }) {
+  const [url, setUrl] = createSignal<string | null>(null);
+  const [failed, setFailed] = createSignal(false);
+
+  const kind = () => props.message.attachment?.kind ?? "file";
+
+  // Содержимое тянем из ядра, когда у сообщения появился server_id: у
+  // оптимистичного сообщения его ещё нет, а после отправки приходит echo.
+  createEffect(() => {
+    const message = props.message;
+    const serverId = message.server_id;
+    if (serverId === null) return;
+    void attachmentUrl(message).then((value) => {
+      if (value === null) {
+        setFailed(true);
+        return;
+      }
+      setFailed(false);
+      setUrl(value);
+    });
+  });
+
+  return (
+    <div class="bubble__attach">
+      <Switch>
+        <Match when={kind() === "photo"}>
+          <Show
+            when={url() !== null}
+            fallback={<div class="bubble__attach-skeleton">Загрузка фото…</div>}
+          >
+            <img
+              class="bubble__image"
+              src={url() ?? ""}
+              alt={props.message.attachment?.name ?? "фото"}
+              onError={() => setFailed(true)}
+            />
+          </Show>
+        </Match>
+        <Match when={kind() === "video"}>
+          <Show
+            when={url() !== null}
+            fallback={<div class="bubble__attach-skeleton">Загрузка видео…</div>}
+          >
+            <video
+              class="bubble__video"
+              src={url() ?? ""}
+              controls
+              preload="metadata"
+            />
+          </Show>
+        </Match>
+        <Match when={kind() === "voice"}>
+          <Show
+            when={url() !== null}
+            fallback={<div class="bubble__attach-skeleton">Загрузка голосового…</div>}
+          >
+            <audio class="bubble__voice" src={url() ?? ""} controls />
+          </Show>
+        </Match>
+        <Match when={true}>
+          <div class="bubble__file">
+            <span class="bubble__file-icon">
+              <FileText size={20} />
+            </span>
+            <div class="bubble__file-body">
+              <span class="bubble__file-name">
+                {props.message.attachment?.name ?? "файл"}
+              </span>
+              <span class="bubble__file-size">
+                {formatSize(props.message.attachment?.size ?? 0)}
+              </span>
+            </div>
+            <Show when={url() !== null}>
+              <a
+                class="bubble__file-download"
+                href={url() ?? ""}
+                download={props.message.attachment?.name ?? "file"}
+                title="Скачать"
+                aria-label="Скачать"
+              >
+                <Download size={18} />
+              </a>
+            </Show>
+            <Show when={failed()}>
+              <span class="bubble__file-size">не удалось загрузить</span>
+            </Show>
+          </div>
+        </Match>
+      </Switch>
     </div>
   );
 }

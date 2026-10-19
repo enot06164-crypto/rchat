@@ -105,6 +105,7 @@ fn apply_op(inner: &mut Inner, apply: &SyncApply) {
             content_kind,
             body,
             edited_at_ms,
+            attachment: _,
         } => {
             if let Some(local_id) = inner
                 .messages

@@ -1256,9 +1256,11 @@ name = "rchat-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64",
  "getrandom 0.4.3",
  "prost",
  "rchat-proto",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",
@@ -1296,6 +1298,7 @@ dependencies = [
 name = "rchat-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "rchat-client-storage-sqlite",
  "rchat-core",
  "rchat-crypto-provider",

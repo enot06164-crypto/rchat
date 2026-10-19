@@ -46,6 +46,26 @@ export interface ChatMember {
 
 export type MessageStatus = "pending" | "sending" | "sent" | "failed" | "none";
 
+/** Вид вложения сообщения (как в FFI `content_kind` вложения). */
+export type AttachmentKind = "photo" | "video" | "file" | "voice";
+
+/** Метаданные вложения (содержимое — через `download_attachment`). */
+export interface AttachmentInfo {
+  kind: AttachmentKind;
+  name: string;
+  mime: string;
+  size: number;
+}
+
+/** Вложение при отправке: содержимое в base64. */
+export interface AttachmentUpload {
+  kind: AttachmentKind;
+  name: string;
+  mime: string;
+  size: number;
+  data_base64: string;
+}
+
 export interface Message {
   local_id: string;
   server_id: number | null;
@@ -54,6 +74,8 @@ export interface Message {
   sender_device_id: string;
   content_kind: string;
   body: string | null;
+  /** Метаданные вложения; содержимое лежит в ядре (скачивается отдельно). */
+  attachment: AttachmentInfo | null;
   reply_to_server_id: number | null;
   status: MessageStatus;
   created_at_ms: number;

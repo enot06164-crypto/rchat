@@ -11,6 +11,7 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub mod events;
+pub mod payload;
 pub mod traits;
 pub mod types;
 
@@ -22,6 +23,7 @@ pub use client::{Client, ClientBuilder};
 pub use config::ClientConfig;
 pub use error::{CoreError, CryptoError, SecretStoreError, StorageError, TransportError};
 pub use events::{EventError, EventSubscription, UiEvent};
+pub use payload::{Attachment, AttachmentKind, Payload, MAX_ATTACHMENT_BYTES};
 pub use traits::{
     secret_keys, ClientStore, CryptoProvider, CryptoStateStore, EncryptedMessage, GroupEncryption,
     GroupKeyInfo, KeyUpload, OneTimeKey, PeerDevice, SecretStore, Storage, Transport,
