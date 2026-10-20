@@ -20,9 +20,9 @@ use crate::delivery::Connections;
 use crate::error::ServerError;
 use crate::model::InsertMessageOutcome;
 use crate::model::{
-    ChatRecord, DeviceRecord, MemberRecord, MessageRecord, MessageUpdate, NewDevice, NewMessage,
-    NewSession, NewSyncEvent, NewUser, PreKeyRecord, ReceiptRecord, RecipientRecord, SessionRecord,
-    UserRecord,
+    BlobMeta, ChatRecord, DeviceRecord, MemberRecord, MessageRecord, MessageUpdate, NewDevice,
+    NewMessage, NewSession, NewSyncEvent, NewUser, PreKeyRecord, ReceiptRecord, RecipientRecord,
+    SessionRecord, UserRecord,
 };
 use crate::password::PasswordHasher;
 use crate::proto_util as p;
@@ -189,6 +189,10 @@ impl Server {
             M::SearchMessages(request) => {
                 let auth = self.authed(state)?;
                 self.handle_search_messages(&auth, request).await?
+            }
+            M::SetCloudAccountKey(request) => {
+                let auth = self.authed(state)?;
+                self.handle_set_cloud_account_key(&auth, request).await?
             }
             M::GetDeviceBundles(request) => {
                 let auth = self.authed(state)?;
@@ -580,6 +584,29 @@ impl Server {
     // -----------------------------------------------------------------
     // Ключи и устройства
     // -----------------------------------------------------------------
+
+    /// Ключ аккаунта для облачных файлов: им клиент шифрует файл перед
+    /// загрузкой, а сервер знает ключ и может хранить файл и отдавать его
+    /// участникам чата (как DC в облачных чатах Telegram).  Уже заданный ключ
+    /// не перезаписывается — иначе устройства аккаунта разъедутся.
+    async fn handle_set_cloud_account_key(
+        &self,
+        auth: &AuthContext,
+        request: proto::SetCloudAccountKeyRequest,
+    ) -> Result<response::Result, ServerError> {
+        if request.key.len() != rchat_proto::limits::CLOUD_KEY_LEN {
+            return Err(ServerError::invalid_request(
+                "cloud account key must be 32 bytes",
+            ));
+        }
+        let key = self
+            .repo
+            .set_cloud_account_key(&auth.user.user_id, &request.key)
+            .await?;
+        Ok(response::Result::SetCloudAccountKey(
+            proto::SetCloudAccountKeyResponse { key },
+        ))
+    }
 
     /// Поиск по сообщениям аккаунта. Работает в облачном режиме: сервер
     /// расшифровывает содержимое ключом аккаунта и ищет по нему. В приватных
@@ -2192,12 +2219,54 @@ impl Server {
             return Err(ServerError::invalid_request("blob_id is required"));
         }
         let now = rchat_proto::now_ms();
+        if request.cloud {
+            // Облачный режим: файл шифруется ключом аккаунта, сервер его
+            // знает.  Если такой файл уже загружен (отпечаток содержимого
+            // совпал) — второй раз содержимое не заливаем: на диске файл
+            // лежит один раз, а чат получает свою ссылку.
+            if request.offset == 0 && request.content_hash.len() == 32 {
+                if let Some(source) = self
+                    .repo
+                    .blob_by_content_hash(&request.content_hash)
+                    .await?
+                {
+                    let blob_ref = self
+                        .repo
+                        .link_stored_blob(
+                            &request.blob_id,
+                            &request.chat_id,
+                            &auth.user.user_id,
+                            &source,
+                            source.total_size,
+                            now,
+                        )
+                        .await?;
+                    return Ok(response::Result::UploadBlob(proto::UploadBlobResponse {
+                        received: source.total_size,
+                        deduplicated: true,
+                        blob_ref,
+                    }));
+                }
+            }
+        }
+        // Метаданные файла: в облачном режиме они нужны серверу (дедупликация
+        // по отпечатку содержимого и расшифровка ключом аккаунта).
+        let meta = BlobMeta {
+            cloud: request.cloud,
+            content_hash: request.content_hash.clone(),
+            nonce: request.nonce.clone(),
+            name: request.name.clone(),
+            kind: request.kind.clone(),
+            mime: request.mime.clone(),
+            plaintext_size: request.plaintext_size,
+        };
         self.repo
             .begin_blob(
                 &request.blob_id,
                 &request.chat_id,
                 &auth.user.user_id,
                 request.total_size as u64,
+                &meta,
                 now,
             )
             .await?;
@@ -2207,6 +2276,8 @@ impl Server {
             .await?;
         Ok(response::Result::UploadBlob(proto::UploadBlobResponse {
             received,
+            deduplicated: false,
+            blob_ref: String::new(),
         }))
     }
 
@@ -2235,13 +2306,6 @@ impl Server {
         auth: &AuthContext,
         request: proto::DownloadBlobRequest,
     ) -> Result<response::Result, ServerError> {
-        let Some((data, total_size, eof)) = self
-            .repo
-            .read_blob(&request.blob_ref, request.offset, request.length)
-            .await?
-        else {
-            return Err(ServerError::not_found("blob not found"));
-        };
         // Скачать файл может только участник чата, к которому файл привязан.
         let blob_chat = self.repo.blob_chat(&request.blob_ref).await?;
         if let Some(chat_id) = blob_chat {
@@ -2250,6 +2314,53 @@ impl Server {
                 return Err(ServerError::forbidden("not a member of this chat"));
             }
         }
+        // В облачном режиме файл зашифрован ключом аккаунта владельца: сервер
+        // знает ключ, поэтому читает файл целиком и отдаёт участникам чата
+        // открытое содержимое (как DC в облачных чатах Telegram).
+        let cloud = self
+            .repo
+            .blob_owner(&request.blob_ref)
+            .await?
+            .map(|(_, cloud, _)| cloud)
+            .unwrap_or(false);
+        if cloud {
+            let Some((ciphertext, _, _)) =
+                self.repo.read_blob(&request.blob_ref, 0, u32::MAX).await?
+            else {
+                return Err(ServerError::not_found("blob not found"));
+            };
+            let Some((owner, _, nonce)) = self.repo.blob_owner(&request.blob_ref).await? else {
+                return Err(ServerError::not_found("blob not found"));
+            };
+            let Some(key) = self.repo.cloud_account_key(&owner).await? else {
+                return Err(ServerError::internal("cloud account key is unknown"));
+            };
+            let Some(plaintext) = decrypt_cloud_file(&key, &nonce, &ciphertext) else {
+                return Err(ServerError::internal("cloud file cannot be decrypted"));
+            };
+            let total = plaintext.len() as u64;
+            let start = request.offset.min(total);
+            let end = (request.offset + request.length as u64).min(total);
+            let chunk = if start < end {
+                plaintext[start as usize..end as usize].to_vec()
+            } else {
+                Vec::new()
+            };
+            return Ok(response::Result::DownloadBlob(
+                proto::DownloadBlobResponse {
+                    data: chunk,
+                    total_size: total as u32,
+                    eof: end >= total,
+                },
+            ));
+        }
+        let Some((data, total_size, eof)) = self
+            .repo
+            .read_blob(&request.blob_ref, request.offset, request.length)
+            .await?
+        else {
+            return Err(ServerError::not_found("blob not found"));
+        };
         Ok(response::Result::DownloadBlob(
             proto::DownloadBlobResponse {
                 data,
@@ -2640,6 +2751,16 @@ fn cloud_key_for_mode(mode: proto::E2eMode) -> Result<Vec<u8>, ServerError> {
     let mut key = vec![0u8; rchat_proto::limits::CLOUD_KEY_LEN];
     getrandom::fill(&mut key).map_err(|e| ServerError::internal(format!("rng: {e}")))?;
     Ok(key)
+}
+
+/// Расшифровывает облачный файл ключом аккаунта владельца.
+fn decrypt_cloud_file(key: &[u8], nonce: &[u8], ciphertext: &[u8]) -> Option<Vec<u8>> {
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+    let key: [u8; 32] = key.try_into().ok()?;
+    let nonce: [u8; 24] = nonce.try_into().ok()?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&key).ok()?;
+    cipher.decrypt(&XNonce::from(nonce), ciphertext).ok()
 }
 
 /// Расшифровывает облачное содержимое ключом аккаунта. Возвращает `None`,

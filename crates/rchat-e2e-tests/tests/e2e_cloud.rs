@@ -365,6 +365,125 @@ async fn cloud_attachments_travel_as_encrypted_blobs() {
     );
 }
 
+/// Облачный файловый канал: сервер хранит файл у себя (как DC в облачных
+/// чатах Telegram) и отдаёт его участникам чата, а одинаковое содержимое
+/// хранится один раз — второй заливки не происходит.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cloud_file_channel_stores_file_once_and_serves_it() {
+    let harness = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+
+    let (alice, alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
+    alice.start().await.expect("start alice");
+    register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
+
+    let (bob, bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
+    bob.start().await.expect("start bob");
+    register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
+
+    let chat = alice
+        .create_direct_chat("bob", ChatMode::Cloud)
+        .await
+        .expect("create cloud chat");
+
+    let photo_bytes: Vec<u8> = (0u8..=255).cycle().take(3000).collect();
+    let local_id = alice
+        .send_attachment(
+            &chat.chat_id,
+            "файл",
+            attachment(AttachmentKind::Photo, "pic.png", "image/png", &photo_bytes),
+            None,
+        )
+        .await
+        .expect("send photo");
+    wait_sent(&alice_storage, &local_id).await;
+
+    // Получатель скачивает файл и получает те же байты.
+    wait_for_message(&bob_storage, &chat.chat_id, 1).await;
+    let received = bob_storage
+        .list_messages(&chat.chat_id, None, 10)
+        .await
+        .expect("list messages");
+    let message = received.first().expect("message");
+    let content = bob
+        .attachment_content(message.server_id.expect("server id"))
+        .await
+        .expect("attachment content")
+        .expect("attachment");
+    assert_eq!(content.data, photo_bytes, "файл должен совпасть побитово");
+
+    // На диске сервера файл зашифрован: открытых байтов там нет.
+    let blob_dir = harness.db_path().parent().expect("db dir").join("blobs");
+    let files: Vec<_> = std::fs::read_dir(&blob_dir)
+        .expect("read blob dir")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().map(|ext| ext == "blob").unwrap_or(false))
+        .collect();
+    assert_eq!(files.len(), 1, "файл должен лежать на диске один раз");
+    let stored = std::fs::read(&files[0]).expect("read blob");
+    assert!(
+        !contains_bytes(&stored, &photo_bytes),
+        "на диске сервера не должно быть открытых байтов файла"
+    );
+
+    // Тот же файл от второго отправителя: содержимое не заливается заново —
+    // сервер уже знает такой отпечаток.
+    let local_id = bob
+        .send_attachment(
+            &chat.chat_id,
+            "тот же файл",
+            attachment(AttachmentKind::Photo, "pic.png", "image/png", &photo_bytes),
+            None,
+        )
+        .await
+        .expect("send the same photo");
+    wait_sent(&bob_storage, &local_id).await;
+
+    let files_after: Vec<_> = std::fs::read_dir(&blob_dir)
+        .expect("read blob dir")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().map(|ext| ext == "blob").unwrap_or(false))
+        .collect();
+    assert_eq!(
+        files_after.len(),
+        1,
+        "одинаковое содержимое должно храниться один раз"
+    );
+    // Сообщение второго отправителя ссылается на тот же блоб.
+    let blob_refs = blob_refs(harness.db_path());
+    assert_eq!(
+        blob_refs.len(),
+        2,
+        "у сообщений должны быть ссылки на блоб (ссылка чата своя)"
+    );
+}
+
+/// Ссылки на блобы из БД сервера (по порядку сообщений).
+fn blob_refs(db_path: &std::path::Path) -> Vec<String> {
+    let conn =
+        rusqlite::Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open server db");
+    let mut stmt = conn
+        .prepare("SELECT token FROM blobs WHERE completed = 1 ORDER BY created_at_ms, token")
+        .expect("prepare blobs");
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query blobs");
+    rows.map(|row| row.expect("row")).collect()
+}
+
+/// Есть ли в байтах искомый фрагмент.
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return false;
+    }
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
 /// Режим по умолчанию меняется в настройках клиента и применяется к новым
 /// чатам; уже созданные чаты сохраняют свой режим.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

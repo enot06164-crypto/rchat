@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use rchat_server::model::*;
-use rchat_server::repo::{Repo, RepoError, SearchCandidate};
+use rchat_server::repo::{Repo, RepoError, SearchCandidate, StoredBlob};
 use rusqlite::{params, OptionalExtension};
 
 use crate::convert::*;
@@ -1211,11 +1211,13 @@ impl Repo for SqliteRepo {
         chat_id: &str,
         owner_user_id: &str,
         total_size: u64,
+        meta: &BlobMeta,
         now_ms: u64,
     ) -> Result<(), RepoError> {
         let blob_id = blob_id.to_string();
         let chat_id = chat_id.to_string();
         let owner_user_id = owner_user_id.to_string();
+        let meta = meta.clone();
         let path = self.blob_path(&blob_id);
         let blob_dir = self.blob_dir.clone();
         self.call(move |conn| {
@@ -1242,21 +1244,36 @@ impl Repo for SqliteRepo {
             drop(file);
             conn.execute(
                 "INSERT INTO blobs(blob_id, token, chat_id, owner_user_id, total_size, received,
-                                   created_at_ms, updated_at_ms, completed, path)
-                 VALUES(?1, '', ?2, ?3, ?4, 0, ?5, ?5, 0, ?6)
+                                   created_at_ms, updated_at_ms, completed, path, cloud,
+                                   content_hash, name, kind, mime, plaintext_size, nonce)
+                 VALUES(?1, '', ?2, ?3, ?4, 0, ?5, ?5, 0, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(blob_id) DO UPDATE SET
                      chat_id = excluded.chat_id,
                      owner_user_id = excluded.owner_user_id,
                      total_size = excluded.total_size,
                      updated_at_ms = excluded.updated_at_ms,
-                     path = excluded.path",
+                     path = excluded.path,
+                     cloud = excluded.cloud,
+                     content_hash = excluded.content_hash,
+                     name = excluded.name,
+                     kind = excluded.kind,
+                     mime = excluded.mime,
+                     plaintext_size = excluded.plaintext_size,
+                     nonce = excluded.nonce",
                 params![
                     blob_id,
                     chat_id,
                     owner_user_id,
                     total_size as i64,
                     now_ms as i64,
-                    path.to_string_lossy().to_string()
+                    path.to_string_lossy().to_string(),
+                    meta.cloud as i64,
+                    meta.content_hash,
+                    meta.name,
+                    meta.kind,
+                    meta.mime,
+                    meta.plaintext_size as i64,
+                    meta.nonce,
                 ],
             )
             .map_err(|e| RepoError::internal(format!("begin blob: {e}")))?;
@@ -1446,6 +1463,154 @@ impl Repo for SqliteRepo {
                 )
                 .map_err(|e| RepoError::internal(format!("max seq for device: {e}")))?;
             Ok(max.max(0) as u64)
+        })
+        .await
+    }
+
+    async fn cloud_account_key(&self, user_id: &str) -> Result<Option<Vec<u8>>, RepoError> {
+        let user_id = user_id.to_string();
+        self.call(move |conn| {
+            let key: Option<Vec<u8>> = conn
+                .query_row(
+                    "SELECT cloud_account_key FROM users WHERE user_id = ?1",
+                    params![user_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            Ok(key)
+        })
+        .await
+    }
+
+    async fn set_cloud_account_key(&self, user_id: &str, key: &[u8]) -> Result<Vec<u8>, RepoError> {
+        let user_id = user_id.to_string();
+        let key = key.to_vec();
+        self.call(move |conn| {
+            // Сервер — источник истины: уже заданный ключ не перезаписывается,
+            // иначе устройства аккаунта разъедутся по ключам.
+            let existing: Option<Vec<u8>> = conn
+                .query_row(
+                    "SELECT cloud_account_key FROM users WHERE user_id = ?1",
+                    params![user_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            if let Some(stored) = existing {
+                if !stored.is_empty() {
+                    return Ok(stored);
+                }
+            }
+            conn.execute(
+                "UPDATE users SET cloud_account_key = ?2, updated_at_ms = ?3 WHERE user_id = ?1",
+                params![user_id, key, rchat_proto::now_ms() as i64],
+            )
+            .map_err(|e| RepoError::internal(format!("set cloud account key: {e}")))?;
+            Ok(key)
+        })
+        .await
+    }
+
+    async fn blob_by_content_hash(
+        &self,
+        content_hash: &[u8],
+    ) -> Result<Option<StoredBlob>, RepoError> {
+        let content_hash = content_hash.to_vec();
+        self.call(move |conn| {
+            let row: Option<StoredBlob> = conn
+                .query_row(
+                    "SELECT blob_id, path, owner_user_id, COALESCE(nonce, X''), content_hash, \
+                            total_size, plaintext_size, name, kind, mime \
+                     FROM blobs \
+                     WHERE content_hash = ?1 AND completed = 1 AND cloud = 1 \
+                     ORDER BY created_at_ms LIMIT 1",
+                    params![content_hash],
+                    |row| {
+                        Ok(StoredBlob {
+                            blob_id: row.get(0)?,
+                            path: row.get(1)?,
+                            owner_user_id: row.get(2)?,
+                            nonce: row.get(3)?,
+                            content_hash: row.get(4)?,
+                            total_size: row.get::<_, i64>(5)? as u64,
+                            plaintext_size: row.get::<_, i64>(6)? as u64,
+                            name: row.get(7)?,
+                            kind: row.get(8)?,
+                            mime: row.get(9)?,
+                        })
+                    },
+                )
+                .ok();
+            Ok(row)
+        })
+        .await
+    }
+
+    async fn link_stored_blob(
+        &self,
+        blob_id: &str,
+        chat_id: &str,
+        owner_user_id: &str,
+        source: &StoredBlob,
+        total_size: u64,
+        now_ms: u64,
+    ) -> Result<String, RepoError> {
+        let blob_id = blob_id.to_string();
+        let chat_id = chat_id.to_string();
+        let owner_user_id = owner_user_id.to_string();
+        let source = source.clone();
+        self.call(move |conn| {
+            // Ссылка на уже загруженный файл: содержимое на диске не копируем
+            // (файл лежит один раз), а права на скачивание — как у блоба чата.
+            let token = format!("{blob_id}.{total_size}");
+            conn.execute(
+                "INSERT INTO blobs(blob_id, token, chat_id, owner_user_id, total_size, received, \
+                                   completed, created_at_ms, updated_at_ms, path, cloud, content_hash, \
+                                   name, kind, mime, plaintext_size, nonce) \
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?7, ?8, 1, ?9, ?10, ?11, ?12, ?13, ?14) \
+                 ON CONFLICT(blob_id) DO UPDATE SET \
+                     token = excluded.token, chat_id = excluded.chat_id, \
+                     owner_user_id = excluded.owner_user_id, completed = 1, \
+                     updated_at_ms = excluded.updated_at_ms, path = excluded.path, \
+                     content_hash = excluded.content_hash, name = excluded.name, \
+                     kind = excluded.kind, mime = excluded.mime, \
+                     plaintext_size = excluded.plaintext_size, nonce = excluded.nonce",
+                params![
+                    blob_id,
+                    token,
+                    chat_id,
+                    owner_user_id,
+                    total_size as i64,
+                    total_size as i64,
+                    now_ms as i64,
+                    source.path,
+                    source.content_hash,
+                    source.name,
+                    source.kind,
+                    source.mime,
+                    source.plaintext_size as i64,
+                    source.nonce,
+                ],
+            )
+            .map_err(|e| RepoError::internal(format!("link stored blob: {e}")))?;
+            Ok(token)
+        })
+        .await
+    }
+
+    async fn blob_owner(
+        &self,
+        blob_ref: &str,
+    ) -> Result<Option<(String, bool, Vec<u8>)>, RepoError> {
+        let blob_ref = blob_ref.to_string();
+        self.call(move |conn| {
+            let row: Option<(String, bool, Vec<u8>)> = conn
+                .query_row(
+                    "SELECT owner_user_id, cloud, COALESCE(nonce, X'') FROM blobs WHERE token = ?1",
+                    params![blob_ref],
+                    |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0, row.get(2)?)),
+                )
+                .ok();
+            Ok(row)
         })
         .await
     }

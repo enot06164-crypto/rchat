@@ -250,6 +250,32 @@ impl Inner {
             .expect("device id cache poisoned") = None;
     }
 
+    /// Ключ аккаунта для облачных файлов: им клиент шифрует файл перед
+    /// загрузкой, а сервер знает ключ и может хранить файл и отдавать его
+    /// участникам чата (как DC в облачных чатах Telegram).  Ключ принадлежит
+    /// аккаунту: новое устройство получает его от сервера.
+    pub(crate) async fn cloud_account_key(&self) -> Result<[u8; 32], CoreError> {
+        if let Some(stored) = self.secrets.get(secret_keys::CLOUD_ACCOUNT_KEY)? {
+            if stored.len() == 32 {
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&stored);
+                return Ok(key);
+            }
+            warn!("stored cloud account key has wrong length; regenerating");
+        }
+        let mut key = [0u8; 32];
+        getrandom::fill(&mut key).map_err(|e| CoreError::Internal(format!("rng: {e}")))?;
+        self.secrets.set(secret_keys::CLOUD_ACCOUNT_KEY, &key)?;
+        Ok(key)
+    }
+
+    /// Сохраняет ключ аккаунта, полученный от сервера (сервер — источник
+    /// истины: если ключ уже был, сервер отдаёт именно его).
+    pub(crate) fn store_cloud_account_key(&self, key: &[u8]) -> Result<(), CoreError> {
+        self.secrets.set(secret_keys::CLOUD_ACCOUNT_KEY, key)?;
+        Ok(())
+    }
+
     /// Режим чатов по умолчанию (облачный или приватный). Хранится в
     /// профиле устройства; по умолчанию — облачный.
     pub(crate) fn default_chat_mode(&self) -> ChatMode {
@@ -339,6 +365,16 @@ impl ClientBuilder {
 #[derive(Clone)]
 pub struct Client {
     pub(crate) inner: Arc<Inner>,
+}
+
+/// Метаданные загружаемого файла (облачный режим): серверу нужны, чтобы
+/// дедуплицировать файл по содержимому и показать его в списке медиа.
+#[derive(Debug, Clone)]
+struct FileMeta {
+    name: String,
+    kind: String,
+    mime: String,
+    plaintext_size: u64,
 }
 
 impl Client {
@@ -977,14 +1013,41 @@ impl Client {
         if text.is_empty() && attachment.data.is_empty() {
             return Err(CoreError::InvalidInput("empty message".into()));
         }
-        // Файл уходит отдельным блобом: клиент шифрует его случайным ключом,
-        // сервер видит только шифротекст, а ключ едет внутри сообщения.
-        let (blob_ref, key, nonce) = self.upload_blob(chat_id, &attachment.data).await?;
+        // Режим чата определяет, как уходит файл.  В приватном чате клиент
+        // шифрует файл случайным ключом, сервер видит только шифротекст, а
+        // ключ едет внутри сообщения.  В облачном чате файл шифруется ключом
+        // аккаунта, который знает сервер: он хранит файл у себя (как DC в
+        // облачных чатах Telegram), дедуплицирует по содержимому и отдаёт
+        // участникам чата.
+        let chat = self
+            .inner
+            .storage
+            .get_chat(chat_id)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("chat {chat_id} not found")))?;
+        let cloud = chat.e2e_mode == proto::E2eMode::Cloud;
+        let meta = FileMeta {
+            name: attachment.name.clone(),
+            kind: attachment.kind.as_str().to_string(),
+            mime: attachment.mime.clone(),
+            plaintext_size: attachment.size,
+        };
+        let (blob_ref, key, nonce) = self
+            .upload_blob(chat_id, &attachment.data, cloud, Some(&meta))
+            .await?;
         // Постер видео — отдельный блоб (как thumbnail в Telegram).
         let thumb = match attachment.thumb.as_ref() {
             Some(thumb) if !thumb.data.is_empty() => {
-                let (reference, thumb_key, thumb_nonce) =
-                    self.upload_blob(chat_id, &thumb.data).await?;
+                let thumb_meta = FileMeta {
+                    // У постера своего имени нет — это кадр видео.
+                    name: "poster".to_string(),
+                    kind: "photo".to_string(),
+                    mime: thumb.mime.clone(),
+                    plaintext_size: thumb.size,
+                };
+                let (reference, thumb_key, thumb_nonce) = self
+                    .upload_blob(chat_id, &thumb.data, cloud, Some(&thumb_meta))
+                    .await?;
                 Some(crate::payload::BlobRef {
                     reference,
                     key: thumb_key,
@@ -1000,8 +1063,8 @@ impl Client {
             text,
             Attachment {
                 blob_ref: Some(blob_ref),
-                key: Some(key),
-                nonce: Some(nonce),
+                key: if key.is_empty() { None } else { Some(key) },
+                nonce: if nonce.is_empty() { None } else { Some(nonce) },
                 thumb,
                 data: Vec::new(),
                 ..attachment
@@ -1055,12 +1118,14 @@ impl Client {
         if !attachment.data.is_empty() {
             return Ok(Some(attachment));
         }
-        let (Some(blob_ref), Some(key), Some(nonce)) = (
-            attachment.blob_ref.clone(),
-            attachment.key.clone(),
-            attachment.nonce.clone(),
-        ) else {
+        let Some(blob_ref) = attachment.blob_ref.clone() else {
             return Ok(Some(attachment));
+        };
+        // В облачном режиме ключа файла в сообщении нет: сервер расшифровал
+        // файл сам (ключом аккаунта) и отдал открытое содержимое.
+        let (key, nonce) = match (attachment.key.clone(), attachment.nonce.clone()) {
+            (Some(key), Some(nonce)) => (key, nonce),
+            _ => (Vec::new(), Vec::new()),
         };
         let data = self.download_blob(&blob_ref, &key, &nonce).await?;
         // Кэшируем содержимое локально (с лимитом и вытеснением старых) —
@@ -1101,10 +1166,23 @@ impl Client {
 
     /// Загружает файл в хранилище сервера (зашифрованным) и возвращает
     /// (ссылка на блоб, ключ, nonce).
+    /// Загружает файл на сервер.
+    ///
+    /// `cloud` — облачный режим: файл шифруется ключом аккаунта, который
+    /// знает сервер (как DC в облачных чатах Telegram), и сервер может
+    /// дедуплицировать его по отпечатку содержимого.  В приватном режиме файл
+    /// шифруется случайным ключом, который едет в сообщении, — сервер видит
+    /// только шифротекст.
+    ///
+    /// Возвращает (ссылка на блоб, ключ файла, nonce).  В облачном режиме
+    /// ключ и nonce пустые: сервер сам отдаёт участникам чата открытое
+    /// содержимое файла.
     async fn upload_blob(
         &self,
         chat_id: &str,
         data: &[u8],
+        cloud: bool,
+        meta: Option<&FileMeta>,
     ) -> Result<(String, Vec<u8>, Vec<u8>), CoreError> {
         let crypto = self
             .inner
@@ -1115,17 +1193,27 @@ impl Client {
         // Дедупликация: тот же файл уже заливали — переиспользуем блоб и ключ
         // (ключ остаётся на устройстве, сервер его не знает).
         let hash = crypto.hash_blob(data).await?;
-        if let Some(cached) = self.inner.storage.find_uploaded_blob(&hash).await? {
-            if cached.size == data.len() as u64 {
-                return Ok((cached.blob_ref, cached.key, cached.nonce));
+        if !cloud {
+            if let Some(cached) = self.inner.storage.find_uploaded_blob(&hash).await? {
+                if cached.size == data.len() as u64 {
+                    return Ok((cached.blob_ref, cached.key, cached.nonce));
+                }
             }
         }
-        let mut key = [0u8; 32];
-        getrandom::fill(&mut key).map_err(|e| CoreError::Internal(format!("blob key: {e}")))?;
+        // Ключ файла: в облачном режиме — ключ аккаунта (его знает сервер),
+        // в приватном — случайный на файл (ездит в сообщении).
+        let key = if cloud {
+            self.inner.cloud_account_key().await?
+        } else {
+            let mut key = [0u8; 32];
+            getrandom::fill(&mut key).map_err(|e| CoreError::Internal(format!("blob key: {e}")))?;
+            key
+        };
         let (ciphertext, nonce) = crypto.encrypt_blob(&key, data).await?;
         let blob_id = random_hex(16)?;
 
         let mut offset = 0usize;
+        let mut deduplicated_ref = String::new();
         while offset < ciphertext.len() {
             let end = (offset + BLOB_CHUNK_BYTES).min(ciphertext.len());
             let response = self
@@ -1136,21 +1224,42 @@ impl Client {
                         offset: offset as u64,
                         total_size: ciphertext.len() as u32,
                         data: ciphertext[offset..end].to_vec(),
+                        cloud,
+                        content_hash: hash.to_vec(),
+                        nonce: nonce.clone(),
+                        name: meta.map(|m| m.name.clone()).unwrap_or_default(),
+                        kind: meta.map(|m| m.kind.clone()).unwrap_or_default(),
+                        mime: meta.map(|m| m.mime.clone()).unwrap_or_default(),
+                        plaintext_size: meta.map(|m| m.plaintext_size).unwrap_or_default(),
                     },
                 ))
                 .await?;
-            if !matches!(response, proto::response::Result::UploadBlob(_)) {
-                let detail = match &response {
-                    proto::response::Result::Error(error) => {
-                        format!("error {}: {}", error.code, error.message)
+            match response {
+                proto::response::Result::UploadBlob(result) => {
+                    // Сервер уже хранит такой файл — докачивать нечего.
+                    if result.deduplicated {
+                        deduplicated_ref = result.blob_ref;
+                        break;
                     }
-                    other => format!("{:?}", std::mem::discriminant(other)),
-                };
-                return Err(CoreError::Protocol(format!(
-                    "unexpected upload_blob response: {detail}"
-                )));
+                }
+                _ => {
+                    let detail = match &response {
+                        proto::response::Result::Error(error) => {
+                            format!("error {}: {}", error.code, error.message)
+                        }
+                        other => format!("{:?}", std::mem::discriminant(other)),
+                    };
+                    return Err(CoreError::Protocol(format!(
+                        "unexpected upload_blob response: {detail}"
+                    )));
+                }
             }
             offset = end;
+        }
+        if !deduplicated_ref.is_empty() {
+            // Файл уже на сервере: ключ файла не нужен (сервер отдаёт открытое
+            // содержимое), сохраняем только ссылку.
+            return Ok((deduplicated_ref, Vec::new(), Vec::new()));
         }
 
         let response = self
@@ -1164,14 +1273,27 @@ impl Client {
             .await?;
         match response {
             proto::response::Result::FinishBlob(result) => {
-                // Запоминаем загрузку: повторная отправка того же файла
-                // не потребует новой заливки на сервер.
-                let _ = self
-                    .inner
-                    .storage
-                    .save_uploaded_blob(&hash, &result.blob_ref, &key, &nonce, data.len() as u64)
-                    .await;
-                Ok((result.blob_ref, key.to_vec(), nonce))
+                if !cloud {
+                    // Запоминаем загрузку: повторная отправка того же файла
+                    // не потребует новой заливки на сервер.
+                    let _ = self
+                        .inner
+                        .storage
+                        .save_uploaded_blob(
+                            &hash,
+                            &result.blob_ref,
+                            &key,
+                            &nonce,
+                            data.len() as u64,
+                        )
+                        .await;
+                    Ok((result.blob_ref, key.to_vec(), nonce))
+                } else {
+                    // Облачный режим: дедупликация сервера (по отпечатку
+                    // содержимого), локальный кэш не нужен — ключ файла
+                    // сервер знает и сам.
+                    Ok((result.blob_ref, Vec::new(), Vec::new()))
+                }
             }
             _ => Err(CoreError::Protocol(
                 "unexpected finish_blob response".into(),
@@ -1180,6 +1302,10 @@ impl Client {
     }
 
     /// Скачивает блоб с сервера и расшифровывает его ключом из сообщения.
+    /// Скачивает файл.  В приватном режиме сервер отдаёт шифротекст, и мы
+    /// расшифровываем его ключом из сообщения; в облачном режиме сервер сам
+    /// расшифровывает файл ключом аккаунта и отдаёт открытое содержимое
+    /// (поэтому `key`/`nonce` пустые).
     async fn download_blob(
         &self,
         blob_ref: &str,
@@ -1192,9 +1318,6 @@ impl Client {
             .as_ref()
             .ok_or_else(|| CoreError::E2eUnavailable("no crypto provider".into()))?
             .clone();
-        let key: [u8; 32] = key
-            .try_into()
-            .map_err(|_| CoreError::InvalidInput("invalid blob key".into()))?;
         let mut ciphertext: Vec<u8> = Vec::new();
         let mut offset = 0u64;
         loop {
@@ -1225,6 +1348,13 @@ impl Client {
                 break;
             }
         }
+        if key.is_empty() {
+            // Облачный режим: сервер уже расшифровал файл ключом аккаунта.
+            return Ok(ciphertext);
+        }
+        let key: [u8; 32] = key
+            .try_into()
+            .map_err(|_| CoreError::InvalidInput("invalid blob key".into()))?;
         crypto
             .decrypt_blob(&key, nonce, &ciphertext)
             .await

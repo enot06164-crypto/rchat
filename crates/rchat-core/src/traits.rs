@@ -214,6 +214,10 @@ pub mod secret_keys {
     pub const DEVICE_ID: &str = "device_id";
     /// Режим чатов по умолчанию: `cloud` или `private` (E2E).
     pub const DEFAULT_CHAT_MODE: &str = "default_chat_mode";
+    /// Ключ аккаунта для облачных файлов: им шифруется файл перед загрузкой
+    /// (ключ известен серверу — поэтому сервер хранит файл и отдаёт его
+    /// участникам чата, как DC в облачных чатах Telegram).
+    pub const CLOUD_ACCOUNT_KEY: &str = "cloud_account_key";
 }
 
 // ---------------------------------------------------------------------------

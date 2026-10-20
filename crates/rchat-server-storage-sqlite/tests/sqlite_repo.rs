@@ -3,6 +3,7 @@
 
 use rchat_server::model::*;
 use rchat_server::repo::Repo;
+use rchat_server::BlobMeta;
 use rchat_server_storage_sqlite::{migrate_to, schema_version, SqliteRepo, SCHEMA_VERSION};
 use rusqlite::Connection;
 
@@ -559,7 +560,7 @@ async fn blob_is_stored_on_disk_not_in_db() {
     let db = dir.path().join("server.sqlite3");
     let repo = SqliteRepo::open(&db).expect("open repo");
 
-    repo.begin_blob("b1", "c1", "u1", 10, 1_000)
+    repo.begin_blob("b1", "c1", "u1", 10, &BlobMeta::default(), 1_000)
         .await
         .expect("begin blob");
     let received = repo

@@ -134,6 +134,25 @@ pub struct ChatRecord {
     pub last_server_id: u64,
 }
 
+/// Метаданные загружаемого файла (облачный режим).
+#[derive(Debug, Clone, Default)]
+pub struct BlobMeta {
+    /// Файл зашифрован ключом аккаунта (сервер знает ключ).
+    pub cloud: bool,
+    /// Отпечаток открытого содержимого (SHA-256) — для дедупликации.
+    pub content_hash: Vec<u8>,
+    /// Nonce шифрования файла.
+    pub nonce: Vec<u8>,
+    /// Имя файла.
+    pub name: String,
+    /// Вид вложения: photo / video / file / voice.
+    pub kind: String,
+    /// MIME-тип.
+    pub mime: String,
+    /// Размер открытого содержимого.
+    pub plaintext_size: u64,
+}
+
 /// Участник чата.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberRecord {

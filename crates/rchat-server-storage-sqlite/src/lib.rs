@@ -22,7 +22,7 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
@@ -398,6 +398,22 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     ALTER TABLE chats ADD COLUMN cloud_key BLOB;
     ALTER TABLE messages ADD COLUMN cloud_ciphertext BLOB;
     ALTER TABLE messages ADD COLUMN cloud_nonce BLOB;
+    "#,
+    ),
+    (
+        8,
+        r#"
+    -- Облачный режим файлов: ключ аккаунта (сервер знает его и может
+    -- расшифровать файл), отпечаток содержимого для глобальной
+    -- дедупликации и метаданные файла (имя, вид, MIME, размер).
+    ALTER TABLE users ADD COLUMN cloud_account_key BLOB;
+    ALTER TABLE blobs ADD COLUMN cloud INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE blobs ADD COLUMN content_hash BLOB;
+    ALTER TABLE blobs ADD COLUMN name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE blobs ADD COLUMN kind TEXT NOT NULL DEFAULT '';
+    ALTER TABLE blobs ADD COLUMN mime TEXT NOT NULL DEFAULT '';
+    ALTER TABLE blobs ADD COLUMN plaintext_size INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE blobs ADD COLUMN nonce BLOB;
     "#,
     ),
     (

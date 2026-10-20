@@ -14,9 +14,9 @@
 use async_trait::async_trait;
 
 use crate::model::{
-    BundleRecord, ChatRecord, DeviceRecord, InsertMessageOutcome, MemberRecord, MessageRecord,
-    MessageUpdate, NewDevice, NewMessage, NewSession, NewSyncEvent, NewUser, PreKeyRecord,
-    ReceiptRecord, ReceiptUpdate, SessionRecord, SyncFetchRecord, UserRecord,
+    BlobMeta, BundleRecord, ChatRecord, DeviceRecord, InsertMessageOutcome, MemberRecord,
+    MessageRecord, MessageUpdate, NewDevice, NewMessage, NewSession, NewSyncEvent, NewUser,
+    PreKeyRecord, ReceiptRecord, ReceiptUpdate, SessionRecord, SyncFetchRecord, UserRecord,
 };
 
 /// Ошибка хранилища.
@@ -323,6 +323,7 @@ pub trait Repo: Send + Sync {
         chat_id: &str,
         owner_user_id: &str,
         total_size: u64,
+        meta: &BlobMeta,
         now_ms: u64,
     ) -> Result<(), RepoError>;
     /// Принимает часть файла по смещению; повтор той же части идемпотентна.
@@ -363,6 +364,63 @@ pub trait Repo: Send + Sync {
         user_id: &str,
         limit: u32,
     ) -> Result<Vec<SearchCandidate>, RepoError>;
+
+    /// Ключ аккаунта для облачных файлов: сервер знает его и может
+    /// расшифровывать файлы (как DC в облачных чатах Telegram).
+    async fn cloud_account_key(&self, user_id: &str) -> Result<Option<Vec<u8>>, RepoError>;
+
+    /// Сохраняет ключ аккаунта, только если его ещё нет (иначе возвращает
+    /// уже сохранённый — сервер источник истины для всех устройств аккаунта).
+    async fn set_cloud_account_key(&self, user_id: &str, key: &[u8]) -> Result<Vec<u8>, RepoError>;
+
+    /// Блоб с таким отпечатком содержимого (глобальная дедупликация):
+    /// сервер хранит файл один раз, а ссылки на него выдаёт всем чатам.
+    async fn blob_by_content_hash(
+        &self,
+        content_hash: &[u8],
+    ) -> Result<Option<StoredBlob>, RepoError>;
+
+    /// Создаёт ссылку на уже загруженный файл для текущего чата: копия
+    /// содержимого не делается (файл лежит на диске один раз), права на
+    /// скачивание — как у обычного блоба этого чата.
+    async fn link_stored_blob(
+        &self,
+        blob_id: &str,
+        chat_id: &str,
+        owner_user_id: &str,
+        source: &StoredBlob,
+        total_size: u64,
+        now_ms: u64,
+    ) -> Result<String, RepoError>;
+
+    /// Владелец и признак облачного блоба — нужны, чтобы расшифровать файл
+    /// ключом аккаунта при скачивании.
+    async fn blob_owner(
+        &self,
+        blob_ref: &str,
+    ) -> Result<Option<(String, bool, Vec<u8>)>, RepoError>;
+}
+
+/// Блоб на диске: описание для дедупликации и переиспользования.
+#[derive(Debug, Clone)]
+pub struct StoredBlob {
+    pub blob_id: String,
+    /// Путь к файлу на диске (содержимое лежит там один раз).
+    pub path: String,
+    /// Владелец загрузки (его ключ аккаунта знает сервер).
+    pub owner_user_id: String,
+    /// Nonce шифрования файла.
+    pub nonce: Vec<u8>,
+    /// Отпечаток открытого содержимого.
+    pub content_hash: Vec<u8>,
+    /// Размер шифротекста на диске.
+    pub total_size: u64,
+    /// Размер открытого содержимого.
+    pub plaintext_size: u64,
+    /// Метаданные файла.
+    pub name: String,
+    pub kind: String,
+    pub mime: String,
 }
 
 /// Сообщение-кандидат для поиска по истории (облачный режим).

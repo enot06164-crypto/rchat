@@ -945,6 +945,7 @@ impl Ctx<'_> {
         }
         self.inner.storage.reset_inflight_outbox().await?;
         self.sync_prekeys().await?;
+        self.publish_cloud_account_key().await?;
         let chats = self.inner.storage.list_chats().await?;
         if chats.is_empty() {
             // Новое устройство: получаем согласованный snapshot.
@@ -959,6 +960,39 @@ impl Ctx<'_> {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Публикует ключ аккаунта для облачных файлов.  Сервер — источник
+    /// истины: если ключ уже задан (например, другое устройство аккаунта
+    /// зарегистрировалось раньше), сервер возвращает его, и клиент принимает
+    /// именно его — иначе файлы, залитые разными устройствами, не читались
+    /// бы друг друга.
+    async fn publish_cloud_account_key(&mut self) -> Result<(), CoreError> {
+        if self.inner.crypto.is_none() {
+            return Ok(());
+        }
+        let key = self.inner.cloud_account_key().await?;
+        let method = request::Method::SetCloudAccountKey(proto::SetCloudAccountKeyRequest {
+            key: key.to_vec(),
+        });
+        match self.request(method).await {
+            Ok(response::Result::SetCloudAccountKey(result)) => {
+                if !result.key.is_empty() && result.key != key {
+                    info!("server returned a different cloud account key; adopting it");
+                    self.inner.store_cloud_account_key(&result.key)?;
+                }
+            }
+            Ok(response::Result::Error(error)) => {
+                warn!(
+                    code = error.code,
+                    "server rejected cloud account key upload"
+                );
+            }
+            Ok(other) => warn!("unexpected response to cloud account key upload: {other:?}"),
+            Err(error) if is_transport_error(&error) => return Err(error),
+            Err(error) => warn!(error = %error, "cloud account key upload failed"),
+        }
+        Ok(())
     }
 
     /// Догружает пул prekey и публикует их.
