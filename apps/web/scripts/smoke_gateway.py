@@ -1,4 +1,5 @@
-"""Протокольный смок шлюза (этап H): один rchat-server, два профиля.
+"""Протокольный смок шлюза (этап H): один rchat-server, один шлюз с
+двумя профилями (аккаунтами) — как в браузере.
 
 Проверяет:
   * обычный HTTP (не /ws) получает JSON 404 от шлюза;
@@ -6,7 +7,8 @@
   * `register` для alice и bob проходит, аватар содержит инициалы;
   * alice создаёт прямый E2E-чат с bob и отправляет сообщение;
   * bob получает `chat_upserted` и `message_received` с телом сообщения
-    (рассылка событий и порядок ok/error сохранены).
+    (рассылка событий и порядок ok/error сохранены);
+  * профили не смешиваются: каждый подключается к своему (`?profile=`).
 
 Запуск (нужен собранный сервер и пакет websockets>=12):
 
@@ -37,7 +39,7 @@ from websockets.asyncio.server import serve  # noqa: E402
 from websockets.exceptions import ConnectionClosed  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
-from rchat.gateway import WebSocketBridge, _reject_plain_http  # noqa: E402
+from rchat.gateway import ProfileRegistry, _make_process_request  # noqa: E402
 
 
 def free_port() -> int:
@@ -77,32 +79,28 @@ async def gateway_pair(
     ready: asyncio.Event,
     done: asyncio.Event,
 ) -> None:
-    alice = WebSocketBridge(data_dir=str(data_dirs[0]), server=server_url)
-    bob = WebSocketBridge(data_dir=str(data_dirs[1]), server=server_url)
+    """Один шлюз с двумя профилями (как в браузере: ?profile=alice/bob)."""
+    registry = ProfileRegistry(data_root=str(data_dirs[0]), server=server_url)
 
-    async def alice_handler(connection: Any) -> None:
-        await _client_loop(alice, connection)
-
-    async def bob_handler(connection: Any) -> None:
-        await _client_loop(bob, connection)
+    async def handler(connection: Any) -> None:
+        path = connection.request.path
+        profile = "alice"
+        if "profile=bob" in path:
+            profile = "bob"
+        bridge = registry.bridge(profile)
+        await _client_loop(bridge, connection)
 
     try:
         async with serve(
-            alice_handler, "127.0.0.1", alice_port, process_request=_reject_plain_http
-        ), serve(
-            bob_handler, "127.0.0.1", bob_port, process_request=_reject_plain_http
+            handler, "127.0.0.1", alice_port, process_request=_make_process_request()
         ):
-            relay_a = asyncio.create_task(alice.relay_loop())
-            relay_b = asyncio.create_task(bob.relay_loop())
             ready.set()
             try:
                 await done.wait()
             finally:
-                relay_a.cancel()
-                relay_b.cancel()
+                pass
     finally:
-        alice.close()
-        bob.close()
+        registry.close()
 
 
 def recv_until(ws: Any, predicate: Any, timeout: float = 20.0) -> dict[str, Any]:
@@ -118,8 +116,10 @@ def recv_until(ws: Any, predicate: Any, timeout: float = 20.0) -> dict[str, Any]
 
 def client_body(alice_port: int, bob_port: int) -> None:
     """Блокирующая часть проверок (выполняется в потоке-исполнителе)."""
-    with connect(f"ws://127.0.0.1:{alice_port}/ws", open_timeout=5) as alice, connect(
-        f"ws://127.0.0.1:{bob_port}/ws", open_timeout=5
+    with connect(
+        f"ws://127.0.0.1:{alice_port}/ws?profile=alice", open_timeout=5
+    ) as alice, connect(
+        f"ws://127.0.0.1:{alice_port}/ws?profile=bob", open_timeout=5
     ) as bob:
         # 1) обычный HTTP на том же порту — вежливый JSON 404
         probe = socket.create_connection(("127.0.0.1", alice_port), timeout=5)
@@ -218,13 +218,13 @@ async def amain() -> None:
                 details = server_log_path.read_text(encoding="utf-8", errors="replace")
                 raise RuntimeError(f"сервер не запустился:\n{details}") from error
 
-            alice_port, bob_port = free_port(), free_port()
+            alice_port = free_port()
             ready, done = asyncio.Event(), asyncio.Event()
             pair = asyncio.create_task(
                 gateway_pair(
                     alice_port,
-                    bob_port,
-                    [root / "alice", root / "bob"],
+                    0,
+                    [root / "profiles"],
                     f"ws://127.0.0.1:{server_port}",
                     ready,
                     done,
@@ -232,11 +232,8 @@ async def amain() -> None:
             )
             try:
                 await asyncio.wait_for(ready.wait(), timeout=10)
-                await asyncio.gather(
-                    _tcp_ready(loop, alice_port),
-                    _tcp_ready(loop, bob_port),
-                )
-                await loop.run_in_executor(None, client_body, alice_port, bob_port)
+                await _tcp_ready(loop, alice_port)
+                await loop.run_in_executor(None, client_body, alice_port, 0)
             finally:
                 done.set()
                 await asyncio.wait_for(asyncio.shield(pair), timeout=10)

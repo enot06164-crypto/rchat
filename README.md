@@ -302,9 +302,12 @@ cargo run --bin rchat-server -- \
     --db /tmp/rchat-web/server.sqlite3 --listen 127.0.0.1:9000 \
     --plaintext-insecure --allow-dev-plaintext-chats
 
-# 2) шлюз (нужен пакет websockets: pip/uv install websockets)
+# 2) шлюз (нужен пакет websockets: pip/uv install websockets).
+#    --data-dir — корень профилей (аккаунтов): «default» — сам корень,
+#    остальные — в <корень>/accounts/<имя>; в браузере профиль выбирается
+#    на экране входа и в меню профиля.
 PYTHONPATH=bindings/python python3 -m rchat.gateway \
-    --data-dir /tmp/rchat-web/alice --server ws://127.0.0.1:9000 --port 8080
+    --data-dir /tmp/rchat-web --server ws://127.0.0.1:9000 --port 8080
 
 # 3) веб-клиент (dev-сервер проксирует /ws на шлюз)
 cd apps/web && npm install && npm run dev

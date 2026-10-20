@@ -1,5 +1,5 @@
-import { Show, createSignal } from "solid-js";
-import { login, register, state } from "../../services/store";
+import { For, Show, createSignal } from "solid-js";
+import { login, register, state, switchProfile } from "../../services/store";
 import { describeError } from "../../services/api";
 
 type Mode = "login" | "register";
@@ -11,8 +11,14 @@ export function AuthModal() {
   const [displayName, setDisplayName] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [localError, setLocalError] = createSignal<string | null>(null);
+  const [newProfile, setNewProfile] = createSignal("");
 
   const error = () => localError() ?? state.authError;
+
+  // Профиль (аккаунт) шлюза: у каждого свои чаты и сессия.
+  const chooseProfile = (name: string): void => {
+    void switchProfile(name);
+  };
 
   const submit = async (): Promise<void> => {
     const name = username().trim();
@@ -60,6 +66,59 @@ export function AuthModal() {
           >
             Регистрация
           </button>
+        </div>
+
+        <div class="auth__profiles">
+          <div class="auth__profiles-title">Аккаунт (профиль)</div>
+          <div class="auth__profiles-list">
+            <For each={state.profiles}>
+              {(profile) => (
+                <button
+                  type="button"
+                  classList={{
+                    "auth__profile": true,
+                    "is-active": profile === state.profile,
+                  }}
+                  onClick={() => chooseProfile(profile)}
+                >
+                  {profile}
+                </button>
+              )}
+            </For>
+          </div>
+          <div class="auth__profiles-new">
+            <input
+              class="auth__field"
+              type="text"
+              placeholder="новый профиль (имя)"
+              spellcheck={false}
+              value={newProfile()}
+              onInput={(event) => setNewProfile(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  const name = newProfile().trim();
+                  if (name !== "") {
+                    setNewProfile("");
+                    chooseProfile(name);
+                  }
+                }
+              }}
+            />
+            <button
+              type="button"
+              class="button button--ghost"
+              disabled={newProfile().trim() === ""}
+              onClick={() => {
+                const name = newProfile().trim();
+                if (name === "") return;
+                setNewProfile("");
+                chooseProfile(name);
+              }}
+            >
+              Открыть
+            </button>
+          </div>
         </div>
 
         <form
