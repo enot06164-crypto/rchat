@@ -148,6 +148,12 @@ pub(crate) async fn dispatch(
                     .collect::<Vec<_>>(),
             }))
         }
+        "send_private_mode_request" => {
+            // Запрос-сообщение в чат: карточка «Запрос на приватный режим».
+            let chat_id = string_field(request, "chat_id")?;
+            let local_id = handle.client.send_private_mode_request(&chat_id).await?;
+            Ok(json!({"local_id": local_id}))
+        }
         "request_private_mode" => {
             let chat_id = string_field(request, "chat_id")?;
             let pending = handle.client.request_private_mode(&chat_id).await?;

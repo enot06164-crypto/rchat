@@ -1952,6 +1952,84 @@ textarea {
   }
 }
 
+/* Карточка «Запрос на приватный режим» — служебное сообщение в чате */
+.private-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 280px;
+  max-width: 340px;
+  padding: 18px 18px 16px;
+  text-align: center;
+  color: $text-primary;
+
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 62px;
+    height: 62px;
+    border-radius: 50%;
+    background: rgba($accent-purple, 0.16);
+    color: $accent-purple;
+    box-shadow: 0 0 22px rgba($accent-purple, 0.45);
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  &__hint {
+    color: $text-secondary;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  &__status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 11px;
+    border-radius: $radius-panel;
+    background: $bg-surface-hover;
+    font-size: 13px;
+  }
+
+  &__spinner {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: $accent-purple;
+    animation: spin 0.9s linear infinite;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Служебное сообщение (карточка запроса) — без обычного оформления пузыря */
+.bubble--service {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  box-shadow: none;
+
+  .bubble__body,
+  .bubble__meta {
+    display: none;
+  }
+}
+
 /* Окна приватного режима: запрос и входящее предложение */
 .private-mode {
   width: 380px;

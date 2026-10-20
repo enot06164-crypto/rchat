@@ -16,7 +16,6 @@ import { Avatar } from "../Avatar";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { InfoDrawer } from "./InfoDrawer";
-import { PrivateModeWaiting } from "./PrivateModeDialogs";
 
 /**
  * Центральная область (`#column-center` + `#column-right` из Telegram WebK):
@@ -193,9 +192,6 @@ export function ChatView(props: { profile: string }) {
             open={infoOpen()}
             onClose={() => setInfoOpen(false)}
           />
-          <Show when={acc().privateModeRequested}>
-            <PrivateModeWaiting profile={props.profile} chatId={current.chat_id} />
-          </Show>
 
         </section>
       )}

@@ -26,6 +26,7 @@ import {
   formatSize,
 } from "../../services/attachments";
 import { Avatar } from "../Avatar";
+import { PrivateModeCard } from "./PrivateModeCard";
 import { formatTime } from "../../utils/format";
 
 /** Ссылка на цитируемое сообщение (поиск по server_id в ленте чата). */
@@ -151,6 +152,10 @@ export function MessageBubble(props: {
     setMenuPos(null);
   };
 
+  // Служебное сообщение «Запрос на приватный режим» — карточка в чате.
+  const isPrivateModeRequest = () =>
+    props.message.content_kind === "private_mode_request";
+
   return (
     <div
       classList={{
@@ -181,12 +186,20 @@ export function MessageBubble(props: {
           "bubble--group-last": lastInGroup(),
           "bubble--active": menuPos() !== null,
           "bubble--has-media": attachment() !== null && !deleted(),
+          "bubble--service": isPrivateModeRequest(),
         }}
         onContextMenu={openMenu}
         onDblClick={() => {
           if (!deleted()) setReplyTo(props.profile, props.message);
         }}
       >
+        <Show when={isPrivateModeRequest() && !deleted()}>
+          <PrivateModeCard
+            profile={props.profile}
+            chatId={props.message.chat_id}
+            requesterUserId={props.message.sender_user_id}
+          />
+        </Show>
         <Show when={!deleted()}>
           <button
             classList={{

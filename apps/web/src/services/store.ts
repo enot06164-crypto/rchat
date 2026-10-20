@@ -66,14 +66,14 @@ export interface AccountState {
   newChatError: ErrorNotice | null;
   /** Ошибка загрузки истории (с действием «повторить»). */
   historyError: ErrorNotice | null;
-  /** Исходящий запрос на приватный режим: ждём подтверждения собеседника. */
-  privateModeRequested: boolean;
-  /** Входящее предложение включить приватный режим (от собеседника). */
-  privateModeOffer: {
-    chat_id: string;
-    requester_username: string;
-    requester_display_name: string;
-  } | null;
+  /** Запросы на приватный режим по чатам: кто просил и в каком состоянии. */
+  privateModeRequests: Record<
+    string,
+    {
+      requester_user_id: string;
+      status: "pending" | "accepted" | "declined" | "cancelled";
+    }
+  >;
   /** Режим чатов по умолчанию: облачный (`cloud`) или приватный (`private`). */
   defaultChatMode: ChatPrivacy;
   /** Найденные сообщения (поиск по истории; только для облачного режима). */
@@ -116,8 +116,7 @@ function emptyAccount(): AccountState {
     sendErrorChatId: null,
     newChatError: null,
     historyError: null,
-    privateModeRequested: false,
-    privateModeOffer: null,
+    privateModeRequests: {},
     defaultChatMode: "cloud",
     searchHits: [],
     searchBusy: false,
@@ -712,33 +711,43 @@ export function applyEvent(profile: string, event: RchatEvent): void {
       return;
     }
     case "private_mode_requested": {
-      // Собеседник предлагает включить приватный режим: показываем окно
-      // с выбором «Принять» / «Отклонить».
-      const data = event.data as {
-        chat_id: string;
-        requester_username: string;
-        requester_display_name: string;
-      };
+      // Собеседник предлагает включить приватный режим: запоминаем запрос,
+      // карточка в чате покажет кнопки «Принять» / «Отклонить».
+      const data = event.data as { chat_id: string; requester_user_id: string };
       setState(
         "accounts",
         profile,
-        "privateModeOffer",
+        "privateModeRequests",
+        data.chat_id,
         {
-          chat_id: data.chat_id,
-          requester_username: data.requester_username,
-          requester_display_name: data.requester_display_name,
+          requester_user_id: data.requester_user_id,
+          status: "pending",
         }
       );
       return;
     }
     case "private_mode_cancelled": {
-      // Наш запрос отозван — ожидание снимается.
-      setState("accounts", profile, "privateModeRequested", false);
+      const data = event.data as { chat_id: string };
+      setState(
+        "accounts",
+        profile,
+        "privateModeRequests",
+        data.chat_id,
+        "status",
+        "cancelled"
+      );
       return;
     }
     case "private_mode_resolved": {
-      // Запрос разрешён или отклонён — ожидание снимается.
-      setState("accounts", profile, "privateModeRequested", false);
+      const data = event.data as { chat_id: string; accepted: boolean };
+      setState(
+        "accounts",
+        profile,
+        "privateModeRequests",
+        data.chat_id,
+        "status",
+        data.accepted ? "accepted" : "declined"
+      );
       return;
     }
     case "receipt_updated": {
@@ -1118,8 +1127,19 @@ export async function requestPrivateMode(
   chatId: string
 ): Promise<void> {
   try {
-    const pending = await chatApiFor(profile).requestPrivateMode(chatId);
-    setState("accounts", profile, "privateModeRequested", pending.pending);
+    // Запрос уходит в чат служебным сообщением-карточкой и регистрируется
+    // на сервере (собеседнику придёт событие).
+    await chatApiFor(profile).sendPrivateModeRequest(chatId);
+    const me = accountState(profile).session?.user_id;
+    setState(
+      "accounts",
+      profile,
+      "privateModeRequests",
+      chatId,
+      me === undefined
+        ? { requester_user_id: "", status: "pending" }
+        : { requester_user_id: me, status: "pending" }
+    );
   } catch (error) {
     setNotice(
       profile,
@@ -1139,7 +1159,14 @@ export async function cancelPrivateMode(
   } catch (error) {
     console.warn("rchat: cancel private mode", error);
   }
-  setState("accounts", profile, "privateModeRequested", false);
+  setState(
+    "accounts",
+    profile,
+    "privateModeRequests",
+    chatId,
+    "status",
+    "cancelled"
+  );
 }
 
 /** Отвечает на предложение: принять (чат переходит в E2E) или отклонить. */
@@ -1157,7 +1184,14 @@ export async function resolvePrivateMode(
       classifyError(error, { operation: "chat" })
     );
   }
-  setState("accounts", profile, "privateModeOffer", null);
+  setState(
+    "accounts",
+    profile,
+    "privateModeRequests",
+    chatId,
+    "status",
+    accept ? "accepted" : "declined"
+  );
 }
 
 /**

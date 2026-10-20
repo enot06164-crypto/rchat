@@ -777,6 +777,25 @@
           }
         },
         {
+          "description": "Отправить в чат запрос-карточку «Запрос на приватный режим» (E2E).",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "send_private_mode_request"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
           "description": "Просить собеседника перевести личный чат в приватный режим (E2E).",
           "type": "object",
           "required": [

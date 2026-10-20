@@ -136,6 +136,9 @@ pub struct Payload {
     pub text: String,
     /// Вложение (файл, фото, видео, голос).
     pub attachment: Option<Attachment>,
+    /// Особый вид сообщения (служебное): например, запрос на приватный
+    /// режим.  Пусто — обычное текстовое сообщение.
+    pub kind: Option<String>,
 }
 
 /// Магический маркер конверта (первый элемент массива JSON).
@@ -147,6 +150,16 @@ impl Payload {
         Self {
             text: text.into(),
             attachment: None,
+            kind: None,
+        }
+    }
+
+    /// Служебный конверт особого вида (без текста и вложения).
+    pub fn service(kind: impl Into<String>) -> Self {
+        Self {
+            text: String::new(),
+            attachment: None,
+            kind: Some(kind.into()),
         }
     }
 
@@ -155,11 +168,15 @@ impl Payload {
         Self {
             text: text.into(),
             attachment: Some(attachment),
+            kind: None,
         }
     }
 
     /// `content_kind` сообщения: вид вложения либо `text`.
     pub fn content_kind(&self) -> String {
+        if let Some(kind) = &self.kind {
+            return kind.clone();
+        }
         match &self.attachment {
             Some(attachment) => attachment.kind.as_str().to_string(),
             None => "text".to_string(),
@@ -204,6 +221,9 @@ impl Payload {
         }
         let mut body = serde_json::Map::new();
         body.insert("t".into(), json!(self.text));
+        if let Some(kind) = &self.kind {
+            body.insert("k".into(), json!(kind));
+        }
         if !attachment.is_empty() {
             body.insert("a".into(), Value::Object(attachment));
         }
@@ -232,6 +252,7 @@ impl Payload {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        let kind = body.get("k").and_then(Value::as_str).map(str::to_string);
         let attachment = body.get("a").and_then(|item| {
             let item = item.as_object()?;
             let kind = AttachmentKind::parse(item.get("k")?.as_str()?)?;
@@ -304,7 +325,11 @@ impl Payload {
                 data,
             })
         });
-        Some(Payload { text, attachment })
+        Some(Payload {
+            text,
+            attachment,
+            kind,
+        })
     }
 }
 

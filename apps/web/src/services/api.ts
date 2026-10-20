@@ -357,6 +357,11 @@ export function chatApiFor(profile: string) {
   /** Запрос собеседнику перевести чат в приватный режим (E2E). */
   requestPrivateMode: (chatId: string) =>
     connection.call<{ pending: boolean }>("request_private_mode", { chat_id: chatId }),
+  /** Запрос-сообщение в чат: карточка «Запрос на приватный режим». */
+  sendPrivateModeRequest: (chatId: string) =>
+    connection.call<{ local_id: string }>("send_private_mode_request", {
+      chat_id: chatId,
+    }),
   /** Отзыв собственного запроса на приватный режим. */
   cancelPrivateMode: (chatId: string) =>
     connection.call<unknown>("cancel_private_mode", { chat_id: chatId }),

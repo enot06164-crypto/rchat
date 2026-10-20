@@ -67,12 +67,13 @@ async fn private_mode_request_switches_chat_to_e2e() {
     let mut alice_events = alice.subscribe();
     let mut bob_events = bob.subscribe();
 
-    // Алиса просит перевести чат в приватный режим.
-    let pending = alice
-        .request_private_mode(&chat.chat_id)
+    // Алиса просит перевести чат в приватный режим: в чат уходит карточка
+    // запроса, сервер регистрирует запрос.
+    let local_id = alice
+        .send_private_mode_request(&chat.chat_id)
         .await
         .expect("request private mode");
-    assert!(pending, "запрос должен уйти в ожидание");
+    assert!(!local_id.is_empty(), "карточка запроса должна уйти в чат");
 
     // Боб получает предложение.
     assert!(
@@ -115,6 +116,8 @@ async fn private_mode_request_switches_chat_to_e2e() {
     assert_eq!(received.body.as_deref(), Some(secret));
 
     let (messages, recipients) = assert_server_has_no_plaintext(harness.db_path(), secret);
-    assert_eq!(messages, 1, "на сервере одно сообщение");
+    // Два сообщения: карточка запроса (облачный режим, без персональных
+    // копий) и само текстовое сообщение (уже E2E).
+    assert_eq!(messages, 2, "на сервере карточка запроса и текст");
     assert_eq!(recipients, 1, "шифротекст — для устройства Bob");
 }

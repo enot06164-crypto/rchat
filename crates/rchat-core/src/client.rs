@@ -598,6 +598,24 @@ impl Client {
     }
 
     /// Просит собеседника перевести личный чат в приватный режим (E2E).
+    ///
+    /// В чат уходит служебное сообщение-карточка («Запрос на приватный
+    /// режим»): у отправителя оно ждёт подтверждения, у получателя — с
+    /// кнопками «Принять» и «Отклонить».
+    pub async fn send_private_mode_request(&self, chat_id: &str) -> Result<String, CoreError> {
+        // Сначала сервер регистрирует запрос (собеседнику уйдёт событие),
+        // затем в чат кладётся карточка запроса.
+        self.request_private_mode(chat_id).await?;
+        self.send_payload(
+            chat_id,
+            Payload::service("private_mode_request"),
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// Просит собеседника перевести личный чат в приватный режим (E2E).
     /// Возвращает `true`, если запрос отправлен и ждёт подтверждения.
     pub async fn request_private_mode(&self, chat_id: &str) -> Result<bool, CoreError> {
         self.start().await?;

@@ -385,6 +385,15 @@ class RChatClient:
             raise RChatError("internal", f"invalid request payload: {data!r}")
         return data
 
+    def send_private_mode_request(self, chat_id: str) -> Dict[str, Any]:
+        """Отправляет в чат карточку «Запрос на приватный режим» (E2E)."""
+        data = self._command(
+            {"@type": "send_private_mode_request", "chat_id": str(chat_id)}
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid request payload: {data!r}")
+        return data
+
     def cancel_private_mode(self, chat_id: str) -> Dict[str, Any]:
         """Отзывает собственный запрос на приватный режим."""
         data = self._command(

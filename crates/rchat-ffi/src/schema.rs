@@ -68,6 +68,8 @@ pub enum Command {
     RefreshChats {},
     /// Участники чата из локального кеша.
     GetChatMembers { chat_id: String },
+    /// Отправить в чат запрос-карточку «Запрос на приватный режим» (E2E).
+    SendPrivateModeRequest { chat_id: String },
     /// Просить собеседника перевести личный чат в приватный режим (E2E).
     RequestPrivateMode { chat_id: String },
     /// Отозвать собственный запрос на приватный режим.
@@ -980,6 +982,7 @@ mod tests {
             "refresh_chats",
             "get_chat_members",
             "search_users",
+            "send_private_mode_request",
             "request_private_mode",
             "cancel_private_mode",
             "resolve_private_mode",
