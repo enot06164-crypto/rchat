@@ -777,6 +777,35 @@
           }
         },
         {
+          "description": "Поиск пользователей по префиксу username (для выбора собеседника).",
+          "type": "object",
+          "required": [
+            "@type",
+            "query"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "search_users"
+              ]
+            },
+            "limit": {
+              "description": "Максимум результатов; по умолчанию 20.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "query": {
+              "description": "Префикс username (регистр не важен).",
+              "type": "string"
+            }
+          }
+        },
+        {
           "description": "Настройки клиента (режим чатов по умолчанию).",
           "type": "object",
           "required": [
@@ -2272,6 +2301,9 @@
           }
         },
         {
+          "$ref": "#/definitions/SearchUsersData"
+        },
+        {
           "$ref": "#/definitions/Chat"
         },
         {
@@ -2369,6 +2401,21 @@
         "requeued": {
           "description": "`true` — сообщение возвращено в очередь; `false` — такой записи нет или она уже отправлена.",
           "type": "boolean"
+        }
+      }
+    },
+    "SearchUsersData": {
+      "description": "Ответ `search_users`.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserSummary"
+          }
         }
       }
     },
@@ -2620,6 +2667,30 @@
       "enum": [
         "sync_progress"
       ]
+    },
+    "UserSummary": {
+      "description": "Краткая карточка пользователя (результат поиска).",
+      "type": "object",
+      "required": [
+        "avatar",
+        "display_name",
+        "user_id",
+        "username"
+      ],
+      "properties": {
+        "avatar": {
+          "$ref": "#/definitions/Avatar"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      }
     },
     "WarningData": {
       "description": "`data` события `warning`.",

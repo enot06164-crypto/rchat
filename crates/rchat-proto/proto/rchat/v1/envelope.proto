@@ -105,6 +105,7 @@ message Request {
     CallEndRequest call_end = 53;
 
     SearchMessagesRequest search_messages = 65;
+    SearchUsersRequest search_users = 67;
     SetCloudAccountKeyRequest set_cloud_account_key = 66;
 
     UploadBlobRequest upload_blob = 60;
@@ -151,6 +152,7 @@ message Response {
     CallEndResponse call_end = 53;
 
     SearchMessagesResponse search_messages = 65;
+    SearchUsersResponse search_users = 67;
     SetCloudAccountKeyResponse set_cloud_account_key = 66;
 
     UploadBlobResponse upload_blob = 60;

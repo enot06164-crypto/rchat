@@ -117,6 +117,36 @@ impl Repo for SqliteRepo {
         self.call(move |conn| find_user(conn, &user_id)).await
     }
 
+    async fn search_users(&self, prefix: &str, limit: u32) -> Result<Vec<UserRecord>, RepoError> {
+        let prefix = prefix.to_lowercase();
+        let limit = limit.clamp(1, 100) as i64;
+        self.call(move |conn| {
+            let sql = format!(
+                "SELECT {USER_COLUMNS} FROM users \
+                 WHERE lower(username) LIKE ?1 ESCAPE '\\' \
+                 ORDER BY username LIMIT ?2"
+            );
+            // Wildcard-и в префиксе экранируем, чтобы «%» и «_» искали
+            // буквально.
+            let escaped = prefix
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            let mut statement = conn
+                .prepare(&sql)
+                .map_err(|e| map_sql("search_users prepare", e))?;
+            let rows = statement
+                .query_map(
+                    rusqlite::params![format!("{escaped}%"), limit],
+                    user_from_row,
+                )
+                .map_err(|e| map_sql("search_users query", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| map_sql("search_users rows", e))
+        })
+        .await
+    }
+
     async fn find_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<UserRecord>, RepoError> {
         if user_ids.is_empty() {
             return Ok(Vec::new());

@@ -68,6 +68,13 @@ pub enum Command {
     RefreshChats {},
     /// Участники чата из локального кеша.
     GetChatMembers { chat_id: String },
+    /// Поиск пользователей по префиксу username (для выбора собеседника).
+    SearchUsers {
+        /// Префикс username (регистр не важен).
+        query: String,
+        /// Максимум результатов; по умолчанию 20.
+        limit: Option<u32>,
+    },
     /// Настройки клиента (режим чатов по умолчанию).
     GetSettings {},
     /// Сменить режим чатов по умолчанию: `cloud` или `private`.
@@ -263,6 +270,7 @@ pub enum ResponseData {
     Logout(LogoutData),
     Chats(Vec<Chat>),
     Members(Vec<ChatMember>),
+    SearchUsers(SearchUsersData),
     Chat(Chat),
     SendMessage(SendMessageData),
     RetryMessage(RetryMessageData),
@@ -435,6 +443,21 @@ pub enum E2eMode {
     NoneDev,
     #[serde(rename = "unspecified")]
     Unspecified,
+}
+
+/// Ответ `search_users`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchUsersData {
+    pub users: Vec<UserSummary>,
+}
+
+/// Краткая карточка пользователя (результат поиска).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct UserSummary {
+    pub user_id: String,
+    pub username: String,
+    pub display_name: String,
+    pub avatar: Avatar,
 }
 
 /// Участник чата.
@@ -886,6 +909,7 @@ mod tests {
             "get_chats",
             "refresh_chats",
             "get_chat_members",
+            "search_users",
             "get_settings",
             "set_default_chat_mode",
             "search_messages",

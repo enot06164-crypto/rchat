@@ -376,6 +376,22 @@ class RChatClient:
             raise RChatError("internal", f"invalid retry payload: {data!r}")
         return data
 
+    def search_users(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Ищет пользователей по префиксу username (для выбора собеседника)."""
+        data = self._command(
+            {
+                "@type": "search_users",
+                "query": str(query),
+                "limit": int(limit),
+            }
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid search payload: {data!r}")
+        users = data.get("users", [])
+        if not isinstance(users, list):
+            raise RChatError("internal", f"invalid users payload: {users!r}")
+        return [item for item in users if isinstance(item, dict)]
+
     def get_settings(self) -> Dict[str, Any]:
         """Настройки клиента (режим чатов по умолчанию)."""
         data = self._command({"@type": "get_settings"})

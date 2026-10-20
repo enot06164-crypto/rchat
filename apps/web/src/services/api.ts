@@ -17,6 +17,7 @@ import type {
   OkEnvelope,
   RchatEvent,
   SearchHit,
+  UserSummary,
 } from "../types/rchat";
 
 export class RchatApiError extends Error {
@@ -353,6 +354,9 @@ export function chatApiFor(profile: string) {
   getChats: () => connection.call<unknown[]>("get_chats"),
   getChatMembers: (chatId: string) =>
     connection.call<unknown[]>("get_chat_members", { chat_id: chatId }),
+  /** Поиск пользователей по префиксу username (для выбора собеседника). */
+  searchUsers: (query: string, limit = 20) =>
+    connection.call<{ users: UserSummary[] }>("search_users", { query, limit }),
   getMessages: (chatId: string, limit = 100) =>
     connection.call<unknown[]>("get_messages", { chat_id: chatId, limit }),
   getReceipts: (chatId: string) =>

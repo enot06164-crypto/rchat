@@ -190,6 +190,10 @@ impl Server {
                 let auth = self.authed(state)?;
                 self.handle_search_messages(&auth, request).await?
             }
+            M::SearchUsers(request) => {
+                let auth = self.authed(state)?;
+                self.handle_search_users(&auth, request).await?
+            }
             M::SetCloudAccountKey(request) => {
                 let auth = self.authed(state)?;
                 self.handle_set_cloud_account_key(&auth, request).await?
@@ -608,6 +612,41 @@ impl Server {
         ))
     }
 
+    /// Поиск пользователей по префиксу username — для выбора собеседника
+    /// при создании чата (как поиск контактов в Telegram).
+    async fn handle_search_users(
+        &self,
+        auth: &AuthContext,
+        request: proto::SearchUsersRequest,
+    ) -> Result<response::Result, ServerError> {
+        let query = request.query.trim().to_lowercase();
+        if query.is_empty() {
+            return Ok(response::Result::SearchUsers(proto::SearchUsersResponse {
+                users: Vec::new(),
+            }));
+        }
+        let limit = if request.limit == 0 {
+            20
+        } else {
+            request.limit.min(100)
+        };
+        let mut users = Vec::new();
+        for user in self.repo.search_users(&query, limit).await? {
+            // Себя в выдаче не показываем: чат с самим собой не создаётся.
+            if user.user_id == auth.user.user_id {
+                continue;
+            }
+            users.push(proto::UserInfo {
+                user_id: user.user_id,
+                username: user.username,
+                display_name: user.display_name,
+            });
+        }
+        Ok(response::Result::SearchUsers(proto::SearchUsersResponse {
+            users,
+        }))
+    }
+
     /// Поиск по сообщениям аккаунта. Работает в облачном режиме: сервер
     /// расшифровывает содержимое ключом аккаунта и ищет по нему. В приватных
     /// чатах содержимое серверу недоступно — в выдачу они не попадают.
@@ -868,11 +907,10 @@ impl Server {
             .find_direct_chat(&auth.user.user_id, &peer.user_id)
             .await?
         {
-            if chat.e2e_mode != mode as i32 {
-                return Err(ServerError::conflict(
-                    "direct chat already exists with a different e2e mode",
-                ));
-            }
+            // Режим принадлежит чату, а не вызывающему: если чат уже есть,
+            // возвращаем его как есть.  Иначе собеседники с разными
+            // настройками (у одного приватные чаты, у другого облачные) не
+            // смогли бы открыть друг другу чат вовсе.
             let users = vec![auth.user.clone(), peer];
             let chat_proto = p::chat_to_proto(&chat, &members, &users);
             return Ok(response::Result::CreateDirectChat(

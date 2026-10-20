@@ -484,6 +484,78 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
         .any(|window| window == needle)
 }
 
+/// Режим принадлежит чату: если у собеседников разные режимы по
+/// умолчанию, второй всё равно открывает существующий чат (без конфликта).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chat_mode_belongs_to_chat_not_to_caller() {
+    let harness = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+
+    let (alice, _alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
+    alice.start().await.expect("start alice");
+    register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
+    alice
+        .set_default_chat_mode(ChatMode::Private)
+        .await
+        .expect("set mode");
+
+    let (bob, _bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
+    bob.start().await.expect("start bob");
+    register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
+    // У Боба по умолчанию облачный режим.
+    assert_eq!(bob.default_chat_mode(), ChatMode::Cloud);
+
+    // Алиса создаёт приватный чат.
+    let chat = alice
+        .create_direct_chat("bob", ChatMode::Private)
+        .await
+        .expect("create chat");
+    assert_eq!(chat.e2e_mode, proto::E2eMode::OlmV1);
+
+    // Боб с облачным режимом по умолчанию открывает тот же чат — режим
+    // остаётся приватным (принадлежит чату), конфликта нет.
+    let same = bob
+        .create_direct_chat("alice", ChatMode::Cloud)
+        .await
+        .expect("open the same chat");
+    assert_eq!(same.chat_id, chat.chat_id);
+    assert_eq!(same.e2e_mode, proto::E2eMode::OlmV1);
+}
+
+/// Поиск пользователей по username — для выбора собеседника.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn users_are_searchable_by_username_prefix() {
+    let harness = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+
+    let (alice, _alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
+    alice.start().await.expect("start alice");
+    register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
+
+    let (bob, _bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
+    bob.start().await.expect("start bob");
+    register_user(&bob, "bobby", "Bobby", PASSWORD_BOB).await;
+
+    let found = alice.search_users("bob", 10).await.expect("search users");
+    assert_eq!(found.len(), 1, "по префиксу найден один пользователь");
+    assert_eq!(found[0].username, "bobby");
+    assert_eq!(found[0].display_name, "Bobby");
+
+    // Себя в выдаче нет.
+    let all = alice.search_users("a", 20).await.expect("search users");
+    assert!(
+        all.iter().all(|user| user.username != "alice"),
+        "самого себя в поиске быть не должно"
+    );
+    // Пустой запрос — пустая выдача.
+    let empty = alice.search_users("", 10).await.expect("search users");
+    assert!(empty.is_empty());
+}
+
 /// Режим по умолчанию меняется в настройках клиента и применяется к новым
 /// чатам; уже созданные чаты сохраняют свой режим.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -38,6 +38,7 @@ import type {
   Receipt,
   SearchHit,
   Session,
+  UserSummary,
 } from "../types/rchat";
 
 /** Состояние одного аккаунта (профиля шлюза). */
@@ -1066,6 +1067,25 @@ export async function retryHistory(
 ): Promise<void> {
   setNotice(profile, "historyError", null);
   await loadChatHistory(profile, chatId);
+}
+
+/**
+ * Ищет пользователей по префиксу username (для выбора собеседника).
+ * Список пользователей знает только сервер, поэтому запрос уходит к нему.
+ */
+export async function searchUsers(
+  profile: string,
+  query: string
+): Promise<UserSummary[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+  try {
+    const result = await chatApiFor(profile).searchUsers(trimmed, 20);
+    return result.users ?? [];
+  } catch (error) {
+    console.warn("rchat: search users", error);
+    return [];
+  }
 }
 
 export async function createDirectChat(

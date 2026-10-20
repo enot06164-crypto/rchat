@@ -39,6 +39,14 @@ export interface Chat {
 
 export type MemberRole = "owner" | "member" | "unspecified";
 
+/** Краткая карточка пользователя — результат поиска по username. */
+export interface UserSummary {
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar: AvatarInfo;
+}
+
 /** Превью последнего сообщения чата (для списка чатов). */
 export interface ChatPreview {
   body: string | null;

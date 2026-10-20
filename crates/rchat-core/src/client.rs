@@ -23,7 +23,7 @@ use crate::payload::{Attachment, Payload};
 use crate::traits::{secret_keys, ClientStore, CryptoProvider, SecretStore, TransportFactory};
 use crate::types::{
     CallRecord, ChatMode, ChatRecord, ConnectionState, DeviceRecord, MessageRecord, MessageStatus,
-    OutboxRecord, OutboxState, ReceiptRecord, SyncApply, SyncProgress,
+    OutboxRecord, OutboxState, ReceiptRecord, SyncApply, SyncProgress, UserRecord,
 };
 
 /// Короткое окно ожидания сети перед сборкой сообщения: клиент, только что
@@ -594,6 +594,40 @@ impl Client {
                 Ok(())
             }
             ChatMode::NoneDev => Ok(()),
+        }
+    }
+
+    /// Ищет пользователей по префиксу username (для выбора собеседника при
+    /// создании чата).  Список пользователей знает только сервер, поэтому
+    /// запрос уходит к нему.
+    pub async fn search_users(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<UserRecord>, CoreError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let resp = self
+            .request(proto::request::Method::SearchUsers(
+                proto::SearchUsersRequest {
+                    query: query.to_string(),
+                    limit,
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::SearchUsers(result) => Ok(result
+                .users
+                .into_iter()
+                .map(|user| UserRecord {
+                    user_id: user.user_id,
+                    username: user.username,
+                    display_name: user.display_name,
+                })
+                .collect()),
+            other => Err(unexpected(other)),
         }
     }
 

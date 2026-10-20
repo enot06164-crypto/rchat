@@ -132,6 +132,22 @@ pub(crate) async fn dispatch(
                     .collect(),
             ))
         }
+        "search_users" => {
+            let query = string_field(request, "query")?;
+            let limit = optional_u64_field(request, "limit")?.unwrap_or(20) as u32;
+            let users = handle.client.search_users(&query, limit).await?;
+            Ok(json!({
+                "users": users
+                    .iter()
+                    .map(|user| json!({
+                        "user_id": user.user_id,
+                        "username": user.username,
+                        "display_name": user.display_name,
+                        "avatar": crate::json::avatar(&user.user_id, &user.display_name, &user.username),
+                    }))
+                    .collect::<Vec<_>>(),
+            }))
+        }
         "get_chat_members" => {
             let chat_id = string_field(request, "chat_id")?;
             let members = handle.client.chat_members(&chat_id).await?;

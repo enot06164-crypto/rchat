@@ -101,6 +101,20 @@ message ListDevicesResponse {
   repeated DeviceInfo devices = 1;
 }
 
+// Поиск пользователей по префиксу username (как поиск контактов в
+// Telegram).  Нужен, чтобы в новом чате можно было выбрать собеседника по
+// напечатанному имени, а не по точному совпадению.
+message SearchUsersRequest {
+  // Префикс username (регистр не важен).
+  string query = 1;
+  // Максимум результатов (по умолчанию 20).
+  uint32 limit = 2;
+}
+
+message SearchUsersResponse {
+  repeated UserInfo users = 1;
+}
+
 message RevokeDeviceRequest {
   string device_id = 1;
 }

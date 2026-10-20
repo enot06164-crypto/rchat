@@ -65,6 +65,10 @@ pub trait Repo: Send + Sync {
 
     async fn find_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<UserRecord>, RepoError>;
 
+    /// Пользователи, чей username начинается с `prefix` (регистр не важен).
+    /// Нужен для поиска контактов при создании чата.
+    async fn search_users(&self, prefix: &str, limit: u32) -> Result<Vec<UserRecord>, RepoError>;
+
     // --- устройства ---
 
     async fn find_device(
