@@ -2040,6 +2040,43 @@ textarea {
     }
   }
 
+  // Строка аккаунтов: чипы профилей (шлюза) и «+» для нового.
+  &__accounts {
+    margin-bottom: 14px;
+  }
+
+  &__accounts-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  &__account {
+    padding: 5px 11px;
+    border-radius: 12px;
+    background: $bg-surface-hover;
+    color: $text-primary;
+    font-size: 13px;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background-color $transition-fast, color $transition-fast;
+
+    &.is-active {
+      background: $accent-purple;
+      color: #fff;
+    }
+
+    &--add {
+      width: 28px;
+      text-align: center;
+      padding: 5px 0;
+      color: $text-secondary;
+    }
+  }
+
   &__error {
     color: $danger;
     font-size: 13px;

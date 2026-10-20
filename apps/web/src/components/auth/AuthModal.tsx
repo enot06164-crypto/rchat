@@ -1,5 +1,11 @@
-import { Show, createSignal } from "solid-js";
-import { login, register, state } from "../../services/store";
+import { For, Show, createSignal } from "solid-js";
+import {
+  login,
+  nextProfileName,
+  register,
+  state,
+  switchProfile,
+} from "../../services/store";
 import { describeError } from "../../services/api";
 
 type Mode = "login" | "register";
@@ -13,6 +19,16 @@ export function AuthModal() {
   const [localError, setLocalError] = createSignal<string | null>(null);
 
   const error = () => localError() ?? state.authError;
+
+  // Аккаунты (профили шлюза): переключение — мгновенное, состояние
+  // каждого аккаунта своё.
+  const pickProfile = (name: string): void => {
+    void switchProfile(name);
+  };
+
+  const addProfile = (): void => {
+    pickProfile(nextProfileName(state.profiles));
+  };
 
   const submit = async (): Promise<void> => {
     const name = username().trim();
@@ -61,6 +77,36 @@ export function AuthModal() {
             Регистрация
           </button>
         </div>
+
+        <Show when={state.profiles.length > 0}>
+          <div class="auth__accounts">
+            <div class="auth__accounts-row">
+              <For each={state.profiles}>
+                {(profile) => (
+                  <button
+                    type="button"
+                    classList={{
+                      "auth__account": true,
+                      "is-active": profile === state.profile,
+                    }}
+                    title={profile}
+                    onClick={() => pickProfile(profile)}
+                  >
+                    {profile}
+                  </button>
+                )}
+              </For>
+              <button
+                type="button"
+                class="auth__account auth__account--add"
+                title="Добавить аккаунт"
+                onClick={addProfile}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </Show>
 
         <form
           onSubmit={(event) => {

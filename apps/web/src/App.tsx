@@ -1,6 +1,13 @@
 import { onMount, Show } from "solid-js";
 import { api } from "./services/api";
-import { applyEvent, boot, setState, state } from "./services/store";
+import {
+  applyEvent,
+  boot,
+  initialProfile,
+  loadProfiles,
+  setState,
+  state,
+} from "./services/store";
 import { AuthModal } from "./components/auth/AuthModal";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { ChatView } from "./components/chat/ChatView";
@@ -12,11 +19,17 @@ import { ChatView } from "./components/chat/ChatView";
  */
 export default function App() {
   onMount(() => {
+    // Профиль (аккаунт) выбирается до подключения: он задаётся в адресе
+    // соединения (`/ws?profile=...`), у каждого свои чаты и ключи.
+    const profile = initialProfile();
+    setState("profile", profile);
+    api.setProfile(profile);
     // При каждом успешном соединении с шлюзом (в т.ч. после реконнекта)
     // перечитываем состояние ядра.
     api.onConnect(() => {
       setState("linkUp", true);
       void boot();
+      void loadProfiles();
     });
     api.onDisconnect(() => setState("linkUp", false));
     // События ядра (§7) применяются реактивно в store.

@@ -9,8 +9,10 @@
 
 import { createStore } from "solid-js/store";
 import {
+  api,
   chatApi,
   describeError,
+  listProfiles,
 } from "./api";
 import type {
   AttachmentInfo,
@@ -59,6 +61,10 @@ export interface AppState {
   searchHits: SearchHit[];
   /** Идёт ли поиск по сообщениям. */
   searchBusy: boolean;
+  /** Профиль (аккаунт) шлюза, с которым соединён клиент. */
+  profile: string;
+  /** Профили (аккаунты), известные шлюзу. */
+  profiles: string[];
 }
 
 const INITIAL_STATE: AppState = {
@@ -81,6 +87,8 @@ const INITIAL_STATE: AppState = {
   defaultChatMode: "cloud",
   searchHits: [],
   searchBusy: false,
+  profile: "default",
+  profiles: ["default"],
 };
 
 export const [state, setState] = createStore<AppState>(INITIAL_STATE);
@@ -212,6 +220,76 @@ export async function boot(): Promise<void> {
   } finally {
     booting = false;
   }
+}
+
+/** Ключ профиля в sessionStorage: профиль — на вкладку, поэтому в двух
+ * вкладках можно держать разные аккаунты (как Telegram Web A/B). */
+const PROFILE_STORAGE_KEY = "rchat.profile";
+
+/** Профиль вкладки: из адреса (`?profile=`), иначе из sessionStorage. */
+export function initialProfile(): string {
+  const fromUrl = new URLSearchParams(window.location.search).get("profile");
+  if (fromUrl !== null && fromUrl.trim() !== "") return fromUrl.trim();
+  try {
+    const value = window.sessionStorage.getItem(PROFILE_STORAGE_KEY);
+    return value !== null && value.trim() !== "" ? value.trim() : "default";
+  } catch {
+    return "default";
+  }
+}
+
+/** Запоминает профиль вкладки. */
+function rememberProfile(profile: string): void {
+  try {
+    window.sessionStorage.setItem(PROFILE_STORAGE_KEY, profile);
+  } catch {
+    /* sessionStorage может быть недоступен — не критично */
+  }
+}
+
+/** Читает список аккаунтов (профилей) шлюза. */
+export async function loadProfiles(): Promise<void> {
+  const profiles = await listProfiles();
+  if (profiles.length > 0) {
+    setState("profiles", profiles);
+  }
+}
+
+/**
+ * Переключает аккаунт (профиль): соединение переоткрывается, состояние
+ * очищается — у каждого аккаунта свои чаты и ключи.
+ */
+export async function switchProfile(profile: string): Promise<void> {
+  const name = profile.trim();
+  if (name === "" || name === state.profile) return;
+  rememberProfile(name);
+  setState({
+    profile: name,
+    session: null,
+    chats: [],
+    messages: {},
+    receipts: {},
+    members: {},
+    activeChatId: null,
+    unread: {},
+    replyTo: null,
+    booted: false,
+    authError: null,
+  });
+  api.setProfile(name);
+  await loadProfiles();
+  await boot();
+}
+
+/** Имя нового профиля: короткое и уникальное в пределах шлюза. */
+export function nextProfileName(existing: string[]): string {
+  let index = existing.length + 1;
+  let name = `account${index}`;
+  while (existing.includes(name)) {
+    index += 1;
+    name = `account${index}`;
+  }
+  return name;
 }
 
 /**
