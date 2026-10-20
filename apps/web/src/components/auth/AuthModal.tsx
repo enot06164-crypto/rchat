@@ -1,11 +1,8 @@
-import { For, Show, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import {
   accountState,
   login,
-  nextProfileName,
   register,
-  state,
-  switchProfile,
   waitConnected,
 } from "../../services/store";
 import { describeError } from "../../services/api";
@@ -23,16 +20,6 @@ export function AuthModal(props: { profile: string }) {
   const [localError, setLocalError] = createSignal<string | null>(null);
 
   const error = () => localError() ?? acc().authError;
-
-  // Аккаунты (профили шлюза): переключение — мгновенное, состояние
-  // каждого аккаунта своё.
-  const pickProfile = (name: string): void => {
-    void switchProfile(name);
-  };
-
-  const addProfile = (): void => {
-    pickProfile(nextProfileName(state.profiles));
-  };
 
   const submit = async (): Promise<void> => {
     const name = username().trim();
@@ -86,36 +73,6 @@ export function AuthModal(props: { profile: string }) {
             Регистрация
           </button>
         </div>
-
-        <Show when={state.profiles.length > 0}>
-          <div class="auth__accounts">
-            <div class="auth__accounts-row">
-              <For each={state.profiles}>
-                {(profile) => (
-                  <button
-                    type="button"
-                    classList={{
-                      "auth__account": true,
-                      "is-active": profile === state.activeProfile,
-                    }}
-                    title={profile}
-                    onClick={() => pickProfile(profile)}
-                  >
-                    {profile}
-                  </button>
-                )}
-              </For>
-              <button
-                type="button"
-                class="auth__account auth__account--add"
-                title="Добавить аккаунт"
-                onClick={addProfile}
-              >
-                +
-              </button>
-            </div>
-          </div>
-        </Show>
 
         <form
           onSubmit={(event) => {
