@@ -43,6 +43,13 @@ export function Sidebar(props: { profile: string }) {
   const [meMenuOpen, setMeMenuOpen] = createSignal(false);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
+  // Аккаунты, в которые вошли (у остальных профилей сессии нет).
+  const loggedProfiles = (): string[] =>
+    state.profiles.filter((profile) => {
+      const session = state.accounts[profile]?.session;
+      return session !== null && session !== undefined;
+    });
+
   const linkStatus = () =>
     state.linkUp ? connectionLabel(state.connection) : "шлюз недоступен";
   const onlineNow = () => state.linkUp && state.connection === "connected";
@@ -158,9 +165,11 @@ export function Sidebar(props: { profile: string }) {
 
             <div class="me-menu__divider" />
 
-            {/* Аккаунты этого браузера: как в меню Telegram Web. */}
+            {/* Аккаунты этого браузера: как в меню Telegram Web.  Показываем
+                только те, в которые действительно вошли (у остальных профилей
+                сессии нет — это ещё не аккаунты). */}
             <div class="me-menu__accounts">
-            <For each={state.profiles}>
+            <For each={loggedProfiles()}>
               {(profile) => (
                 <button
                   role="menuitem"

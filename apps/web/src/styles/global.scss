@@ -2054,6 +2054,20 @@ textarea {
     margin: 6px 0 18px;
   }
 
+  &__back {
+    display: block;
+    margin: 0 auto 6px;
+    background: none;
+    border: none;
+    color: $accent-purple;
+    font-size: 13px;
+    padding: 0;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
   &__tabs {
     display: flex;
     gap: 4px;

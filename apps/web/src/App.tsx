@@ -1,6 +1,6 @@
 import { onMount, Show } from "solid-js";
 import { AccountPanel } from "./components/AccountPanel";
-import { AddAccountModal } from "./components/auth/AddAccountModal";
+import { AddAccountScreen } from "./components/auth/AddAccountScreen";
 import { AuthModal } from "./components/auth/AuthModal";
 import {
   activateProfile,
@@ -58,8 +58,9 @@ export default function App() {
         <AuthModal profile={state.activeProfile} />
       </Show>
 
+      {/* Экран «Добавить аккаунт» — поверх всего, как в Telegram Web. */}
       <Show when={state.addAccountOpen}>
-        <AddAccountModal onClose={() => setAddAccountOpen(false)} />
+        <AddAccountScreen onClose={() => setAddAccountOpen(false)} />
       </Show>
     </Show>
   );
