@@ -1361,6 +1361,24 @@ impl Client {
             .map_err(CoreError::Crypto)
     }
 
+    /// Возвращает упавшее сообщение в очередь отправки.
+    ///
+    /// Повтор не создаёт новую копию: в очередь возвращается та же запись с
+    /// тем же ключом идемпотентности, поэтому сервер не продублирует
+    /// сообщение, даже если предыдущая попытка дошла до сервера.
+    pub async fn retry_message(&self, local_id: &str) -> Result<bool, CoreError> {
+        self.start().await?;
+        if local_id.trim().is_empty() {
+            return Err(CoreError::InvalidInput("local_id is required".into()));
+        }
+        let requeued = self.inner.storage.requeue_outbox(local_id).await?;
+        if requeued {
+            // Разбудить обработчик очереди: сообщение уйдёт в ближайшем тике.
+            let _ = self.inner.command_tx.try_send(Command::Kick);
+        }
+        Ok(requeued)
+    }
+
     /// Общая часть отправки: собирает и шифрует payload, ставит его в outbox.
     async fn send_payload(
         &self,
@@ -1466,6 +1484,7 @@ impl Client {
             local_id: local_id.clone(),
             state: OutboxState::Pending,
             error: None,
+            error_code: None,
         });
         // Разбудить обработчик outbox; при переполнении канала тик сделает это сам.
         let _ = self.inner.command_tx.try_send(Command::Kick);

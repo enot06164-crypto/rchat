@@ -327,6 +327,7 @@ rchat_destroy(handle);
 | `@type` | Поля | `data` |
 | --- | --- | --- |
 | `send_message` | `chat_id`, `text?`, `attachment?`, `reply_to_server_id?` | `{local_id}` |
+| `retry_message` | `local_id` | `{requeued}` — сообщение возвращено в очередь |
 | `download_attachment` | `server_id` | `{kind, name, mime, size, data_base64}` |
 | `get_messages` | `chat_id`, `before_server_id?`, `limit?` | массив сообщений (локально) |
 | `fetch_history` | `chat_id`, `before_server_id?`, `limit?` | массив сообщений (с сервера) |
@@ -344,6 +345,14 @@ rchat_destroy(handle);
 
 `mark_read` без `up_to_server_id` использует `last_server_id` чата; если
 отмечать нечего, возвращает `0`.
+
+### 5.3.1. Повтор отправки
+
+`retry_message` возвращает упавшее сообщение в очередь отправки.  Новая копия
+не создаётся: в очередь возвращается та же запись с тем же ключом
+идемпотентности, поэтому сервер не продублирует сообщение, даже если
+предыдущая попытка до него дошла.  `requeued: false` — такой записи нет или
+она уже отправлена (повтор не нужен).
 
 ### 5.4. Вложения (файл, фото, видео, голос)
 
@@ -649,7 +658,7 @@ rchat_destroy(handle);
 | `session_ended` | `{reason}` |
 | `message_received` | объект сообщения |
 | `message_updated` | объект сообщения |
-| `outbox_changed` | `{local_id, state, error}`; `state` — `pending/sending/sent/failed` |
+| `outbox_changed` | `{local_id, state, error, error_code?}`; `state` — `pending/sending/sent/failed`; `error_code` — код ошибки сервера, если она от сервера |
 | `chat_upserted` | объект чата |
 | `receipt_updated` | объект receipt |
 | `presence_changed` | `{user_id, online}` |

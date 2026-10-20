@@ -389,6 +389,9 @@ export function chatApiFor(profile: string) {
   },
   markRead: (chatId: string) =>
     connection.call<unknown>("mark_read", { chat_id: chatId }),
+  /** Возвращает упавшее сообщение в очередь (та же запись, без новой копии). */
+  retryMessage: (localId: string) =>
+    connection.call<{ requeued: boolean }>("retry_message", { local_id: localId }),
   downloadAttachment: (serverId: number) =>
     connection.call<{
       kind: string;

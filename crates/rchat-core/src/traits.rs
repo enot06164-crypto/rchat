@@ -132,6 +132,10 @@ pub trait Storage: Send + Sync {
     /// Подтверждение отправки: статус `Sent`, `server_id`, удаление записи
     /// outbox и обновление `last_server_id` чата — одной транзакцией.
     async fn apply_send_ack(&self, local_id: &str, server_id: u64) -> Result<(), StorageError>;
+    /// Возвращает упавшую запись outbox в очередь: та же запись (тот же
+    /// ключ идемпотентности), состояние `Pending`, счётчик попыток сброшен.
+    /// `false` — записи нет или она не в состоянии `Failed`.
+    async fn requeue_outbox(&self, local_id: &str) -> Result<bool, StorageError>;
     /// Ошибка попытки: новый статус сообщения и outbox, следующая попытка.
     async fn apply_outbox_failure(
         &self,

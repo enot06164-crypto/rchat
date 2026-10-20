@@ -363,6 +363,19 @@ class RChatClient:
         data = self._command(request)
         return _one(Chat, data, "chat")
 
+    def retry_message(self, local_id: str) -> Dict[str, Any]:
+        """Вернуть упавшее сообщение в очередь отправки.
+
+        Новая копия не создаётся: в очередь возвращается та же запись с тем
+        же ключом идемпотентности, поэтому сервер не продублирует сообщение.
+        """
+        data = self._command(
+            {"@type": "retry_message", "local_id": str(local_id)}
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid retry payload: {data!r}")
+        return data
+
     def get_settings(self) -> Dict[str, Any]:
         """Настройки клиента (режим чатов по умолчанию)."""
         data = self._command({"@type": "get_settings"})

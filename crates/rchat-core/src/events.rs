@@ -32,6 +32,9 @@ pub enum UiEvent {
         local_id: String,
         state: OutboxState,
         error: Option<String>,
+        /// Код ошибки сервера (если ошибка пришла от сервера): позволяет
+        /// отличить «нет доступа» от «превышен лимит» без разбора текста.
+        error_code: Option<i32>,
     },
     ChatUpserted(ChatRecord),
     ReceiptUpdated(ReceiptRecord),

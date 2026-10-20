@@ -1904,6 +1904,80 @@ textarea {
   }
 }
 
+/* Уведомление об ошибке: заголовок, пояснение и действие */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  padding: 9px 12px;
+  border-radius: $radius-panel;
+  background: rgba($danger, 0.12);
+  border: 1px solid rgba($danger, 0.35);
+  color: $text-primary;
+  font-size: 13px;
+  line-height: 1.35;
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__title {
+    font-weight: 500;
+  }
+
+  &__message {
+    color: $text-secondary;
+  }
+
+  &__action {
+    flex: none;
+    padding: 5px 10px;
+    border-radius: 10px;
+    background: $accent-purple;
+    color: #fff;
+    font-size: 12px;
+    transition: filter $transition-fast;
+
+    &:hover {
+      filter: brightness(1.1);
+    }
+  }
+
+  &__close {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    color: $text-secondary;
+    font-size: 16px;
+    line-height: 1;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+}
+
+/* Кнопка повтора отправки в пузыре сообщения */
+.bubble__retry {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba($danger, 0.16);
+  color: $danger;
+  font-size: 11px;
+  transition: background-color $transition-fast;
+
+  &:hover {
+    background: rgba($danger, 0.28);
+  }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Модальные окна                                                              */
 /* ------------------------------------------------------------------------- */

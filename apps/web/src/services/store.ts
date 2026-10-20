@@ -16,9 +16,15 @@ import {
   apiFor,
   chatApiFor,
   closeProfile,
-  describeError,
   listProfiles,
 } from "./api";
+import {
+  classifyError,
+  classifyOutboxFailure,
+  noticeKey,
+  noticeText,
+  type ErrorNotice,
+} from "./errors";
 import type {
   AttachmentInfo,
   AttachmentUpload,
@@ -52,9 +58,13 @@ export interface AccountState {
   replyTo: Message | null;
   booted: boolean;
   busy: boolean;
-  authError: string | null;
-  sendError: string | null;
-  newChatError: string | null;
+  authError: ErrorNotice | null;
+  /** Ошибка отправки в чате `sendErrorChatId` (в других чатах не показывается). */
+  sendError: ErrorNotice | null;
+  sendErrorChatId: string | null;
+  newChatError: ErrorNotice | null;
+  /** Ошибка загрузки истории (с действием «повторить»). */
+  historyError: ErrorNotice | null;
   /** Режим чатов по умолчанию: облачный (`cloud`) или приватный (`private`). */
   defaultChatMode: ChatPrivacy;
   /** Найденные сообщения (поиск по истории; только для облачного режима). */
@@ -94,7 +104,9 @@ function emptyAccount(): AccountState {
     busy: false,
     authError: null,
     sendError: null,
+    sendErrorChatId: null,
     newChatError: null,
+    historyError: null,
     defaultChatMode: "cloud",
     searchHits: [],
     searchBusy: false,
@@ -126,6 +138,64 @@ export function accountState(profile: string): AccountState {
     );
   }
   return state.accounts[profile];
+}
+
+/**
+ * Ставит уведомление об ошибке.  То же самое уведомление не ставится
+ * повторно — иначе получится поток одинаковых сообщений.
+ */
+function setNotice(
+  profile: string,
+  field: "authError" | "newChatError" | "historyError",
+  notice: ErrorNotice | null
+): void {
+  const current = accountState(profile)[field];
+  if (
+    notice !== null &&
+    current !== null &&
+    noticeKey(current) === noticeKey(notice)
+  ) {
+    return;
+  }
+  setState("accounts", profile, field, notice);
+}
+
+/**
+ * Ошибка отправки — с привязкой к чату: в других чатах она не показывается,
+ * и устаревший ответ не выдаётся за ошибку другого аккаунта.
+ */
+function setSendError(
+  profile: string,
+  chatId: string | null,
+  notice: ErrorNotice | null
+): void {
+  const account = accountState(profile);
+  if (
+    notice !== null &&
+    account.sendError !== null &&
+    account.sendErrorChatId === chatId &&
+    noticeKey(account.sendError) === noticeKey(notice)
+  ) {
+    return;
+  }
+  setState(
+    "accounts",
+    profile,
+    produce((s) => {
+      s.sendError = notice;
+      s.sendErrorChatId = chatId;
+    })
+  );
+}
+
+/** Чат, которому принадлежит сообщение с таким локальным id. */
+function chatIdOfLocal(profile: string, localId: string): string | null {
+  const messages = accountState(profile).messages;
+  for (const list of Object.values(messages)) {
+    const found = list.find((message) => message.local_id === localId);
+    if (found !== undefined) return found.chat_id;
+  }
+  return null;
 }
 
 function byCreatedDesc(a: Chat, b: Chat): number {
@@ -223,12 +293,14 @@ function setOutboxState(
       (prev = []) => prev.map((m) => (m.local_id === localId ? { ...m, status } : m))
     );
     if (status === "failed" && chatId === account.activeChatId) {
-      setState(
-        "accounts",
-        profile,
-        "sendError",
-        error ?? "не удалось отправить сообщение"
-      );
+      setSendError(profile, chatId, {
+        kind: "unknown",
+        title: "Сообщение не отправлено",
+        message:
+          error ?? "Сообщение осталось в очереди — можно повторить отправку.",
+        retryable: true,
+        operation: "send",
+      });
     }
     return;
   }
@@ -421,7 +493,8 @@ export async function addAccount(
     ? await register(name, username, displayName, password)
     : await login(name, username, password);
   if (!ok) {
-    return accountState(name).authError ?? "не удалось войти";
+    const notice = accountState(name).authError;
+    return notice === null ? "не удалось войти" : noticeText(notice);
   }
   activateProfile(name);
   await loadProfiles();
@@ -601,8 +674,22 @@ export function applyEvent(profile: string, event: RchatEvent): void {
         local_id: string;
         state: Exclude<MessageStatus, "none">;
         error: string | null;
+        error_code?: number | null;
       };
       setOutboxState(profile, data.local_id, data.state, data.error);
+      if (data.state === "failed") {
+        // Сообщение осталось в очереди: предлагаем повторить (без новой
+        // копии — повтор возвращает ту же запись в очередь).
+        const chatId = chatIdOfLocal(profile, data.local_id);
+        setSendError(
+          profile,
+          chatId,
+          classifyOutboxFailure(data.error_code, {
+            operation: "send",
+            chatId: chatId ?? undefined,
+          })
+        );
+      }
       return;
     }
     case "receipt_updated": {
@@ -666,6 +753,13 @@ export function setReplyTo(profile: string, message: Message): void {
 
 export function clearReply(profile: string): void {
   setState("accounts", profile, "replyTo", null);
+}
+
+/** Скрывает ошибку отправки в чате. */
+export function clearSendError(profile: string, chatId: string): void {
+  const account = accountState(profile);
+  if (account.sendErrorChatId !== chatId) return;
+  setSendError(profile, chatId, null);
 }
 
 /**
@@ -738,6 +832,7 @@ async function loadChatHistory(
   const job = (async () => {
     const chat = accountState(profile).chats.find((c) => c.chat_id === chatId);
     const requests: Promise<void>[] = [];
+    setNotice(profile, "historyError", null);
 
     requests.push(
       (async () => {
@@ -770,7 +865,16 @@ async function loadChatHistory(
 
     const results = await Promise.allSettled(requests);
     for (const result of results) {
-      if (result.status === "rejected") console.warn(result.reason);
+      if (result.status === "rejected") {
+        // Ошибка чтения — понятное уведомление с действием «повторить».
+        const reason = result.reason;
+        console.warn(reason);
+        setNotice(
+          profile,
+          "historyError",
+          classifyError(reason, { operation: "history", chatId })
+        );
+      }
     }
     try {
       await chatApi.markRead(chatId);
@@ -781,17 +885,23 @@ async function loadChatHistory(
   await job;
 }
 
+/**
+ * Ставит сообщение в очередь отправки.
+ *
+ * Возвращает `true`, если сообщение ушло в очередь, и `false`, если отправка
+ * не началась (ошибка до постановки) — тогда ввод пользователя сохраняется.
+ */
 export async function sendCurrentText(
   profile: string,
   text: string,
   attachments: AttachmentUpload[] = []
-): Promise<void> {
+): Promise<boolean> {
   const account = accountState(profile);
   const chatId = account.activeChatId;
   const session = account.session;
   const trimmed = text.trim();
-  if (chatId === null || session === null) return;
-  if (trimmed === "" && attachments.length === 0) return;
+  if (chatId === null || session === null) return false;
+  if (trimmed === "" && attachments.length === 0) return false;
 
   setState("accounts", profile, "sendError", null);
   const replyTo = account.replyTo;
@@ -898,8 +1008,56 @@ export async function sendCurrentText(
             : m
         )
     );
-    setState("accounts", profile, "sendError", describeError(error));
+    setSendError(
+      profile,
+      chatId,
+      classifyError(error, { operation: "send", chatId })
+    );
+    return false;
   }
+  return true;
+}
+
+/**
+ * Повторяет отправку упавшего сообщения: в очередь возвращается та же
+ * запись (тот же ключ идемпотентности), поэтому новой копии не будет.
+ */
+export async function retryMessage(
+  profile: string,
+  chatId: string,
+  localId: string
+): Promise<void> {
+  try {
+    const result = (await chatApiFor(profile).retryMessage(localId)) as {
+      requeued: boolean;
+    };
+    if (!result.requeued) {
+      setSendError(profile, chatId, {
+        kind: "unknown",
+        title: "Повтор не нужен",
+        message: "Сообщение уже отправлено или больше не в очереди.",
+        retryable: false,
+        operation: "send",
+      });
+      return;
+    }
+    setSendError(profile, chatId, null);
+  } catch (error) {
+    setSendError(
+      profile,
+      chatId,
+      classifyError(error, { operation: "send", chatId })
+    );
+  }
+}
+
+/** Повторяет загрузку истории чата. */
+export async function retryHistory(
+  profile: string,
+  chatId: string
+): Promise<void> {
+  setNotice(profile, "historyError", null);
+  await loadChatHistory(profile, chatId);
 }
 
 export async function createDirectChat(
@@ -909,9 +1067,15 @@ export async function createDirectChat(
 ): Promise<Chat | null> {
   accountState(profile);
   const username = usernameRaw.trim().replace(/^@+/, "");
-  setState("accounts", profile, "newChatError", null);
+  setNotice(profile, "newChatError", null);
   if (username === "") {
-    setState("accounts", profile, "newChatError", "введите username собеседника");
+    setNotice(profile, "newChatError", {
+      kind: "invalid_input",
+      title: "Нужен username",
+      message: "Введите имя пользователя собеседника.",
+      retryable: false,
+      operation: "chat",
+    });
     return null;
   }
   try {
@@ -919,7 +1083,11 @@ export async function createDirectChat(
     upsertChat(profile, chat);
     return chat;
   } catch (error) {
-    setState("accounts", profile, "newChatError", describeError(error));
+    setNotice(
+      profile,
+      "newChatError",
+      classifyError(error, { operation: "chat" })
+    );
     return null;
   }
 }
@@ -945,7 +1113,11 @@ export async function login(
     void updateConnection(profile);
     return true;
   } catch (error) {
-    setState("accounts", profile, "authError", describeError(error));
+    setNotice(
+      profile,
+      "authError",
+      classifyError(error, { operation: "login" })
+    );
     return false;
   } finally {
     setState("accounts", profile, "busy", false);
@@ -971,7 +1143,11 @@ export async function register(
     void updateConnection(profile);
     return true;
   } catch (error) {
-    setState("accounts", profile, "authError", describeError(error));
+    setNotice(
+      profile,
+      "authError",
+      classifyError(error, { operation: "register" })
+    );
     return false;
   } finally {
     setState("accounts", profile, "busy", false);

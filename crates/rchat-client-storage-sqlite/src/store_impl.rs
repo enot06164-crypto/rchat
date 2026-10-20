@@ -520,6 +520,40 @@ impl Storage for ClientSqliteStorage {
         .await
     }
 
+    async fn requeue_outbox(&self, local_id: &str) -> Result<bool, StorageError> {
+        let local_id = local_id.to_string();
+        self.call(move |conn| {
+            let tx = conn
+                .unchecked_transaction()
+                .map_err(|e| map_sql("requeue_outbox begin", e))?;
+            // Возвращаем в очередь только упавшую запись: `Sent` уже доставлено,
+            // `Pending`/`Sending` ещё в работе.
+            let changed = tx
+                .execute(
+                    "UPDATE outbox
+                     SET state = 0, attempts = 0, last_error_code = NULL, last_error = NULL,
+                         next_attempt_at_ms = 0
+                     WHERE local_id = ?1 AND state = 3",
+                    rusqlite::params![local_id],
+                )
+                .map_err(|e| map_sql("requeue_outbox outbox", e))?;
+            if changed == 0 {
+                tx.commit()
+                    .map_err(|e| map_sql("requeue_outbox commit", e))?;
+                return Ok(false);
+            }
+            tx.execute(
+                "UPDATE messages SET status = 1 WHERE local_id = ?1",
+                rusqlite::params![local_id],
+            )
+            .map_err(|e| map_sql("requeue_outbox message", e))?;
+            tx.commit()
+                .map_err(|e| map_sql("requeue_outbox commit", e))?;
+            Ok(true)
+        })
+        .await
+    }
+
     async fn apply_outbox_failure(
         &self,
         local_id: &str,

@@ -205,6 +205,13 @@ pub(crate) async fn dispatch(
             };
             Ok(json!({"local_id": local_id}))
         }
+        "retry_message" => {
+            // Повтор отправки: та же запись очереди (тот же ключ
+            // идемпотентности) — новой копии сообщения не создаётся.
+            let local_id = string_field(request, "local_id")?;
+            let requeued = handle.client.retry_message(&local_id).await?;
+            Ok(json!({"requeued": requeued}))
+        }
         "download_attachment" => {
             let server_id = u64_field(request, "server_id")?;
             // Ядро само скачивает блоб с сервера и расшифровывает его ключом

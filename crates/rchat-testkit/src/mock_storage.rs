@@ -469,6 +469,25 @@ impl Storage for MockStorage {
         Ok(())
     }
 
+    async fn requeue_outbox(&self, local_id: &str) -> Result<bool, StorageError> {
+        let mut inner = self.lock();
+        let Some(record) = inner.outbox.get_mut(local_id) else {
+            return Ok(false);
+        };
+        if record.state != OutboxState::Failed {
+            return Ok(false);
+        }
+        record.state = OutboxState::Pending;
+        record.attempts = 0;
+        record.last_error_code = None;
+        record.last_error = None;
+        record.next_attempt_at_ms = 0;
+        if let Some(message) = inner.messages.get_mut(local_id) {
+            message.status = Some(MessageStatus::Sending);
+        }
+        Ok(true)
+    }
+
     async fn apply_outbox_failure(
         &self,
         local_id: &str,

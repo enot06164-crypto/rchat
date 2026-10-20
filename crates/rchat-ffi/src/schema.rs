@@ -127,6 +127,12 @@ pub enum Command {
         attachment: Option<AttachmentUpload>,
         reply_to_server_id: Option<u64>,
     },
+    /// Вернуть упавшее сообщение в очередь отправки (та же запись, без новой
+    /// копии: ключ идемпотентности сохраняется).
+    RetryMessage {
+        /// Локальный идентификатор сообщения (`local_id`).
+        local_id: String,
+    },
     /// Содержимое вложения сообщения (для отрисовки в UI).
     DownloadAttachment { server_id: u64 },
     /// Локальная история сообщений.
@@ -259,6 +265,7 @@ pub enum ResponseData {
     Members(Vec<ChatMember>),
     Chat(Chat),
     SendMessage(SendMessageData),
+    RetryMessage(RetryMessageData),
     DownloadAttachment(DownloadAttachmentData),
     Messages(Vec<Message>),
     Message(Message),
@@ -309,6 +316,14 @@ pub struct LogoutData {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SendMessageData {
     pub local_id: String,
+}
+
+/// Ответ `retry_message`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RetryMessageData {
+    /// `true` — сообщение возвращено в очередь; `false` — такой записи нет
+    /// или она уже отправлена.
+    pub requeued: bool,
 }
 
 /// Ответ `mark_read`.
@@ -780,6 +795,8 @@ pub struct OutboxChangedData {
     pub local_id: String,
     pub state: OutboxState,
     pub error: Option<String>,
+    /// Код ошибки сервера (если ошибка пришла от сервера).
+    pub error_code: Option<i32>,
 }
 
 /// Состояние отправки сообщения.
@@ -863,6 +880,7 @@ mod tests {
             "remove_chat_member",
             "rename_chat",
             "send_message",
+            "retry_message",
             "download_attachment",
             "get_messages",
             "fetch_history",

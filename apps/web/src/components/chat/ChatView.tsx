@@ -1,6 +1,7 @@
 import { Show, createMemo, createSignal } from "solid-js";
 import { Phone, Search, EllipsisVertical, PanelRight } from "lucide-solid";
-import { accountState } from "../../services/store";
+import { accountState, retryHistory } from "../../services/store";
+import { Notice } from "../common/Notice";
 import { Avatar } from "../Avatar";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
@@ -126,6 +127,16 @@ export function ChatView(props: { profile: string }) {
                   </button>
                 </div>
               </header>
+
+              {/* Ошибка чтения истории — с действием «повторить». */}
+              <Show when={acc().historyError !== null}>
+                <Notice
+                  notice={acc().historyError!}
+                  onAction={() => {
+                    void retryHistory(props.profile, current.chat_id);
+                  }}
+                />
+              </Show>
 
               <MessageList profile={props.profile} chatId={current.chat_id} />
               <MessageInput profile={props.profile} chatId={current.chat_id} />

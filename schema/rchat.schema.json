@@ -1004,6 +1004,26 @@
           }
         },
         {
+          "description": "Вернуть упавшее сообщение в очередь отправки (та же запись, без новой копии: ключ идемпотентности сохраняется).",
+          "type": "object",
+          "required": [
+            "@type",
+            "local_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "retry_message"
+              ]
+            },
+            "local_id": {
+              "description": "Локальный идентификатор сообщения (`local_id`).",
+              "type": "string"
+            }
+          }
+        },
+        {
           "description": "Содержимое вложения сообщения (для отрисовки в UI).",
           "type": "object",
           "required": [
@@ -1970,6 +1990,14 @@
             "null"
           ]
         },
+        "error_code": {
+          "description": "Код ошибки сервера (если ошибка пришла от сервера).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
         "local_id": {
           "type": "string"
         },
@@ -2201,6 +2229,9 @@
           "$ref": "#/definitions/SendMessageData"
         },
         {
+          "$ref": "#/definitions/RetryMessageData"
+        },
+        {
           "$ref": "#/definitions/DownloadAttachmentData"
         },
         {
@@ -2278,6 +2309,19 @@
       "enum": [
         "resync_performed"
       ]
+    },
+    "RetryMessageData": {
+      "description": "Ответ `retry_message`.",
+      "type": "object",
+      "required": [
+        "requeued"
+      ],
+      "properties": {
+        "requeued": {
+          "description": "`true` — сообщение возвращено в очередь; `false` — такой записи нет или она уже отправлена.",
+          "type": "boolean"
+        }
+      }
     },
     "SendMessageData": {
       "description": "Ответ `send_message`.",

@@ -5,7 +5,8 @@ import {
   register,
   waitConnected,
 } from "../../services/store";
-import { describeError } from "../../services/api";
+import { Notice } from "../common/Notice";
+import { classifyError, type ErrorNotice } from "../../services/errors";
 
 type Mode = "login" | "register";
 
@@ -17,22 +18,35 @@ export function AuthModal(props: { profile: string }) {
   const [username, setUsername] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [password, setPassword] = createSignal("");
-  const [localError, setLocalError] = createSignal<string | null>(null);
+  const [localError, setLocalError] = createSignal<ErrorNotice | null>(null);
 
-  const error = () => localError() ?? acc().authError;
+  const error = () => localError();
 
   const submit = async (): Promise<void> => {
     const name = username().trim();
     const secret = password();
     if (name === "" || secret === "") {
-      setLocalError("введите username и пароль");
+      setLocalError({
+        kind: "invalid_input",
+        title: "Заполните поля",
+        message: "Введите username и пароль.",
+        retryable: false,
+        operation: "login",
+      });
       return;
     }
     setLocalError(null);
     try {
       // Пока ядро не соединилось с сервером, вход отклоняется.
       if (!(await waitConnected(props.profile))) {
-        setLocalError("не удалось подключиться к серверу");
+        setLocalError({
+          kind: "server_offline",
+          title: "Нет связи с сервером",
+          message: "Ядро не подключилось. Повторите, когда соединение появится.",
+          action: { kind: "wait", label: "Подождать" },
+          retryable: true,
+          operation: "login",
+        });
         return;
       }
       if (mode() === "login") {
@@ -41,7 +55,7 @@ export function AuthModal(props: { profile: string }) {
         await register(props.profile, name, displayName().trim(), secret);
       }
     } catch (caught) {
-      setLocalError(describeError(caught));
+      setLocalError(classifyError(caught, { operation: "login" }));
     }
   };
 
@@ -118,7 +132,18 @@ export function AuthModal(props: { profile: string }) {
           />
 
           <Show when={error() !== null}>
-            <div class="auth__error">{error()}</div>
+            <Notice notice={error()!} />
+          </Show>
+          <Show when={acc().authError !== null}>
+            <Notice
+              notice={acc().authError!}
+              onAction={() => {
+                // «Повторить» — ещё одна попытка входа; «Войти» — форма и так
+                // перед пользователем.
+                void submit();
+              }}
+              onDismiss={() => setLocalError(null)}
+            />
           </Show>
 
           <button

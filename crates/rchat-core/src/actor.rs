@@ -1328,6 +1328,7 @@ impl Ctx<'_> {
                         &item.local_id,
                         OutboxState::Failed,
                         Some("corrupt outbox record".into()),
+                        None,
                     );
                     continue;
                 }
@@ -1348,7 +1349,7 @@ impl Ctx<'_> {
                         .storage
                         .apply_send_ack(&item.local_id, server_id)
                         .await?;
-                    self.emit_outbox(&item.local_id, OutboxState::Sent, None);
+                    self.emit_outbox(&item.local_id, OutboxState::Sent, None, None);
                     if let Some(record) = self.inner.storage.get_message(&item.local_id).await? {
                         self.inner.emit(UiEvent::MessageUpdated(record));
                     }
@@ -1369,6 +1370,7 @@ impl Ctx<'_> {
                                     &item.local_id,
                                     OutboxState::Pending,
                                     Some(error.message),
+                                    Some(error.code),
                                 );
                             }
                             Err(rebuild_error) => {
@@ -1391,7 +1393,12 @@ impl Ctx<'_> {
                                 rchat_proto::now_ms() + delay.as_millis() as u64,
                             )
                             .await?;
-                        self.emit_outbox(&item.local_id, OutboxState::Pending, Some(error.message));
+                        self.emit_outbox(
+                            &item.local_id,
+                            OutboxState::Pending,
+                            Some(error.message),
+                            Some(error.code),
+                        );
                     } else {
                         self.fail_outbox_item(&item, error.code, &error.message)
                             .await?;
@@ -1424,6 +1431,7 @@ impl Ctx<'_> {
                         &item.local_id,
                         OutboxState::Pending,
                         Some("connection lost".into()),
+                        None,
                     );
                     return Err(error);
                 }
@@ -1442,7 +1450,7 @@ impl Ctx<'_> {
                             rchat_proto::now_ms() + delay.as_millis() as u64,
                         )
                         .await?;
-                    self.emit_outbox(&item.local_id, OutboxState::Pending, Some(text));
+                    self.emit_outbox(&item.local_id, OutboxState::Pending, Some(text), None);
                 }
             }
         }
@@ -1474,15 +1482,23 @@ impl Ctx<'_> {
             &item.local_id,
             OutboxState::Failed,
             Some(message.to_string()),
+            Some(code),
         );
         Ok(())
     }
 
-    fn emit_outbox(&self, local_id: &str, state: OutboxState, error: Option<String>) {
+    fn emit_outbox(
+        &self,
+        local_id: &str,
+        state: OutboxState,
+        error: Option<String>,
+        error_code: Option<i32>,
+    ) {
         self.inner.emit(UiEvent::OutboxChanged {
             local_id: local_id.to_string(),
             state,
             error,
+            error_code,
         });
     }
 

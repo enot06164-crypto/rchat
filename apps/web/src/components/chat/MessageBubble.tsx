@@ -14,10 +14,12 @@ import {
 } from "lucide-solid";
 import type { Message, MessageStatus } from "../../types/rchat";
 import {
+  accountState,
   deleteMessage,
   readUpToFor,
+  retryMessage,
   setReplyTo,
-  accountState } from "../../services/store";
+} from "../../services/store";
 import {
   attachmentThumbUrl,
   attachmentUrl,
@@ -259,6 +261,22 @@ export function MessageBubble(props: {
                   />
                 </span>
               </Show>
+              <Show when={props.message.status === "failed"}>
+                <button
+                  class="bubble__retry"
+                  title="Повторить отправку"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void retryMessage(
+                      props.profile,
+                      props.message.chat_id,
+                      props.message.local_id
+                    );
+                  }}
+                >
+                  Повторить
+                </button>
+              </Show>
             </span>
           </div>
         </Show>
@@ -275,6 +293,22 @@ export function MessageBubble(props: {
                   readUpTo={readUpToFor(props.profile, props.message.chat_id)}
                 />
               </span>
+            </Show>
+            <Show when={props.message.status === "failed"}>
+              <button
+                class="bubble__retry"
+                title="Повторить отправку"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void retryMessage(
+                    props.profile,
+                    props.message.chat_id,
+                    props.message.local_id
+                  );
+                }}
+              >
+                Повторить
+              </button>
             </Show>
           </div>
         </Show>

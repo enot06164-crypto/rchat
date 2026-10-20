@@ -280,6 +280,29 @@ async fn outbox_lifecycle_ack_and_failure() {
         .expect("message");
     assert_eq!(message.status, Some(MessageStatus::Pending));
 
+    // Повтор упавшего сообщения: та же запись возвращается в очередь (новая
+    // копия не создаётся), счётчик попыток сброшен.
+    store
+        .apply_outbox_failure("m1", OutboxState::Failed, Some(1403), "forbidden", 0)
+        .await
+        .expect("failed");
+    assert!(store.requeue_outbox("m1").await.expect("requeue"));
+    // Повтор уже возвращённой в очередь записи ничего не меняет.
+    assert!(!store.requeue_outbox("m1").await.expect("requeue"));
+    let record = store.get_outbox("m1").await.expect("get").expect("outbox");
+    assert_eq!(record.state, OutboxState::Pending);
+    assert_eq!(record.attempts, 0);
+    assert!(record.last_error.is_none());
+    let message = store
+        .get_message("m1")
+        .await
+        .expect("get")
+        .expect("message");
+    assert_eq!(message.status, Some(MessageStatus::Sending));
+    // Повтор уже отправленного не меняет ничего.
+    store.apply_send_ack("m1", 42).await.expect("ack");
+    assert!(!store.requeue_outbox("m1").await.expect("requeue"));
+
     // Успешное подтверждение.
     store.apply_send_ack("m1", 42).await.expect("ack");
     assert!(store.get_outbox("m1").await.expect("get").is_none());

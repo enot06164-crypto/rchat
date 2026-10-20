@@ -718,6 +718,7 @@ fn print_event(event: &UiEvent) {
             local_id,
             state,
             error,
+            error_code: _,
         } => {
             let suffix = error
                 .as_deref()

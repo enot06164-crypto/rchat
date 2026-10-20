@@ -248,12 +248,14 @@ pub(crate) fn event(event: &UiEvent) -> Value {
             local_id,
             state,
             error,
+            error_code,
         } => (
             "outbox_changed",
             json!({
                 "local_id": local_id,
                 "state": outbox_state(*state),
                 "error": error,
+                "error_code": error_code,
             }),
         ),
         UiEvent::ChatUpserted(chat) => ("chat_upserted", self::chat(chat)),

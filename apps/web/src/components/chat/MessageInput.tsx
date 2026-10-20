@@ -1,7 +1,15 @@
 import { For, Show, createSignal } from "solid-js";
 import { Mic, Paperclip, SendHorizontal, Smile, X } from "lucide-solid";
 import type { AttachmentUpload } from "../../types/rchat";
-import { accountState, clearReply, sendCurrentText } from "../../services/store";
+import {
+  accountState,
+  clearReply,
+  clearSendError,
+  retryMessage,
+  sendCurrentText,
+} from "../../services/store";
+import { Notice } from "../common/Notice";
+import type { ErrorNotice } from "../../services/errors";
 import {
   computeWaveform,
   formatSize,
@@ -38,7 +46,7 @@ export function MessageInput(props: { chatId: string, profile: string }) {
   const [value, setValue] = createSignal("");
   const [prepared, setPrepared] = createSignal<Prepared[]>([]);
   const [recording, setRecording] = createSignal(false);
-  const [attachError, setAttachError] = createSignal<string | null>(null);
+  const [attachError, setAttachError] = createSignal<ErrorNotice | null>(null);
   let textarea!: HTMLTextAreaElement;
   let fileInput!: HTMLInputElement;
   let recorder: MediaRecorder | null = null;
@@ -59,9 +67,8 @@ export function MessageInput(props: { chatId: string, profile: string }) {
     if (!canSend()) return;
     const text = value();
     const items = prepared();
-    setValue("");
-    setPrepared([]);
-    textarea.style.height = "auto";
+    // Ввод очищаем только после того, как сообщение ушло в очередь: если
+    // отправка не началась, текст и файлы остаются у пользователя.
     void sendCurrentText(props.profile, 
       text,
       items.map((item) => ({
@@ -69,8 +76,13 @@ export function MessageInput(props: { chatId: string, profile: string }) {
         thumb_base64: item.thumb?.data_base64,
         thumb_mime: item.thumb?.mime,
       }))
-    );
-    textarea.focus();
+    ).then((sent) => {
+      if (!sent) return; // отправка не началась — ввод сохраняем
+      setValue("");
+      setPrepared([]);
+      textarea.style.height = "auto";
+      textarea.focus();
+    });
   };
 
   /** Готовит выбранные файлы к отправке. */
@@ -79,9 +91,14 @@ export function MessageInput(props: { chatId: string, profile: string }) {
     const next: Prepared[] = [];
     for (const file of files) {
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        setAttachError(
-          `Файл больше ${formatSize(MAX_ATTACHMENT_BYTES)} — отправка вложений пока ограничена ядром.`
-        );
+        setAttachError({
+          kind: "too_large",
+          title: "Слишком большой файл",
+          message: `Файл больше ${formatSize(MAX_ATTACHMENT_BYTES)} — выберите другой.`,
+          action: { kind: "choose_file", label: "Выбрать файл" },
+          retryable: false,
+          operation: "attachment",
+        });
         continue;
       }
       try {
@@ -97,7 +114,14 @@ export function MessageInput(props: { chatId: string, profile: string }) {
           next.push({ attachment: await prepareAttachment(file), compressible: false });
         }
       } catch {
-        setAttachError("Не удалось прочитать файл.");
+        setAttachError({
+          kind: "unknown",
+          title: "Не удалось прочитать файл",
+          message: "Выберите другой файл.",
+          action: { kind: "choose_file", label: "Выбрать файл" },
+          retryable: true,
+          operation: "attachment",
+        });
       }
     }
     if (next.length > 0) setPrepared((prev) => [...prev, ...next]);
@@ -131,7 +155,13 @@ export function MessageInput(props: { chatId: string, profile: string }) {
     setAttachError(null);
     if (recorder !== null) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      setAttachError("Браузер не умеет записывать звук.");
+      setAttachError({
+        kind: "unknown",
+        title: "Запись звука недоступна",
+        message: "Браузер не умеет записывать звук.",
+        retryable: false,
+        operation: "attachment",
+      });
       return;
     }
     try {
@@ -173,7 +203,13 @@ export function MessageInput(props: { chatId: string, profile: string }) {
       recorder.start();
       setRecording(true);
     } catch {
-      setAttachError("Доступ к микрофону запрещён.");
+      setAttachError({
+        kind: "forbidden",
+        title: "Нет доступа к микрофону",
+        message: "Разрешите доступ к микрофону и попробуйте снова.",
+        retryable: true,
+        operation: "attachment",
+      });
       setRecording(false);
     }
   };
@@ -184,11 +220,38 @@ export function MessageInput(props: { chatId: string, profile: string }) {
 
   return (
     <div class="composer-wrap">
-      <Show when={acc().sendError !== null && acc().activeChatId === props.chatId}>
-        <div class="composer-error">{acc().sendError}</div>
+      {/* Ошибка отправки — только для этого чата и этого аккаунта. */}
+      <Show when={acc().sendError !== null && acc().sendErrorChatId === props.chatId}>
+        <Notice
+          notice={acc().sendError!}
+          onAction={() => {
+            const kind = acc().sendError?.action?.kind;
+            if (kind !== "retry") return;
+            // Сообщение в очереди — повторяем ту же запись (новой копии не
+            // будет: ключ идемпотентности сохраняется).
+            const failed = acc()
+              .messages[props.chatId]?.find(
+                (message) => message.status === "failed"
+              );
+            if (failed !== undefined) {
+              void retryMessage(props.profile, props.chatId, failed.local_id);
+              return;
+            }
+            // Отправка не началась — ввод сохранён, повторяем его.
+            void submit();
+          }}
+          onDismiss={() => clearSendError(props.profile, props.chatId)}
+        />
       </Show>
       <Show when={attachError() !== null}>
-        <div class="composer-error">{attachError()}</div>
+        <Notice
+          notice={attachError()!}
+          onAction={() => {
+            // «Выбрать файл» — открыть выбор файла заново.
+            fileInput.click();
+          }}
+          onDismiss={() => setAttachError(null)}
+        />
       </Show>
 
       <div class="composer">

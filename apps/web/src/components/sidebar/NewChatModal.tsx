@@ -1,19 +1,20 @@
 import { Show, createSignal } from "solid-js";
 import { createDirectChat, openChat, accountState } from "../../services/store";
-import { describeError } from "../../services/api";
+import { Notice } from "../common/Notice";
+import { classifyError, type ErrorNotice } from "../../services/errors";
 
 /** Диалог создания нового личного чата по username собеседника. */
 export function NewChatModal(props: { onClose: () => void, profile: string }) {
   /** Состояние текущего аккаунта (профиля). */
   const acc = () => accountState(props.profile);
   const [username, setUsername] = createSignal("");
-  const [localError, setLocalError] = createSignal<string | null>(null);
+  const [localError, setLocalError] = createSignal<ErrorNotice | null>(null);
   const [busy, setBusy] = createSignal(false);
   // Приватный чат — по сквозному шифрованию; по умолчанию режим клиента
   // (облачный, как в обычных чатах Telegram).
   const [privateChat, setPrivateChat] = createSignal(acc().defaultChatMode === "private");
 
-  const error = () => localError() ?? acc().newChatError;
+  const error = () => localError();
 
   const submit = async (): Promise<void> => {
     setLocalError(null);
@@ -28,7 +29,7 @@ export function NewChatModal(props: { onClose: () => void, profile: string }) {
         await openChat(props.profile, chat.chat_id);
       }
     } catch (caught) {
-      setLocalError(describeError(caught));
+      setLocalError(classifyError(caught, { operation: "chat" }));
     } finally {
       setBusy(false);
     }
@@ -66,7 +67,18 @@ export function NewChatModal(props: { onClose: () => void, profile: string }) {
           <span>Приватный чат (сквозное шифрование)</span>
         </label>
         <Show when={error() !== null}>
-          <div class="modal__error">{error()}</div>
+          <Notice notice={error()!} />
+        </Show>
+        <Show when={acc().newChatError !== null}>
+          <Notice
+            notice={acc().newChatError!}
+            onAction={() => {
+              if (acc().newChatError?.action?.kind === "retry") {
+                void submit();
+              }
+            }}
+            onDismiss={() => setLocalError(null)}
+          />
         </Show>
         <div class="modal__actions">
           <button class="button button--ghost" onClick={() => props.onClose()}>
