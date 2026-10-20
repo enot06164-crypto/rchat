@@ -50,7 +50,7 @@ export function AuthModal(props: { profile: string }) {
       <div class="auth__card">
         <div class="auth__logo">rchat</div>
         <div class="auth__subtitle">
-          Локальный мессенджер со сквозным шифрованием
+          Мессенджер со сквозным шифрованием
         </div>
 
         <div class="auth__tabs" role="tablist" aria-label="Режим входа">
