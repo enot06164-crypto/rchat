@@ -9,10 +9,8 @@
 
 import { createStore } from "solid-js/store";
 import {
-  api,
   chatApi,
   describeError,
-  listProfiles,
 } from "./api";
 import type {
   AttachmentInfo,
@@ -61,10 +59,6 @@ export interface AppState {
   searchHits: SearchHit[];
   /** Идёт ли поиск по сообщениям. */
   searchBusy: boolean;
-  /** Профиль (аккаунт) шлюза, с которым соединён клиент. */
-  profile: string;
-  /** Профили, известные шлюзу. */
-  profiles: string[];
 }
 
 const INITIAL_STATE: AppState = {
@@ -87,8 +81,6 @@ const INITIAL_STATE: AppState = {
   defaultChatMode: "cloud",
   searchHits: [],
   searchBusy: false,
-  profile: "default",
-  profiles: ["default"],
 };
 
 export const [state, setState] = createStore<AppState>(INITIAL_STATE);
@@ -220,62 +212,6 @@ export async function boot(): Promise<void> {
   } finally {
     booting = false;
   }
-}
-
-/** Ключ профиля в localStorage (помним между перезагрузками). */
-const PROFILE_STORAGE_KEY = "rchat.profile";
-
-/** Текущий профиль: из localStorage, иначе `default`. */
-export function storedProfile(): string {
-  try {
-    const value = window.localStorage.getItem(PROFILE_STORAGE_KEY);
-    return value !== null && value.trim() !== "" ? value.trim() : "default";
-  } catch {
-    return "default";
-  }
-}
-
-/** Запоминает выбранный профиль. */
-function storeProfile(profile: string): void {
-  try {
-    window.localStorage.setItem(PROFILE_STORAGE_KEY, profile);
-  } catch {
-    /* localStorage может быть недоступен — не критично */
-  }
-}
-
-/** Читает список профилей шлюза (для выбора аккаунта). */
-export async function loadProfiles(): Promise<void> {
-  const profiles = await listProfiles();
-  if (profiles.length > 0) {
-    setState("profiles", profiles);
-  }
-}
-
-/**
- * Переключает профиль (аккаунт): соединение переоткрывается, состояние
- * очищается — у каждого профиля свои чаты и сообщения.
- */
-export async function switchProfile(profile: string): Promise<void> {
-  const name = profile.trim();
-  if (name === "" || name === state.profile) return;
-  storeProfile(name);
-  setState({
-    profile: name,
-    session: null,
-    chats: [],
-    messages: {},
-    receipts: {},
-    members: {},
-    activeChatId: null,
-    unread: {},
-    replyTo: null,
-    booted: false,
-    authError: null,
-  });
-  api.setProfile(name);
-  await loadProfiles();
-  await boot();
 }
 
 /**

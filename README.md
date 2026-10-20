@@ -304,8 +304,8 @@ cargo run --bin rchat-server -- \
 
 # 2) шлюз (нужен пакет websockets: pip/uv install websockets).
 #    --data-dir — корень профилей (аккаунтов): «default» — сам корень,
-#    остальные — в <корень>/accounts/<имя>; в браузере профиль выбирается
-#    на экране входа и в меню профиля.
+#    остальные — в <корень>/accounts/<имя>. Браузер работает с профилем
+#    по умолчанию; несколько аккаунтов доступны через CLI (--account).
 PYTHONPATH=bindings/python python3 -m rchat.gateway \
     --data-dir /tmp/rchat-web --server ws://127.0.0.1:9000 --port 8080
 

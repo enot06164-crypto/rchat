@@ -8,7 +8,6 @@ import {
   PenLine,
   Search,
   UserPlus,
-  Users,
   X,
 } from "lucide-solid";
 import {
@@ -19,7 +18,6 @@ import {
   state,
 } from "../../services/store";
 import { Avatar } from "../Avatar";
-import { ProfilePicker } from "../auth/ProfilePicker";
 import { ChatList } from "./ChatList";
 import { NewChatModal } from "./NewChatModal";
 import { SearchResults } from "./SearchResults";
@@ -38,7 +36,6 @@ export function Sidebar() {
   const [newChatOpen, setNewChatOpen] = createSignal(false);
   const [meMenuOpen, setMeMenuOpen] = createSignal(false);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  const [profilesOpen, setProfilesOpen] = createSignal(false);
 
   const linkStatus = () =>
     state.linkUp ? connectionLabel(state.connection) : "шлюз недоступен";
@@ -170,18 +167,6 @@ export function Sidebar() {
               class="me-menu__item"
               onClick={() => {
                 setMeMenuOpen(false);
-                setProfilesOpen(true);
-              }}
-            >
-              <Users size={18} />
-              <span>Сменить аккаунт</span>
-            </button>
-
-            <button
-              role="menuitem"
-              class="me-menu__item"
-              onClick={() => {
-                setMeMenuOpen(false);
                 setSettingsOpen(true);
               }}
             >
@@ -220,10 +205,6 @@ export function Sidebar() {
 
       <Show when={newChatOpen()}>
         <NewChatModal onClose={() => setNewChatOpen(false)} />
-      </Show>
-
-      <Show when={profilesOpen()}>
-        <ProfilePicker onClose={() => setProfilesOpen(false)} />
       </Show>
 
       <Show when={settingsOpen()}>
