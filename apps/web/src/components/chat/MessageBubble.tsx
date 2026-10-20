@@ -83,6 +83,10 @@ export function MessageBubble(props: {
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
   profile: string;
+  /** Переход к сообщению, на которое отвечает это (по ответу в пузыре). */
+  onQuoteClick?: (serverId: number) => void;
+  /** Сообщение подсвечено (только что на него перешли). */
+  highlighted?: boolean;
 }) {
   /** Состояние текущего аккаунта (профиля). */
   const acc = () => accountState(props.profile);
@@ -94,6 +98,8 @@ export function MessageBubble(props: {
   const body = () =>
     deleted() ? "Сообщение удалено" : (props.message.body ?? "");
   const quoted = () => findQuoted(props.profile, props.message);
+  /** Id сообщения, на которое отвечает это (цитата). */
+  const quotedId = () => props.message.reply_to_server_id;
   const firstInGroup = () => props.isFirstInGroup ?? true;
   const lastInGroup = () => props.isLastInGroup ?? true;
   const attachment = () => props.message.attachment;
@@ -170,7 +176,9 @@ export function MessageBubble(props: {
         "bubble-row--group-last": lastInGroup(),
         "bubble-row--with-avatar": !own() && props.isGroup,
         "bubble-row--service": isPrivateModeRequest(),
+        "bubble-row--highlighted": props.highlighted === true,
       }}
+      data-server-id={props.message.server_id ?? undefined}
       onMouseEnter={showReply}
       onMouseLeave={hideReply}
     >
@@ -240,24 +248,50 @@ export function MessageBubble(props: {
           </span>
         </Show>
 
-        <Show when={!deleted() && quoted() !== undefined}>
-          <div class="bubble__quote">
-            <span
-              class="bubble__quote-name"
-              style={{
-                color: own()
-                  ? "#ffffff"
-                  : senderColor(
-                      props.profile,
-                      quoted()!.sender_user_id,
-                      quoted()!.chat_id
-                    ),
-              }}
-            >
-              {senderName(props.profile, quoted()!.sender_user_id, quoted()!.chat_id)}
-            </span>
+        <Show when={!deleted() && quotedId() !== null}>
+          <div
+            class="bubble__quote"
+            role="button"
+            tabIndex={0}
+            title="Перейти к сообщению"
+            onClick={(event) => {
+              // Ответ на сообщение: переходим к нему, а не ставим свой ответ.
+              event.stopPropagation();
+              const id = quotedId();
+              if (id !== null) props.onQuoteClick?.(id);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              event.stopPropagation();
+              const id = quotedId();
+              if (id !== null) props.onQuoteClick?.(id);
+            }}
+          >
+            <Show when={quoted() !== undefined}>
+              <span
+                class="bubble__quote-name"
+                style={{
+                  color: own()
+                    ? "#ffffff"
+                    : senderColor(
+                        props.profile,
+                        quoted()!.sender_user_id,
+                        quoted()!.chat_id
+                      ),
+                }}
+              >
+                {senderName(
+                  props.profile,
+                  quoted()!.sender_user_id,
+                  quoted()!.chat_id
+                )}
+              </span>
+            </Show>
             <span class="bubble__quote-text">
-              {messageText(quoted()!) || "Сообщение"}
+              {quoted() !== undefined
+                ? messageText(quoted()!) || "Сообщение"
+                : "Сообщение"}
             </span>
           </div>
         </Show>

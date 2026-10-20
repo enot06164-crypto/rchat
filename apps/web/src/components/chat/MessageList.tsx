@@ -5,10 +5,16 @@ import {
   createMemo,
   createSignal,
   on,
+  onCleanup,
 } from "solid-js";
 import { ChevronDown } from "lucide-solid";
 import type { Message } from "../../types/rchat";
-import { accountState } from "../../services/store";
+import {
+  accountState,
+  ensureMessageLoaded,
+  noticeHistoryFailure,
+  noticeMessageNotFound,
+} from "../../services/store";
 import { AlbumBubble, MessageBubble } from "./MessageBubble";
 import { formatDateDivider } from "../../utils/format";
 
@@ -128,12 +134,61 @@ export function MessageList(props: { chatId: string, profile: string }) {
     if (bottom) setMissed(0);
   };
 
+  // Переход к сообщению, на которое отвечает пузырь: прокручиваем к нему и
+  // ненадолго подсвечиваем (как в Telegram).
+  const [highlightedId, setHighlightedId] = createSignal<number | null>(null);
+  let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => {
+    if (highlightTimer !== undefined) clearTimeout(highlightTimer);
+  });
+
+  const findRow = (serverId: number): HTMLElement | null => {
+    if (container === undefined) return null;
+    return container.querySelector<HTMLElement>(
+      `[data-server-id="${serverId}"]`
+    );
+  };
+
+  const scrollToMessage = async (serverId: number): Promise<void> => {
+    if (container === undefined) return;
+    let row = findRow(serverId);
+    if (row === null) {
+      // Сообщения ещё нет в ленте — подгружаем более старую историю.
+      try {
+        const found = await ensureMessageLoaded(
+          props.profile,
+          props.chatId,
+          serverId
+        );
+        if (!found) {
+          noticeMessageNotFound(props.profile);
+          return;
+        }
+      } catch (error) {
+        console.warn("rchat: не удалось подгрузить историю", error);
+        noticeHistoryFailure(props.profile, error, props.chatId);
+        return;
+      }
+      // Ждём отрисовку обновлённой ленты.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      row = findRow(serverId);
+      if (row === null) return;
+    }
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedId(serverId);
+    if (highlightTimer !== undefined) clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(() => setHighlightedId(null), 1800);
+  };
+
   // Смена чата — мгновенно вниз; новые сообщения — вниз только если пользователь
   // у конца ленты, иначе копим счётчик для кнопки «вниз» (как в Telegram WebK).
   createEffect(
     on(
       () => props.chatId,
-      () => scrollToBottom(),
+      () => {
+        setHighlightedId(null);
+        scrollToBottom();
+      },
       { defer: true }
     )
   );
@@ -188,6 +243,14 @@ export function MessageList(props: { chatId: string, profile: string }) {
                       }
                       isLastInGroup={
                         unit.kind === "message" ? unit.isLastInGroup : true
+                      }
+                      onQuoteClick={(serverId) => {
+                        void scrollToMessage(serverId);
+                      }}
+                      highlighted={
+                        unit.kind === "message" &&
+                        highlightedId() !== null &&
+                        highlightedId() === unit.message.server_id
                       }
                     />
                   }

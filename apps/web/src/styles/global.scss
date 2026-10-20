@@ -960,6 +960,7 @@ textarea {
 
   // Цитата/реплай: фиолетовая полоса 3px + имя + превью (блок на всю
   // ширину пузыря, как в Telegram)
+  // Ответ на сообщение: по нему можно перейти к исходному сообщению.
   &__quote {
     display: flex;
     flex-direction: column;
@@ -969,6 +970,12 @@ textarea {
     border-radius: 3px;
     background: rgba(0, 0, 0, 0.22);
     min-width: 0;
+    cursor: pointer;
+    transition: background-color 0.15s $ease-standard;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.32);
+    }
 
     &-name {
       font-size: 13px;
@@ -2014,6 +2021,21 @@ textarea {
     gap: 8px;
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* Переход к сообщению: пузырь ненадолго подсвечивается (как в Telegram). */
+.bubble-row--highlighted .bubble {
+  animation: bubble-highlight 1.8s $ease-standard;
+}
+
+@keyframes bubble-highlight {
+  0%,
+  30% {
+    box-shadow: 0 0 0 2px rgba($accent-purple, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 0 2px rgba($accent-purple, 0);
   }
 }
 

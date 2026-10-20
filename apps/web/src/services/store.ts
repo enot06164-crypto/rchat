@@ -955,6 +955,84 @@ async function loadChatHistory(
 }
 
 /**
+ * Подгружает страницу более старой истории чата (нужно, чтобы перейти к
+ * старому сообщению по ответу на него).
+ */
+export async function loadOlderHistory(
+  profile: string,
+  chatId: string,
+  beforeServerId: number,
+  limit = 100
+): Promise<Message[]> {
+  const fetched = (await chatApiFor(profile).fetchHistory(
+    chatId,
+    beforeServerId,
+    limit
+  )) as Message[];
+  mergeMessages(profile, chatId, fetched);
+  return fetched;
+}
+
+/**
+ * Ошибка чтения истории — понятное уведомление с действием «повторить».
+ */
+export function noticeHistoryFailure(
+  profile: string,
+  error: unknown,
+  chatId: string
+): void {
+  setNotice(
+    profile,
+    "historyError",
+    classifyError(error, { operation: "history", chatId })
+  );
+}
+
+/**
+ * Сообщение не нашлось в истории — понятное уведомление без действия
+ * (повторять тут нечего: истории просто не видно).
+ */
+export function noticeMessageNotFound(profile: string): void {
+  setNotice(profile, "historyError", {
+    kind: "not_found",
+    title: "Сообщение не найдено",
+    message: "Его нет в загруженной истории чата — подгрузите переписку и попробуйте снова.",
+    retryable: false,
+    operation: "history",
+  });
+}
+
+/**
+ * Проверяет, есть ли сообщение в загруженной ленте, и если нет — подгружает
+ * более старые страницы истории (до `maxPages`).
+ *
+ * Возвращает `true`, если сообщение найдено (и лежит в ленте).
+ */
+export async function ensureMessageLoaded(
+  profile: string,
+  chatId: string,
+  serverId: number,
+  maxPages = 5
+): Promise<boolean> {
+  const loaded = (): boolean =>
+    (accountState(profile).messages[chatId] ?? []).some(
+      (message) => message.server_id === serverId
+    );
+  if (loaded()) return true;
+  for (let page = 0; page < maxPages; page += 1) {
+    const ids = (accountState(profile).messages[chatId] ?? [])
+      .map((message) => message.server_id)
+      .filter((id): id is number => id !== null);
+    if (ids.length === 0) return false;
+    const oldest = Math.min(...ids);
+    const fetched = await loadOlderHistory(profile, chatId, oldest);
+    if (fetched.length === 0) return false;
+    if (loaded()) return true;
+  }
+  return loaded();
+}
+
+/**
  * Ставит сообщение в очередь отправки.
  *
  * Возвращает `true`, если сообщение ушло в очередь, и `false`, если отправка

@@ -377,6 +377,13 @@ export function chatApiFor(profile: string) {
     connection.call<{ users: UserSummary[] }>("search_users", { query, limit }),
   getMessages: (chatId: string, limit = 100) =>
     connection.call<unknown[]>("get_messages", { chat_id: chatId, limit }),
+  /** Страница истории перед `beforeServerId` (с сервера). */
+  fetchHistory: (chatId: string, beforeServerId: number, limit = 100) =>
+    connection.call<unknown[]>("fetch_history", {
+      chat_id: chatId,
+      before_server_id: beforeServerId,
+      limit,
+    }),
   getReceipts: (chatId: string) =>
     connection.call<unknown[]>("get_receipts", { chat_id: chatId }),
   createDirectChat: (username: string, mode?: string) =>
