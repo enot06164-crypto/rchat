@@ -12,14 +12,25 @@ const wsProxy = {
   },
 };
 
+// Vite (>= 5.4.12) проверяет Host заголовка: запрос с чужим именем блокируется
+// («Blocked request»).  Чтобы клиент открывался через туннель (cloudpub и
+// подобные), нужно разрешить имя хоста.  Имя поддомена у туннеля меняется при
+// каждом запуске, поэтому разрешаем домен целиком («.cloudpub.ru» — любой его
+// поддомен).  Другие туннели добавляются сюда же; для разовой проверки можно
+// поставить `allowedHosts: true` (тогда разрешены все имена — защита от
+// DNS-rebinding при этом отключается, так что только для локальных нужд).
+const allowedHosts = [".cloudpub.ru"];
+
 export default defineConfig({
   plugins: [solid()],
   server: {
     port: 5173,
+    allowedHosts,
     proxy: wsProxy,
   },
   preview: {
     port: 4173,
+    allowedHosts,
     proxy: wsProxy,
   },
   build: {
