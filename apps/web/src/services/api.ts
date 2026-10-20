@@ -260,8 +260,6 @@ export class GatewayApi {
   }
 }
 
-export const api = new GatewayApi();
-
 /**
  * Список профилей (аккаунтов) шлюза: короткое подключение без профиля
  * (`/ws?list=profiles`).  Ошибка не критична — показываем текущий.
@@ -317,32 +315,61 @@ export async function listProfiles(): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Соединения: по одному на аккаунт (профиль)
+// ---------------------------------------------------------------------------
+
+/** Соединения по профилям: у каждого аккаунта свой WebSocket и свой core. */
+const apis = new Map<string, GatewayApi>();
+
+/** Соединение аккаунта (профиля); создаётся при первом обращении. */
+export function apiFor(profile: string): GatewayApi {
+  let connection = apis.get(profile);
+  if (connection === undefined) {
+    connection = new GatewayApi();
+    connection.setProfile(profile);
+    apis.set(profile, connection);
+  }
+  return connection;
+}
+
+/** Закрывает соединение аккаунта (профиля). */
+export function closeProfile(profile: string): void {
+  const connection = apis.get(profile);
+  if (connection === undefined) return;
+  connection.stop();
+  apis.delete(profile);
+}
+
+// ---------------------------------------------------------------------------
 // Типизированные тонкие обёртки над командами FFI (§5)
 
-export const chatApi = {
+/** Команды FFI для конкретного аккаунта (профиля). */
+export function chatApiFor(profile: string) {
+  const connection = apiFor(profile);
+  return {
   getConnectionState: () =>
-    api.call<{ state: string }>("get_connection_state"),
-  getSession: () => api.call<unknown>("get_session"),
-  getChats: () => api.call<unknown[]>("get_chats"),
+    connection.call<{ state: string }>("get_connection_state"),
+  getSession: () => connection.call<unknown>("get_session"),
+  getChats: () => connection.call<unknown[]>("get_chats"),
   getChatMembers: (chatId: string) =>
-    api.call<unknown[]>("get_chat_members", { chat_id: chatId }),
+    connection.call<unknown[]>("get_chat_members", { chat_id: chatId }),
   getMessages: (chatId: string, limit = 100) =>
-    api.call<unknown[]>("get_messages", { chat_id: chatId, limit }),
+    connection.call<unknown[]>("get_messages", { chat_id: chatId, limit }),
   getReceipts: (chatId: string) =>
-    api.call<unknown[]>("get_receipts", { chat_id: chatId }),
+    connection.call<unknown[]>("get_receipts", { chat_id: chatId }),
   createDirectChat: (username: string, mode?: string) =>
-    api.call<unknown>("create_direct_chat", { peer_username: username, mode }),
+    connection.call<unknown>("create_direct_chat", { peer_username: username, mode }),
   /** Настройки клиента: режим чатов по умолчанию. */
   getSettings: () =>
-    api.call<{ default_chat_mode: string; default_chat_privacy: string }>(
+    connection.call<{ default_chat_mode: string; default_chat_privacy: string }>(
       "get_settings"
     ),
   /** Сменить режим чатов по умолчанию: `cloud` или `private`. */
   setDefaultChatMode: (mode: string) =>
-    api.call<{ default_chat_mode: string }>("set_default_chat_mode", { mode }),
+    connection.call<{ default_chat_mode: string }>("set_default_chat_mode", { mode }),
   /** Поиск по сообщениям аккаунта (работает в облачном режиме). */
   searchMessages: (query: string, limit = 50) =>
-    api.call<{ hits: SearchHit[] }>("search_messages", { query, limit }),
+    connection.call<{ hits: SearchHit[] }>("search_messages", { query, limit }),
   sendMessage: (
     chatId: string,
     text: string,
@@ -356,14 +383,14 @@ export const chatApi = {
     } else if (attachments.length > 1) {
       payload.attachments = attachments;
     }
-    return api.call<unknown>("send_message", payload) as Promise<{
+    return connection.call<unknown>("send_message", payload) as Promise<{
       local_id: string;
     }>;
   },
   markRead: (chatId: string) =>
-    api.call<unknown>("mark_read", { chat_id: chatId }),
+    connection.call<unknown>("mark_read", { chat_id: chatId }),
   downloadAttachment: (serverId: number) =>
-    api.call<{
+    connection.call<{
       kind: string;
       name: string;
       mime: string;
@@ -372,16 +399,17 @@ export const chatApi = {
       thumb_base64: string | null;
     }>("download_attachment", { server_id: serverId }),
   deleteMessage: (chatId: string, serverId: number) =>
-    api.call<unknown>("delete_message", { chat_id: chatId, server_id: serverId }),
+    connection.call<unknown>("delete_message", { chat_id: chatId, server_id: serverId }),
   login: (username: string, password: string) =>
-    api.call<unknown>("login", { username, password }),
+    connection.call<unknown>("login", { username, password }),
   register: (username: string, displayName: string, password: string) => {
     const params: Record<string, unknown> = { username, password };
     if (displayName !== "") params.display_name = displayName;
-    return api.call<unknown>("register", params);
+    return connection.call<unknown>("register", params);
   },
-  logout: () => api.call<unknown>("logout"),
-};
+  logout: () => connection.call<unknown>("logout"),
+  };
+}
 
 /** Человекочитаемое описание ошибки для UI. */
 export function describeError(error: unknown): string {

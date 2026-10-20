@@ -1,7 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { Mic, Paperclip, SendHorizontal, Smile, X } from "lucide-solid";
 import type { AttachmentUpload } from "../../types/rchat";
-import { clearReply, sendCurrentText, state } from "../../services/store";
+import { accountState, clearReply, sendCurrentText } from "../../services/store";
 import {
   computeWaveform,
   formatSize,
@@ -32,7 +32,9 @@ interface Prepared {
  * - для видео генерируется постер-кадр (отдельный блоб);
  * - запись голосового (Opus) с пиками звуковой волны.
  */
-export function MessageInput(props: { chatId: string }) {
+export function MessageInput(props: { chatId: string, profile: string }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
   const [value, setValue] = createSignal("");
   const [prepared, setPrepared] = createSignal<Prepared[]>([]);
   const [recording, setRecording] = createSignal(false);
@@ -43,10 +45,10 @@ export function MessageInput(props: { chatId: string }) {
   let recorderChunks: Blob[] = [];
 
   const canSend = () => value().trim() !== "" || prepared().length > 0;
-  const reply = () =>
-    state.replyTo !== null && state.replyTo.chat_id === props.chatId
-      ? state.replyTo
-      : null;
+  const reply = () => {
+    const replyTo = acc().replyTo;
+    return replyTo !== null && replyTo.chat_id === props.chatId ? replyTo : null;
+  };
 
   const autosize = (): void => {
     textarea.style.height = "auto";
@@ -60,7 +62,7 @@ export function MessageInput(props: { chatId: string }) {
     setValue("");
     setPrepared([]);
     textarea.style.height = "auto";
-    void sendCurrentText(
+    void sendCurrentText(props.profile, 
       text,
       items.map((item) => ({
         ...item.attachment,
@@ -182,8 +184,8 @@ export function MessageInput(props: { chatId: string }) {
 
   return (
     <div class="composer-wrap">
-      <Show when={state.sendError !== null && state.activeChatId === props.chatId}>
-        <div class="composer-error">{state.sendError}</div>
+      <Show when={acc().sendError !== null && acc().activeChatId === props.chatId}>
+        <div class="composer-error">{acc().sendError}</div>
       </Show>
       <Show when={attachError() !== null}>
         <div class="composer-error">{attachError()}</div>
@@ -203,7 +205,7 @@ export function MessageInput(props: { chatId: string }) {
             <div class="composer__reply-body">
               <span class="composer__reply-name">
                 {reply() !== null &&
-                  replyTextOf(reply()!.sender_user_id, reply()!.chat_id)}
+                  replyTextOf(props.profile, reply()!.sender_user_id, reply()!.chat_id)}
               </span>
               <span class="composer__reply-text">
                 {reply()!.body ?? "Сообщение"}
@@ -213,7 +215,7 @@ export function MessageInput(props: { chatId: string }) {
               class="composer__reply-cancel"
               title="Отменить ответ"
               aria-label="Отменить ответ"
-              onClick={() => clearReply()}
+              onClick={() => clearReply(props.profile, )}
             >
               <X size={18} />
             </button>
@@ -354,12 +356,17 @@ async function toBase64Local(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-function replyTextOf(senderId: string, chatId: string): string {
-  if (state.session !== null && senderId === state.session.user_id) {
+function replyTextOf(
+  profile: string,
+  senderId: string,
+  chatId: string
+): string {
+  const account = accountState(profile);
+  if (account.session !== null && senderId === account.session.user_id) {
     return "Вы";
   }
-  const member = state.members[chatId]?.[senderId];
+  const member = account.members[chatId]?.[senderId];
   if (member !== undefined) return member.display_name || member.username;
-  const chat = state.chats.find((c) => c.chat_id === chatId);
+  const chat = account.chats.find((c) => c.chat_id === chatId);
   return chat?.title ?? "Неизвестно";
 }

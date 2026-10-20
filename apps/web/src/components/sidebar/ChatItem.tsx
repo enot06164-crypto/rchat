@@ -2,7 +2,7 @@ import { Match, Show, Switch } from "solid-js";
 import type { JSX } from "solid-js";
 import { Check, CheckCheck, CircleAlert, Clock, Lock } from "lucide-solid";
 import type { Chat, MessageStatus } from "../../types/rchat";
-import { openChat, readUpToFor, state } from "../../services/store";
+import { accountState, openChat, readUpToFor } from "../../services/store";
 import { Avatar } from "../Avatar";
 import { formatShortTime } from "../../utils/format";
 
@@ -28,11 +28,13 @@ function PreviewStatus(props: { status: MessageStatus; serverId: number | null; 
 }
 
 /** Элемент списка чатов (72px): аватар 54, имя, время, превью, бейдж. */
-export function ChatItem(props: { chat: Chat }): JSX.Element {
-  const isActive = () => state.activeChatId === props.chat.chat_id;
-  const unread = () => state.unread[props.chat.chat_id] ?? 0;
+export function ChatItem(props: { chat: Chat, profile: string }): JSX.Element {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
+  const isActive = () => acc().activeChatId === props.chat.chat_id;
+  const unread = () => acc().unread[props.chat.chat_id] ?? 0;
   const lastMessage = () => {
-    const list = state.messages[props.chat.chat_id];
+    const list = acc().messages[props.chat.chat_id];
     if (list === undefined || list.length === 0) return undefined;
     return list[list.length - 1];
   };
@@ -45,19 +47,18 @@ export function ChatItem(props: { chat: Chat }): JSX.Element {
       last.deleted_at_ms !== null ? "Сообщение удалено" : (last.body ?? "");
     return body;
   };
+  const session = () => acc().session;
   const previewPrefix = (): string => {
     const last = lastMessage();
-    if (last === undefined) return "";
-    return state.session !== null && last.sender_user_id === state.session.user_id
-      ? "Вы: "
-      : "";
+    const me = session();
+    if (last === undefined || me === null) return "";
+    return last.sender_user_id === me.user_id ? "Вы: " : "";
   };
   const previewStatus = () => {
     const last = lastMessage();
-    if (last === undefined) return undefined;
-    if (state.session === null || last.sender_user_id !== state.session.user_id) {
-      return undefined;
-    }
+    const me = session();
+    if (last === undefined || me === null) return undefined;
+    if (last.sender_user_id !== me.user_id) return undefined;
     return last;
   };
 
@@ -66,10 +67,11 @@ export function ChatItem(props: { chat: Chat }): JSX.Element {
     const last = lastMessage();
     if (last === undefined) return null;
     if (props.chat.kind !== "group") return null;
-    if (state.session !== null && last.sender_user_id === state.session.user_id) {
+    const me = session();
+    if (me !== null && last.sender_user_id === me.user_id) {
       return null;
     }
-    const member = state.members[props.chat.chat_id]?.[last.sender_user_id];
+    const member = acc().members[props.chat.chat_id]?.[last.sender_user_id];
     if (member === undefined) return null;
     return {
       name: member.display_name || member.username,
@@ -78,7 +80,7 @@ export function ChatItem(props: { chat: Chat }): JSX.Element {
   };
 
   const activate = (): void => {
-    void openChat(props.chat.chat_id);
+    void openChat(props.profile, props.chat.chat_id);
   };
 
   return (
@@ -111,7 +113,7 @@ export function ChatItem(props: { chat: Chat }): JSX.Element {
               <PreviewStatus
                 status={previewStatus()!.status}
                 serverId={previewStatus()!.server_id}
-                readUpTo={readUpToFor(props.chat.chat_id)}
+                readUpTo={readUpToFor(props.profile, props.chat.chat_id)}
               />
             </Show>
             <Show when={senderLabel() !== null}>

@@ -1,15 +1,17 @@
 import { For, Show } from "solid-js";
 import { MessageCircle } from "lucide-solid";
 import type { SearchHit } from "../../types/rchat";
-import { openChat, state } from "../../services/store";
+import { openChat, accountState } from "../../services/store";
 
 /**
  * Результаты поиска по сообщениям (облачный режим: сервер расшифровывает
  * содержимое ключом чата).  Показываются под списком чатов, как в WebK:
  * заголовок раздела «Сообщения» и список найденных фрагментов.
  */
-export function SearchResults(props: { query: string }) {
-  const hits = (): SearchHit[] => state.searchHits;
+export function SearchResults(props: { query: string, profile: string }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
+  const hits = (): SearchHit[] => acc().searchHits;
   const snippet = (hit: SearchHit): string => {
     const body = hit.body.replace(/\s+/g, " ").trim();
     const query = props.query.trim().toLowerCase();
@@ -30,7 +32,7 @@ export function SearchResults(props: { query: string }) {
           {(hit) => (
             <button
               class="search-results__item"
-              onClick={() => void openChat(hit.chat_id)}
+              onClick={() => void openChat(props.profile, hit.chat_id)}
             >
               <MessageCircle size={16} class="search-results__icon" />
               <span class="search-results__text">

@@ -1,29 +1,31 @@
 import { Show, createSignal } from "solid-js";
-import { createDirectChat, openChat, state } from "../../services/store";
+import { createDirectChat, openChat, accountState } from "../../services/store";
 import { describeError } from "../../services/api";
 
 /** Диалог создания нового личного чата по username собеседника. */
-export function NewChatModal(props: { onClose: () => void }) {
+export function NewChatModal(props: { onClose: () => void, profile: string }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
   const [username, setUsername] = createSignal("");
   const [localError, setLocalError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
   // Приватный чат — по сквозному шифрованию; по умолчанию режим клиента
   // (облачный, как в обычных чатах Telegram).
-  const [privateChat, setPrivateChat] = createSignal(state.defaultChatMode === "private");
+  const [privateChat, setPrivateChat] = createSignal(acc().defaultChatMode === "private");
 
-  const error = () => localError() ?? state.newChatError;
+  const error = () => localError() ?? acc().newChatError;
 
   const submit = async (): Promise<void> => {
     setLocalError(null);
     setBusy(true);
     try {
-      const chat = await createDirectChat(
+      const chat = await createDirectChat(props.profile, 
         username(),
         privateChat() ? "private" : "cloud"
       );
       if (chat !== null) {
         props.onClose();
-        await openChat(chat.chat_id);
+        await openChat(props.profile, chat.chat_id);
       }
     } catch (caught) {
       setLocalError(describeError(caught));

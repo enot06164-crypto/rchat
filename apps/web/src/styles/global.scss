@@ -91,6 +91,12 @@ textarea {
   background: $bg-page;
 }
 
+/* Панель одного аккаунта: список чатов + область чата.  Панель не влияет на
+   сетку приложения (её колонки — колонки карточек). */
+.account-panel {
+  display: contents;
+}
+
 .splash {
   height: 100%;
   display: flex;
@@ -455,6 +461,46 @@ textarea {
         color: $danger;
       }
     }
+  }
+
+  // Список аккаунтов: ограничен по высоте и прокручивается.
+  &__accounts {
+    max-height: 260px;
+    overflow-y: auto;
+    margin-bottom: 4px;
+  }
+
+  // Пункт аккаунта в меню (как в Telegram Web): аватар и имя.
+  &__account-item {
+    gap: 10px;
+    padding: 6px 10px;
+
+    &.is-active {
+      background: $bg-surface-hover;
+
+      .me-menu__account-name {
+        color: $accent-purple;
+      }
+    }
+  }
+
+  &__account-name {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__plus {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 50%;
+    background: $bg-surface-hover;
+    color: $text-secondary;
   }
 }
 
@@ -1973,7 +2019,9 @@ textarea {
 /* Экран авторизации                                                           */
 /* ------------------------------------------------------------------------- */
 .auth {
-  height: 100%;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 import { ChevronDown } from "lucide-solid";
 import type { Message } from "../../types/rchat";
-import { state } from "../../services/store";
+import { accountState } from "../../services/store";
 import { AlbumBubble, MessageBubble } from "./MessageBubble";
 import { formatDateDivider } from "../../utils/format";
 
@@ -27,16 +27,18 @@ function DateChip(props: { label: string }) {
 }
 
 /** Лента сообщений + группировка пузырей WebK + альбомы + кнопка «вниз». */
-export function MessageList(props: { chatId: string }) {
+export function MessageList(props: { chatId: string, profile: string }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
   const isGroup = createMemo(
     () =>
-      state.chats.find((c) => c.chat_id === props.chatId)?.kind === "group"
+      acc().chats.find((c) => c.chat_id === props.chatId)?.kind === "group"
   );
 
   const units = createMemo<FeedUnit[]>(() => {
     // Удалённые сообщения выпадают из ленты полностью — никаких «призрачных»
     // пузырей (как в Telegram при «удалить у себя»).
-    const list = (state.messages[props.chatId] ?? []).filter(
+    const list = (acc().messages[props.chatId] ?? []).filter(
       (message) => message.deleted_at_ms === null
     );
     const result: FeedUnit[] = [];
@@ -177,6 +179,7 @@ export function MessageList(props: { chatId: string }) {
                   when={unit.kind === "album"}
                   fallback={
                     <MessageBubble
+                      profile={props.profile}
                       message={unit.kind === "message" ? unit.message : unit.messages[0]}
                       showAuthor={unit.kind === "message" ? unit.showAuthor : false}
                       isGroup={isGroup()}
@@ -190,6 +193,7 @@ export function MessageList(props: { chatId: string }) {
                   }
                 >
                   <AlbumBubble
+                    profile={props.profile}
                     messages={unit.kind === "album" ? unit.messages : []}
                   />
                 </Show>

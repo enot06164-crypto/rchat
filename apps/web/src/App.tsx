@@ -1,45 +1,43 @@
 import { onMount, Show } from "solid-js";
-import { api } from "./services/api";
+import { AccountPanel } from "./components/AccountPanel";
+import { AddAccountModal } from "./components/auth/AddAccountModal";
+import { AuthModal } from "./components/auth/AuthModal";
 import {
-  applyEvent,
+  activateProfile,
   boot,
+  connectProfile,
   initialProfile,
   loadProfiles,
-  setState,
+  setAddAccountOpen,
   state,
 } from "./services/store";
-import { AuthModal } from "./components/auth/AuthModal";
-import { Sidebar } from "./components/sidebar/Sidebar";
-import { ChatView } from "./components/chat/ChatView";
 
 /**
- * Корневой компонент: splash → экран входа → главный экран
- * (левая колонка + чат).  Никаких перезагрузок страницы:
- * сессия и чаты приходят реактивно из store.
+ * Корневой компонент: splash → панель активного аккаунта.
+ *
+ * Аккаунтов может быть несколько: у каждого своё соединение с ядром (свой
+ * профиль шлюза, своя БД и ключи) и своё состояние.  Все аккаунты
+ * подключены одновременно, переключение — мгновенное, из меню аккаунта
+ * (бургер), как в Telegram Web.
  */
 export default function App() {
   onMount(() => {
-    // Профиль (аккаунт) выбирается до подключения: он задаётся в адресе
-    // соединения (`/ws?profile=...`), у каждого свои чаты и ключи.
-    const profile = initialProfile();
-    setState("profile", profile);
-    api.setProfile(profile);
-    // При каждом успешном соединении с шлюзом (в т.ч. после реконнекта)
-    // перечитываем состояние ядра.
-    api.onConnect(() => {
-      setState("linkUp", true);
-      void boot();
-      void loadProfiles();
-    });
-    api.onDisconnect(() => setState("linkUp", false));
-    // События ядра (§7) применяются реактивно в store.
-    api.onEvent((event) => applyEvent(event));
-    api.connect();
+    // Подключаем аккаунты, известные шлюзу, и аккаунт из адреса.
+    void (async () => {
+      await loadProfiles();
+      const initial = initialProfile();
+      for (const profile of state.profiles) connectProfile(profile);
+      if (!state.profiles.includes(initial)) connectProfile(initial);
+      activateProfile(initial);
+      await boot(initial);
+    })();
   });
+
+  const active = () => state.accounts[state.activeProfile];
 
   return (
     <Show
-      when={state.booted}
+      when={active()?.booted === true}
       fallback={
         <div class="splash">
           <div class="splash__spinner" />
@@ -52,11 +50,16 @@ export default function App() {
         </div>
       }
     >
-      <Show when={state.session !== null} fallback={<AuthModal />}>
-        <div class="app-shell">
-          <Sidebar />
-          <ChatView />
-        </div>
+      <div class="app-shell">
+        <AccountPanel profile={state.activeProfile} />
+      </div>
+
+      <Show when={active()?.session === null}>
+        <AuthModal profile={state.activeProfile} />
+      </Show>
+
+      <Show when={state.addAccountOpen}>
+        <AddAccountModal onClose={() => setAddAccountOpen(false)} />
       </Show>
     </Show>
   );

@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-solid";
 import type { Chat } from "../../types/rchat";
-import { ensureMembers, loadCommonGroups, state } from "../../services/store";
+import { accountState, ensureMembers, loadCommonGroups } from "../../services/store";
 import { formatSize } from "../../services/attachments";
 import { formatTime } from "../../utils/format";
 import { Avatar } from "../Avatar";
@@ -46,14 +46,17 @@ export function InfoDrawer(props: {
   chat: Chat;
   open: boolean;
   onClose: () => void;
+  profile: string;
 }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
   const isGroup = () => props.chat.kind === "group";
   const [tab, setTab] = createSignal<InfoTab>(isGroup() ? "members" : "media");
   const [notify, setNotify] = createSignal(true);
   const [commonGroups, setCommonGroups] = createSignal<Chat[] | null>(null);
 
   onMount(() => {
-    void ensureMembers(props.chat.chat_id);
+    void ensureMembers(props.profile, props.chat.chat_id);
   });
 
   const tabs = createMemo<TabDef[]>(() =>
@@ -79,17 +82,17 @@ export function InfoDrawer(props: {
   const peer = createMemo(() => {
     const chat = props.chat;
     if (chat.peer_user_id === null) return undefined;
-    return state.members[chat.chat_id]?.[chat.peer_user_id];
+    return acc().members[chat.chat_id]?.[chat.peer_user_id];
   });
 
   const status = () => {
     const chat = props.chat;
     if (isGroup()) {
-      const count = Object.keys(state.members[chat.chat_id] ?? {}).length;
+      const count = Object.keys(acc().members[chat.chat_id] ?? {}).length;
       return count > 0 ? `${count} участн.` : "группа";
     }
     const online = chat.peer_user_id
-      ? state.presence[chat.peer_user_id]
+      ? acc().presence[chat.peer_user_id]
       : undefined;
     if (online === true) return "в сети";
     if (online === false) return "был(а) недавно";
@@ -104,12 +107,12 @@ export function InfoDrawer(props: {
         setCommonGroups([]);
         return;
       }
-      void loadCommonGroups(chat.peer_user_id).then(setCommonGroups);
+      void loadCommonGroups(props.profile, chat.peer_user_id).then(setCommonGroups);
     }
   };
 
   // Содержимое вкладок: реальные вложения и ссылки из загруженных сообщений.
-  const messages = createMemo(() => state.messages[props.chat.chat_id] ?? []);
+  const messages = createMemo(() => acc().messages[props.chat.chat_id] ?? []);
 
   const mediaItems = createMemo(() =>
     messages().filter(
@@ -138,7 +141,7 @@ export function InfoDrawer(props: {
 
   // Участники группы (для вкладки «Участники»).
   const memberRows = () => {
-    const map = state.members[props.chat.chat_id] ?? {};
+    const map = acc().members[props.chat.chat_id] ?? {};
     return Object.values(map).map((member) => ({
       name: member.display_name || member.username,
       subtitle: member.username !== "" ? `@${member.username}` : "участник",
@@ -193,7 +196,7 @@ export function InfoDrawer(props: {
                 "is-online":
                   !isGroup() &&
                   props.chat.peer_user_id !== null &&
-                  state.presence[props.chat.peer_user_id] === true,
+                  acc().presence[props.chat.peer_user_id] === true,
               }}
             >
               {status()}
@@ -271,7 +274,7 @@ export function InfoDrawer(props: {
                 <For each={mediaItems()}>
                   {(message) => (
                     <div class="info-row">
-                      <Avatar info={state.session?.avatar} size={40} />
+                      <Avatar info={acc().session?.avatar} size={40} />
                       <div class="info-row__body">
                         <span class="info-row__name">
                           {message.attachment?.name ?? "медиа"}

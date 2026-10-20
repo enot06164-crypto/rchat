@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import type { AttachmentKind, AttachmentUpload, Message } from "../types/rchat";
-import { chatApi } from "./api";
+import { chatApiFor } from "./api";
 
 /**
  * Медиапайплайн клиента (по образцу Telegram):
@@ -39,6 +39,7 @@ function cacheKey(message: Message): string {
  * загрузка не удалась).
  */
 export async function attachmentUrl(
+  profile: string,
   message: Message
 ): Promise<string | null> {
   if (message.attachment === null) return null;
@@ -49,7 +50,7 @@ export async function attachmentUrl(
   const existing = pending.get(key);
   if (existing !== undefined) return existing;
 
-  const request = chatApi
+  const request = chatApiFor(profile)
     .downloadAttachment(message.server_id)
     .then((data) => {
       const url = `data:${data.mime || "application/octet-stream"};base64,${data.data_base64}`;
@@ -66,6 +67,7 @@ export async function attachmentUrl(
 
 /** Data URL постера видео (отдельный блоб). */
 export async function attachmentThumbUrl(
+  profile: string,
   message: Message
 ): Promise<string | null> {
   if (message.attachment?.thumb == null) return null;
@@ -74,7 +76,7 @@ export async function attachmentThumbUrl(
   const cached = cache.get(key);
   if (cached !== undefined) return cached;
   try {
-    const data = await chatApi.downloadAttachment(message.server_id);
+    const data = await chatApiFor(profile).downloadAttachment(message.server_id);
     if (data.thumb_base64 == null) return null;
     const url = `data:${message.attachment.thumb.mime};base64,${data.thumb_base64}`;
     cache.set(key, url);
@@ -85,10 +87,10 @@ export async function attachmentThumbUrl(
 }
 
 /** Сигнал содержимого вложения для конкретного сообщения. */
-export function useAttachmentUrl(message: () => Message) {
+export function useAttachmentUrl(profile: string, message: () => Message) {
   const [url, setUrl] = createSignal<string | null>(null);
   const load = async (): Promise<void> => {
-    setUrl(await attachmentUrl(message()));
+    setUrl(await attachmentUrl(profile, message()));
   };
   return { url, load };
 }

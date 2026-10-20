@@ -17,8 +17,7 @@ import {
   deleteMessage,
   readUpToFor,
   setReplyTo,
-  state,
-} from "../../services/store";
+  accountState } from "../../services/store";
 import {
   attachmentThumbUrl,
   attachmentUrl,
@@ -28,31 +27,33 @@ import { Avatar } from "../Avatar";
 import { formatTime } from "../../utils/format";
 
 /** Ссылка на цитируемое сообщение (поиск по server_id в ленте чата). */
-function findQuoted(message: Message): Message | undefined {
+function findQuoted(profile: string, message: Message): Message | undefined {
   const quotedId = message.reply_to_server_id;
   if (quotedId === null) return undefined;
-  const list = state.messages[message.chat_id] ?? [];
+  const list = accountState(profile).messages[message.chat_id] ?? [];
   return list.find((m) => m.server_id === quotedId);
 }
 
 /** Псевдоним автора сообщения: «Вы» либо отображаемое имя участника/чата. */
-function senderName(senderId: string, chatId: string): string {
-  if (state.session !== null && senderId === state.session.user_id) {
+function senderName(profile: string, senderId: string, chatId: string): string {
+  const account = accountState(profile);
+  if (account.session !== null && senderId === account.session.user_id) {
     return "Вы";
   }
-  const member = state.members[chatId]?.[senderId];
+  const member = account.members[chatId]?.[senderId];
   if (member !== undefined) return member.display_name || member.username;
-  const chat = state.chats.find((c) => c.chat_id === chatId);
+  const chat = account.chats.find((c) => c.chat_id === chatId);
   return chat?.title ?? "Неизвестно";
 }
 
 /** Цвет имени автора: палитра ядра (avatar.color_hex). */
-function senderColor(senderId: string, chatId: string): string {
-  const member = state.members[chatId]?.[senderId];
+function senderColor(profile: string, senderId: string, chatId: string): string {
+  const account = accountState(profile);
+  const member = account.members[chatId]?.[senderId];
   if (member !== undefined && member.avatar.color_hex !== "") {
     return member.avatar.color_hex;
   }
-  const chat = state.chats.find((c) => c.chat_id === chatId);
+  const chat = account.chats.find((c) => c.chat_id === chatId);
   return chat?.avatar.color_hex ?? "#8774e1";
 }
 
@@ -77,23 +78,27 @@ export function MessageBubble(props: {
   isGroup: boolean;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
+  profile: string;
 }) {
-  const own = () =>
-    state.session !== null &&
-    props.message.sender_user_id === state.session.user_id;
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
+  const own = () => {
+    const session = acc().session;
+    return session !== null && props.message.sender_user_id === session.user_id;
+  };
   const deleted = () => props.message.deleted_at_ms !== null;
   const body = () =>
     deleted() ? "Сообщение удалено" : (props.message.body ?? "");
-  const quoted = () => findQuoted(props.message);
+  const quoted = () => findQuoted(props.profile, props.message);
   const firstInGroup = () => props.isFirstInGroup ?? true;
   const lastInGroup = () => props.isLastInGroup ?? true;
   const attachment = () => props.message.attachment;
 
   const senderAvatar = () => {
-    const members = state.members[props.message.chat_id];
+    const members = acc().members[props.message.chat_id];
     const member = members?.[props.message.sender_user_id];
     if (member !== undefined) return member.avatar;
-    const chat = state.chats.find((c) => c.chat_id === props.message.chat_id);
+    const chat = acc().chats.find((c) => c.chat_id === props.message.chat_id);
     return chat?.avatar;
   };
 
@@ -177,7 +182,7 @@ export function MessageBubble(props: {
         }}
         onContextMenu={openMenu}
         onDblClick={() => {
-          if (!deleted()) setReplyTo(props.message);
+          if (!deleted()) setReplyTo(props.profile, props.message);
         }}
       >
         <Show when={!deleted()}>
@@ -192,7 +197,7 @@ export function MessageBubble(props: {
             onMouseLeave={hideReply}
             onClick={() => {
               if (!hovered()) return;
-              setReplyTo(props.message);
+              setReplyTo(props.profile, props.message);
             }}
           >
             <Reply size={16} />
@@ -204,12 +209,13 @@ export function MessageBubble(props: {
             class="bubble__author"
             style={{
               color: senderColor(
+                props.profile,
                 props.message.sender_user_id,
                 props.message.chat_id
               ),
             }}
           >
-            {senderName(props.message.sender_user_id, props.message.chat_id)}
+            {senderName(props.profile, props.message.sender_user_id, props.message.chat_id)}
           </span>
         </Show>
 
@@ -221,19 +227,20 @@ export function MessageBubble(props: {
                 color: own()
                   ? "#ffffff"
                   : senderColor(
+                      props.profile,
                       quoted()!.sender_user_id,
                       quoted()!.chat_id
                     ),
               }}
             >
-              {senderName(quoted()!.sender_user_id, quoted()!.chat_id)}
+              {senderName(props.profile, quoted()!.sender_user_id, quoted()!.chat_id)}
             </span>
             <span class="bubble__quote-text">{quoted()!.body ?? ""}</span>
           </div>
         </Show>
 
         <Show when={attachment() !== null && !deleted()}>
-          <AttachmentView message={props.message} />
+          <AttachmentView profile={props.profile} message={props.message} />
         </Show>
 
         <Show when={body() !== ""}>
@@ -248,7 +255,7 @@ export function MessageBubble(props: {
                   <StatusIcon
                     status={props.message.status}
                     serverId={props.message.server_id}
-                    readUpTo={readUpToFor(props.message.chat_id)}
+                    readUpTo={readUpToFor(props.profile, props.message.chat_id)}
                   />
                 </span>
               </Show>
@@ -265,7 +272,7 @@ export function MessageBubble(props: {
                 <StatusIcon
                   status={props.message.status}
                   serverId={props.message.server_id}
-                  readUpTo={readUpToFor(props.message.chat_id)}
+                  readUpTo={readUpToFor(props.profile, props.message.chat_id)}
                 />
               </span>
             </Show>
@@ -286,7 +293,7 @@ export function MessageBubble(props: {
             role="menuitem"
             class="context-menu__item"
             onClick={() => {
-              setReplyTo(props.message);
+              setReplyTo(props.profile, props.message);
               setMenuPos(null);
             }}
           >
@@ -322,7 +329,7 @@ export function MessageBubble(props: {
               class="context-menu__item context-menu__item--danger"
               onClick={() => {
                 setMenuPos(null);
-                void deleteMessage(
+                void deleteMessage(props.profile,
                   props.message.chat_id,
                   props.message.server_id ?? 0
                 );
@@ -339,12 +346,15 @@ export function MessageBubble(props: {
 }
 
 /** Альбом (медиагруппа): сетка медиа + подпись последнего элемента. */
-export function AlbumBubble(props: { messages: Message[] }) {
+export function AlbumBubble(props: { messages: Message[], profile: string }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
   const first = () => props.messages[0];
   const last = () => props.messages[props.messages.length - 1];
-  const own = () =>
-    state.session !== null &&
-    first().sender_user_id === state.session.user_id;
+  const own = () => {
+    const session = acc().session;
+    return session !== null && first().sender_user_id === session.user_id;
+  };
   const caption = () => last().body ?? "";
 
   return (
@@ -366,7 +376,7 @@ export function AlbumBubble(props: { messages: Message[] }) {
           style={{ "--album-items": props.messages.length }}
         >
           {props.messages.map((message) => (
-            <AlbumItem message={message} />
+            <AlbumItem profile={props.profile} message={message} />
           ))}
         </div>
         <Show when={caption() !== ""}>
@@ -381,7 +391,7 @@ export function AlbumBubble(props: { messages: Message[] }) {
                   <StatusIcon
                     status={last().status}
                     serverId={last().server_id}
-                    readUpTo={readUpToFor(last().chat_id)}
+                    readUpTo={readUpToFor(props.profile, last().chat_id)}
                   />
                 </span>
               </Show>
@@ -394,13 +404,13 @@ export function AlbumBubble(props: { messages: Message[] }) {
 }
 
 /** Один элемент альбома (медиа). */
-function AlbumItem(props: { message: Message }) {
+function AlbumItem(props: { message: Message, profile: string }) {
   const [url, setUrl] = createSignal<string | null>(null);
   const [thumb, setThumb] = createSignal<string | null>(null);
 
   createEffect(() => {
-    void attachmentUrl(props.message).then(setUrl);
-    void attachmentThumbUrl(props.message).then(setThumb);
+    void attachmentUrl(props.profile, props.message).then(setUrl);
+    void attachmentThumbUrl(props.profile, props.message).then(setThumb);
   });
 
   const kind = () => props.message.attachment?.kind ?? "file";
@@ -451,17 +461,17 @@ function AlbumItem(props: { message: Message }) {
 }
 
 /** Содержимое вложения: фото, видео (с постером), файл или голосовое. */
-function AttachmentView(props: { message: Message }) {
+function AttachmentView(props: { message: Message, profile: string }) {
   const [url, setUrl] = createSignal<string | null>(null);
   const [thumb, setThumb] = createSignal<string | null>(null);
   const [failed, setFailed] = createSignal(false);
 
   createEffect(() => {
-    void attachmentUrl(props.message).then((value) => {
+    void attachmentUrl(props.profile, props.message).then((value) => {
       if (value === null) setFailed(true);
       else setUrl(value);
     });
-    void attachmentThumbUrl(props.message).then(setThumb);
+    void attachmentThumbUrl(props.profile, props.message).then(setThumb);
   });
 
   const kind = () => props.message.attachment?.kind ?? "file";

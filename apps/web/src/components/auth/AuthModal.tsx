@@ -1,24 +1,28 @@
 import { For, Show, createSignal } from "solid-js";
 import {
+  accountState,
   login,
   nextProfileName,
   register,
   state,
   switchProfile,
+  waitConnected,
 } from "../../services/store";
 import { describeError } from "../../services/api";
 
 type Mode = "login" | "register";
 
 /** Экран входа/регистрации (единственный экран при отсутствии сессии). */
-export function AuthModal() {
+export function AuthModal(props: { profile: string }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
   const [mode, setMode] = createSignal<Mode>("login");
   const [username, setUsername] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [localError, setLocalError] = createSignal<string | null>(null);
 
-  const error = () => localError() ?? state.authError;
+  const error = () => localError() ?? acc().authError;
 
   // Аккаунты (профили шлюза): переключение — мгновенное, состояние
   // каждого аккаунта своё.
@@ -39,10 +43,15 @@ export function AuthModal() {
     }
     setLocalError(null);
     try {
+      // Пока ядро не соединилось с сервером, вход отклоняется.
+      if (!(await waitConnected(props.profile))) {
+        setLocalError("не удалось подключиться к серверу");
+        return;
+      }
       if (mode() === "login") {
-        await login(name, secret);
+        await login(props.profile, name, secret);
       } else {
-        await register(name, displayName().trim(), secret);
+        await register(props.profile, name, displayName().trim(), secret);
       }
     } catch (caught) {
       setLocalError(describeError(caught));
@@ -87,7 +96,7 @@ export function AuthModal() {
                     type="button"
                     classList={{
                       "auth__account": true,
-                      "is-active": profile === state.profile,
+                      "is-active": profile === state.activeProfile,
                     }}
                     title={profile}
                     onClick={() => pickProfile(profile)}
@@ -158,9 +167,9 @@ export function AuthModal() {
           <button
             type="submit"
             class="button button--accent button--full"
-            disabled={state.busy}
+            disabled={acc().busy}
           >
-            {state.busy
+            {acc().busy
               ? "Подключаемся…"
               : mode() === "login"
                 ? "Войти"

@@ -1,6 +1,6 @@
 import { Show, createMemo, createSignal } from "solid-js";
 import { Phone, Search, EllipsisVertical, PanelRight } from "lucide-solid";
-import { state } from "../../services/store";
+import { accountState } from "../../services/store";
 import { Avatar } from "../Avatar";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
@@ -15,9 +15,11 @@ import { InfoDrawer } from "./InfoDrawer";
  *   колонка «Информация» (`360px`), которая плавно сдвигает область чата,
  *   не перекрывая пузыри сообщений.
  */
-export function ChatView() {
+export function ChatView(props: { profile: string }) {
+  /** Состояние текущего аккаунта (профиля). */
+  const acc = () => accountState(props.profile);
   const chat = createMemo(
-    () => state.chats.find((c) => c.chat_id === state.activeChatId) ?? null
+    () => acc().chats.find((c) => c.chat_id === acc().activeChatId) ?? null
   );
   const [infoOpen, setInfoOpen] = createSignal(false);
 
@@ -26,7 +28,7 @@ export function ChatView() {
     if (current === null || current.kind === "group" || !current.peer_user_id) {
       return false;
     }
-    return state.presence[current.peer_user_id] === true;
+    return acc().presence[current.peer_user_id] === true;
   };
 
   const subtitle = () => {
@@ -34,14 +36,14 @@ export function ChatView() {
     if (current === null) return "";
     if (current.kind === "group") {
       const memberCount = Object.keys(
-        state.members[current.chat_id] ?? {}
+        acc().members[current.chat_id] ?? {}
       ).length;
       const base =
         memberCount > 0 ? `группа · ${memberCount} участн.` : "группа";
       return current.e2e_mode === "olm_v1" ? `${base} · E2E защита` : base;
     }
     const online = current.peer_user_id
-      ? state.presence[current.peer_user_id]
+      ? acc().presence[current.peer_user_id]
       : undefined;
     if (online === true) return "в сети";
     if (online === false) return "был(а) недавно";
@@ -125,12 +127,13 @@ export function ChatView() {
                 </div>
               </header>
 
-              <MessageList chatId={current.chat_id} />
-              <MessageInput chatId={current.chat_id} />
+              <MessageList profile={props.profile} chatId={current.chat_id} />
+              <MessageInput profile={props.profile} chatId={current.chat_id} />
             </div>
           </div>
 
           <InfoDrawer
+            profile={props.profile}
             chat={current}
             open={infoOpen()}
             onClose={() => setInfoOpen(false)}
