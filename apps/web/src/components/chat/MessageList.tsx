@@ -17,6 +17,7 @@ import {
 } from "../../services/store";
 import { AlbumBubble, MessageBubble } from "./MessageBubble";
 import { formatDateDivider } from "../../utils/format";
+import { isSameGroup } from "../../utils/messages";
 
 /** Единица ленты: обычное сообщение или альбом (медиагруппа). */
 type FeedUnit =
@@ -50,6 +51,9 @@ export function MessageList(props: { chatId: string, profile: string }) {
     const result: FeedUnit[] = [];
     let lastDay = Number.NaN;
     let prevSender: string | null = null;
+    // Продолжение ли это серии (предыдущее сообщение — тот же автор, тот же
+    // день, пауза меньше GROUP_GAP_MS).
+    let prevInGroup = false;
     let index = 0;
 
     while (index < list.length) {
@@ -60,6 +64,7 @@ export function MessageList(props: { chatId: string, profile: string }) {
         date = formatDateDivider(message.created_at_ms);
         lastDay = day;
         prevSender = null;
+        prevInGroup = false;
       }
 
       // Альбом: подряд идущие сообщения с общим grouped_id.
@@ -77,19 +82,16 @@ export function MessageList(props: { chatId: string, profile: string }) {
           messages: album,
         });
         prevSender = album[album.length - 1].sender_user_id;
+        prevInGroup = false;
         continue;
       }
 
       const next = list[index + 1];
-      const nextDay =
-        next !== undefined
-          ? new Date(next.created_at_ms).setHours(0, 0, 0, 0)
-          : Number.NaN;
+      // Серия: тот же автор, тот же день и пауза меньше пяти минут.  В
+      // Telegram большая пауза разрывает серию — у каждого пузыря свой
+      // хвостик.
       const sameNextSender =
-        next !== undefined &&
-        nextDay === day &&
-        next.sender_user_id === message.sender_user_id &&
-        (next.grouped_id ?? null) === null;
+        next !== undefined && isSameGroup(message, next);
 
       result.push({
         kind: "message",
@@ -97,10 +99,11 @@ export function MessageList(props: { chatId: string, profile: string }) {
         date,
         message,
         showAuthor: isGroup() && message.sender_user_id !== prevSender,
-        isFirstInGroup: message.sender_user_id !== prevSender,
+        isFirstInGroup: !prevInGroup,
         isLastInGroup: !sameNextSender,
       });
-      prevSender = message.sender_user_id;
+      prevSender = sameNextSender ? message.sender_user_id : null;
+      prevInGroup = sameNextSender;
       index += 1;
     }
     return result;

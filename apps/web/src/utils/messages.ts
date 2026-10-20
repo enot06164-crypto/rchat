@@ -7,6 +7,37 @@
  * на него.
  */
 
+/**
+ * Пауза, которая разрывает серию сообщений одного автора (как в Telegram):
+ * после неё у каждого пузыря свой хвостик, а не только у последнего.
+ */
+export const GROUP_GAP_MS = 5 * 60 * 1000;
+
+/**
+ * Продолжение ли `next` серии сообщения `current`: тот же автор, тот же
+ * день, пауза меньше `GROUP_GAP_MS` (и не альбом).
+ */
+export function isSameGroup(
+  current: {
+    sender_user_id: string;
+    grouped_id?: string | null;
+    created_at_ms: number;
+  },
+  next: {
+    sender_user_id: string;
+    grouped_id?: string | null;
+    created_at_ms: number;
+  }
+): boolean {
+  if (current.sender_user_id !== next.sender_user_id) return false;
+  const grouped = (id: string | null | undefined): boolean =>
+    id !== null && id !== undefined && id !== "";
+  if (grouped(current.grouped_id) || grouped(next.grouped_id)) return false;
+  const day = (ms: number): number => new Date(ms).setHours(0, 0, 0, 0);
+  if (day(current.created_at_ms) !== day(next.created_at_ms)) return false;
+  return next.created_at_ms - current.created_at_ms <= GROUP_GAP_MS;
+}
+
 /** Текст служебного сообщения по его виду (`null` — обычное сообщение). */
 export function serviceMessageText(contentKind: string): string | null {
   switch (contentKind) {

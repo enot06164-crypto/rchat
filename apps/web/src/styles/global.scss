@@ -1028,17 +1028,16 @@ textarea {
     }
   }
 
-  // Хвостик у последнего сообщения группы (WebK .bubble-tail) — слой ПОД
-  // пузырём: скруглённый угол «дорисовывается» хвостиком, шва не видно.
+  // Хвостик у последнего сообщения серии (WebK .bubble-tail): маленький
+  // скруглённый угол, который «дорисовывает» пузырь и торчит наружу.  Цвет
+  // совпадает с пузырём — шва не видно.
   &__tail {
     position: absolute;
-    bottom: 0;
+    bottom: -5px;
+    width: 13px;
+    height: 13px;
     z-index: 0;
     pointer-events: none;
-
-    path {
-      fill: $bubble-in;
-    }
   }
 }
 
@@ -1046,20 +1045,15 @@ textarea {
 // Форма наша — по мотивам Telegram WebK, где угол на стороне хвостика
 // прямой, а кривую даёт сам хвостик.
 .bubble-row--own .bubble__tail {
-  right: -8.4px;
-  transform: scaleX(-1);
-
-  path {
-    fill: $bubble-out-end;
-  }
+  right: -6px;
+  background: $bubble-out-end;
+  border-bottom-right-radius: 13px;
 }
 
 .bubble-row--in .bubble__tail {
-  left: -8.4px;
-
-  path {
-    fill: $bubble-in;
-  }
+  left: -6px;
+  background: $bubble-in;
+  border-bottom-left-radius: 13px;
 }
 
 // В групповом чате слева от пузыря стоит аватар (34px + зазор 8px) —

@@ -206,6 +206,11 @@ export function MessageBubble(props: {
           if (!deleted()) setReplyTo(props.profile, props.message);
         }}
       >
+        {/* Хвостик — у последнего сообщения серии (как в Telegram). */}
+        <Show when={lastInGroup() && !isPrivateModeRequest()}>
+          <span class="bubble__tail" aria-hidden="true" />
+        </Show>
+
         <Show when={isPrivateModeRequest() && !deleted()}>
           <PrivateModeCard
             profile={props.profile}

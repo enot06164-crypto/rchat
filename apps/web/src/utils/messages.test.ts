@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  GROUP_GAP_MS,
+  isSameGroup,
   isServiceMessage,
   messageText,
   serviceMessageText,
@@ -50,5 +52,67 @@ describe("текст служебного сообщения", () => {
         deleted_at_ms: 1_700_000_000_000,
       })
     ).toBe("Сообщение удалено");
+  });
+});
+
+/**
+ * Серия сообщений одного автора: пока пауза меньше пяти минут, сообщения
+ * идут одной серией (хвостик — только у последнего).  Большая пауза разрывает
+ * серию — тогда у каждого пузыря свой хвостик, как в Telegram.
+ */
+describe("серия сообщений", () => {
+  const base = {
+    sender_user_id: "u1",
+    grouped_id: null,
+    created_at_ms: new Date("2026-01-10T12:00:00").getTime(),
+  };
+
+  it("сообщения подряд — одна серия", () => {
+    expect(isSameGroup(base, { ...base, created_at_ms: base.created_at_ms + 1000 })).toBe(true);
+  });
+
+  it("пауза больше пяти минут разрывает серию", () => {
+    expect(
+      isSameGroup(base, {
+        ...base,
+        created_at_ms: base.created_at_ms + GROUP_GAP_MS + 1,
+      })
+    ).toBe(false);
+  });
+
+  it("пауза ровно в пять минут — ещё серия", () => {
+    expect(
+      isSameGroup(base, {
+        ...base,
+        created_at_ms: base.created_at_ms + GROUP_GAP_MS,
+      })
+    ).toBe(true);
+  });
+
+  it("разные авторы — разные серии", () => {
+    expect(
+      isSameGroup(base, {
+        ...base,
+        sender_user_id: "u2",
+        created_at_ms: base.created_at_ms + 1000,
+      })
+    ).toBe(false);
+  });
+
+  it("разные дни — разные серии", () => {
+    const tomorrow = base.created_at_ms + 24 * 60 * 60 * 1000;
+    expect(
+      isSameGroup(base, { ...base, created_at_ms: tomorrow })
+    ).toBe(false);
+  });
+
+  it("альбом не присоединяется к серии", () => {
+    expect(
+      isSameGroup(base, {
+        ...base,
+        grouped_id: "g-1",
+        created_at_ms: base.created_at_ms + 1000,
+      })
+    ).toBe(false);
   });
 });
