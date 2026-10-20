@@ -611,12 +611,15 @@ impl Client {
         // Сначала сервер регистрирует запрос (собеседнику уйдёт событие),
         // затем в чат кладётся карточка запроса.
         self.request_private_mode(chat_id, enable).await?;
-        let kind = if enable {
-            "private_mode_request"
+        let (kind, text) = if enable {
+            ("private_mode_request", "Запрос на приватный режим")
         } else {
-            "private_mode_disable"
+            (
+                "private_mode_disable",
+                "Предложение отключить приватный режим",
+            )
         };
-        self.send_payload(chat_id, Payload::service(kind), None, None)
+        self.send_payload(chat_id, Payload::service_with_text(kind, text), None, None)
             .await
     }
 

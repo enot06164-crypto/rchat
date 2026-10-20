@@ -163,6 +163,17 @@ impl Payload {
         }
     }
 
+    /// Служебный конверт с коротким текстом: текст нужен, чтобы в превью
+    /// списка чатов и в ответе на сообщение не было пустоты (как служебные
+    /// сообщения в Telegram).
+    pub fn service_with_text(kind: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            attachment: None,
+            kind: Some(kind.into()),
+        }
+    }
+
     /// Конверт с текстом и вложением.
     pub fn with_attachment(text: impl Into<String>, attachment: Attachment) -> Self {
         Self {
@@ -372,6 +383,18 @@ mod tests {
         // Старое сообщение — это просто текст, без конверта.
         let decoded = Payload::decode("просто текст".as_bytes());
         assert_eq!(decoded.text, "просто текст");
+        assert!(decoded.attachment.is_none());
+    }
+
+    #[test]
+    fn service_payload_keeps_its_text() {
+        // Служебное сообщение (карточка запроса) несёт короткий текст: он
+        // виден в превью списка чатов и в ответе на сообщение.
+        let payload =
+            Payload::service_with_text("private_mode_request", "Запрос на приватный режим");
+        let decoded = Payload::decode(&payload.encode());
+        assert_eq!(decoded.text, "Запрос на приватный режим");
+        assert_eq!(decoded.content_kind(), "private_mode_request");
         assert!(decoded.attachment.is_none());
     }
 

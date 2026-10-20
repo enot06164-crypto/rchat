@@ -28,6 +28,7 @@ import {
 import { Avatar } from "../Avatar";
 import { PrivateModeCard } from "./PrivateModeCard";
 import { formatTime } from "../../utils/format";
+import { messageText } from "../../utils/messages";
 
 /** Ссылка на цитируемое сообщение (поиск по server_id в ленте чата). */
 function findQuoted(profile: string, message: Message): Message | undefined {
@@ -255,7 +256,9 @@ export function MessageBubble(props: {
             >
               {senderName(props.profile, quoted()!.sender_user_id, quoted()!.chat_id)}
             </span>
-            <span class="bubble__quote-text">{quoted()!.body ?? ""}</span>
+            <span class="bubble__quote-text">
+              {messageText(quoted()!) || "Сообщение"}
+            </span>
           </div>
         </Show>
 

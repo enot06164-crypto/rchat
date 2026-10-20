@@ -5,6 +5,11 @@ import type { Chat, MessageStatus } from "../../types/rchat";
 import { accountState, openChat, readUpToFor } from "../../services/store";
 import { Avatar } from "../Avatar";
 import { formatShortTime } from "../../utils/format";
+import {
+  isServiceMessage,
+  messageText,
+  serviceMessageText,
+} from "../../utils/messages";
 
 /** Иконка статуса исходящего превью (часы/галочка/двойная/ошибка). */
 function PreviewStatus(props: { status: MessageStatus; serverId: number | null; readUpTo: number }) {
@@ -43,12 +48,15 @@ export function ChatItem(props: { chat: Chat, profile: string }): JSX.Element {
   const preview = (): string => {
     const last = lastMessage();
     if (last !== undefined) {
-      return last.deleted_at_ms !== null ? "Сообщение удалено" : (last.body ?? "");
+      return messageText(last);
     }
     const preview = props.chat.last_message;
     if (preview === null || preview === undefined) {
       return props.chat.kind === "group" ? "Групповой чат" : "Нет сообщений";
     }
+    // Служебное сообщение (карточка) — показываем его текст.
+    const service = serviceMessageText(preview.content_kind);
+    if (service !== null) return service;
     if (preview.body !== null && preview.body !== "") return preview.body;
     switch (preview.attachment_kind) {
       case "photo":
@@ -70,6 +78,9 @@ export function ChatItem(props: { chat: Chat, profile: string }): JSX.Element {
     const last = lastMessage();
     const sender = last?.sender_user_id ?? props.chat.last_message?.sender_user_id;
     if (sender === undefined || sender === null) return "";
+    // У служебного сообщения нет «Вы: » — это уведомление, а не реплика.
+    const kind = last?.content_kind ?? props.chat.last_message?.content_kind ?? "";
+    if (isServiceMessage(kind)) return "";
     return sender === me.user_id ? "Вы: " : "";
   };
   const previewStatus = () => {
@@ -85,6 +96,8 @@ export function ChatItem(props: { chat: Chat, profile: string }): JSX.Element {
     const last = lastMessage();
     if (last === undefined) return null;
     if (props.chat.kind !== "group") return null;
+    // У служебного сообщения нет подписи автора.
+    if (isServiceMessage(last.content_kind)) return null;
     const me = session();
     if (me !== null && last.sender_user_id === me.user_id) {
       return null;

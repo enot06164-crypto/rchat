@@ -9,6 +9,7 @@ import {
   sendCurrentText,
 } from "../../services/store";
 import { Notice } from "../common/Notice";
+import { messageText } from "../../utils/messages";
 import type { ErrorNotice } from "../../services/errors";
 import {
   computeWaveform,
@@ -271,7 +272,7 @@ export function MessageInput(props: { chatId: string, profile: string }) {
                   replyTextOf(props.profile, reply()!.sender_user_id, reply()!.chat_id)}
               </span>
               <span class="composer__reply-text">
-                {reply()!.body ?? "Сообщение"}
+                {messageText(reply()!) || "Сообщение"}
               </span>
             </div>
             <button
