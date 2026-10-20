@@ -398,7 +398,23 @@ pub struct Chat {
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub last_server_id: u64,
+    /// Превью последнего сообщения чата (для списка чатов).
+    pub last_message: Option<ChatPreview>,
     pub avatar: Avatar,
+}
+
+/// Превью последнего сообщения чата.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ChatPreview {
+    /// Текст сообщения (пусто, если сообщение — вложение).
+    pub body: Option<String>,
+    /// Отправитель (для префикса «Вы:»).
+    pub sender_user_id: String,
+    /// Вид содержимого: `text`, `photo`, `video`, `file`, `voice`.
+    pub content_kind: String,
+    /// Вид вложения, если сообщение с вложением.
+    pub attachment_kind: Option<String>,
+    pub created_at_ms: u64,
 }
 
 /// Тип чата.

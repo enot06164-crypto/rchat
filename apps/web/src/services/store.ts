@@ -217,7 +217,15 @@ function upsertSorted(list: Message[], message: Message): Message[] {
 function upsertChat(profile: string, chat: Chat): void {
   setState("accounts", profile, "chats", (prev) => {
     const rest = prev.filter((c) => c.chat_id !== chat.chat_id);
-    return [...rest, chat].sort(byCreatedDesc);
+    // Событие по чату приходит без превью — сохраняем прежнее, чтобы список
+    // не «слетал» на «Нет сообщений».
+    const previous = prev.find((c) => c.chat_id === chat.chat_id);
+    const merged =
+      previous !== undefined &&
+      (chat.last_message === null || chat.last_message === undefined)
+        ? { ...chat, last_message: previous.last_message ?? null }
+        : chat;
+    return [...rest, merged].sort(byCreatedDesc);
   });
 }
 

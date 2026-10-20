@@ -305,6 +305,51 @@ impl Storage for ClientSqliteStorage {
         .await
     }
 
+    async fn last_messages(
+        &self,
+        chat_ids: &[String],
+    ) -> Result<Vec<Option<MessageRecord>>, StorageError> {
+        if chat_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let chat_ids = chat_ids.to_vec();
+        self.call(move |conn| {
+            let placeholders: Vec<String> = (1..=chat_ids.len()).map(|i| format!("?{i}")).collect();
+            let sql = format!(
+                "SELECT {MESSAGE_COLUMNS} FROM ( \
+                   SELECT {MESSAGE_COLUMNS}, \
+                     ROW_NUMBER() OVER ( \
+                       PARTITION BY chat_id \
+                       ORDER BY COALESCE(server_id, 9223372036854775807) DESC, \
+                                created_at_ms DESC) AS rn \
+                   FROM messages WHERE chat_id IN ({}) \
+                 ) WHERE rn = 1",
+                placeholders.join(", ")
+            );
+            let mut statement = conn
+                .prepare(&sql)
+                .map_err(|e| map_sql("last_messages prepare", e))?;
+            let rows = statement
+                .query_map(
+                    rusqlite::params_from_iter(chat_ids.iter()),
+                    message_from_row,
+                )
+                .map_err(|e| map_sql("last_messages query", e))?;
+            let mut found: Vec<MessageRecord> = rows
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| map_sql("last_messages rows", e))?;
+            // Возвращаем превью в порядке запрошенных чатов.
+            let mut result: Vec<Option<MessageRecord>> = vec![None; chat_ids.len()];
+            for message in found.drain(..) {
+                if let Some(index) = chat_ids.iter().position(|id| *id == message.chat_id) {
+                    result[index] = Some(message);
+                }
+            }
+            Ok(result)
+        })
+        .await
+    }
+
     async fn list_messages(
         &self,
         chat_id: &str,

@@ -352,6 +352,31 @@ impl Storage for MockStorage {
         Ok(find_by_server(&self.lock(), server_id))
     }
 
+    async fn last_messages(
+        &self,
+        chat_ids: &[String],
+    ) -> Result<Vec<Option<MessageRecord>>, StorageError> {
+        let inner = self.lock();
+        let mut result: Vec<Option<MessageRecord>> = vec![None; chat_ids.len()];
+        for (index, chat_id) in chat_ids.iter().enumerate() {
+            let mut messages: Vec<MessageRecord> = inner
+                .messages
+                .values()
+                .filter(|message| &message.chat_id == chat_id)
+                .cloned()
+                .collect();
+            // Локальные сообщения без server_id считаются самыми новыми.
+            messages.sort_by(|left, right| {
+                right
+                    .server_id
+                    .cmp(&left.server_id)
+                    .then(right.created_at_ms.cmp(&left.created_at_ms))
+            });
+            result[index] = messages.into_iter().next();
+        }
+        Ok(result)
+    }
+
     async fn list_messages(
         &self,
         chat_id: &str,

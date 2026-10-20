@@ -28,6 +28,8 @@ export interface Chat {
   /** Приватность чата: `cloud` — облачный (сервер знает ключ), `private` — E2E. */
   privacy: ChatPrivacy;
   title: string;
+  /** Превью последнего сообщения — чтобы список чатов был заполнен сразу. */
+  last_message: ChatPreview | null;
   peer_user_id: string | null;
   created_at_ms: number;
   updated_at_ms: number;
@@ -36,6 +38,15 @@ export interface Chat {
 }
 
 export type MemberRole = "owner" | "member" | "unspecified";
+
+/** Превью последнего сообщения чата (для списка чатов). */
+export interface ChatPreview {
+  body: string | null;
+  sender_user_id: string;
+  content_kind: string;
+  attachment_kind: string | null;
+  created_at_ms: number;
+}
 
 /** Режим чатов по умолчанию: облачный или приватный (E2E). */
 export type ChatPrivacy = "cloud" | "private";

@@ -38,21 +38,39 @@ export function ChatItem(props: { chat: Chat, profile: string }): JSX.Element {
     if (list === undefined || list.length === 0) return undefined;
     return list[list.length - 1];
   };
+  // Превью: загруженное сообщение, иначе — из ответа ядра (после перезагрузки
+  // сообщения в памяти ещё нет, но превью ядро уже знает).
   const preview = (): string => {
     const last = lastMessage();
-    if (last === undefined) {
+    if (last !== undefined) {
+      return last.deleted_at_ms !== null ? "Сообщение удалено" : (last.body ?? "");
+    }
+    const preview = props.chat.last_message;
+    if (preview === null || preview === undefined) {
       return props.chat.kind === "group" ? "Групповой чат" : "Нет сообщений";
     }
-    const body =
-      last.deleted_at_ms !== null ? "Сообщение удалено" : (last.body ?? "");
-    return body;
+    if (preview.body !== null && preview.body !== "") return preview.body;
+    switch (preview.attachment_kind) {
+      case "photo":
+        return "Фото";
+      case "video":
+        return "Видео";
+      case "voice":
+        return "Голосовое";
+      case "file":
+        return "Файл";
+      default:
+        return "Нет сообщений";
+    }
   };
   const session = () => acc().session;
   const previewPrefix = (): string => {
-    const last = lastMessage();
     const me = session();
-    if (last === undefined || me === null) return "";
-    return last.sender_user_id === me.user_id ? "Вы: " : "";
+    if (me === null) return "";
+    const last = lastMessage();
+    const sender = last?.sender_user_id ?? props.chat.last_message?.sender_user_id;
+    if (sender === undefined || sender === null) return "";
+    return sender === me.user_id ? "Вы: " : "";
   };
   const previewStatus = () => {
     const last = lastMessage();

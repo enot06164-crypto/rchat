@@ -396,6 +396,17 @@
         "kind": {
           "$ref": "#/definitions/ChatKind"
         },
+        "last_message": {
+          "description": "Превью последнего сообщения чата (для списка чатов).",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ChatPreview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "last_server_id": {
           "type": "integer",
           "format": "uint64",
@@ -456,6 +467,44 @@
           "type": "string"
         },
         "username": {
+          "type": "string"
+        }
+      }
+    },
+    "ChatPreview": {
+      "description": "Превью последнего сообщения чата.",
+      "type": "object",
+      "required": [
+        "content_kind",
+        "created_at_ms",
+        "sender_user_id"
+      ],
+      "properties": {
+        "attachment_kind": {
+          "description": "Вид вложения, если сообщение с вложением.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "body": {
+          "description": "Текст сообщения (пусто, если сообщение — вложение).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_kind": {
+          "description": "Вид содержимого: `text`, `photo`, `video`, `file`, `voice`.",
+          "type": "string"
+        },
+        "created_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "sender_user_id": {
+          "description": "Отправитель (для префикса «Вы:»).",
           "type": "string"
         }
       }

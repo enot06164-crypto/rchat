@@ -76,6 +76,8 @@ class Chat(_Model):
     last_server_id: int
     #: Приватность чата: `cloud` (сервер знает ключ) или `private` (E2E).
     privacy: str = "private"
+    #: Превью последнего сообщения чата (текст и отправитель).
+    last_message: Optional[dict] = None
     peer_user_id: Optional[str] = None
     avatar: Optional[AvatarInfo] = None
 
@@ -90,6 +92,7 @@ class Chat(_Model):
             updated_at_ms=int(data["updated_at_ms"]),
             last_server_id=int(data["last_server_id"]),
             privacy=str(data.get("privacy", "private")),
+            last_message=data.get("last_message"),
             peer_user_id=data.get("peer_user_id"),
             avatar=_avatar(data.get("avatar")),
         )

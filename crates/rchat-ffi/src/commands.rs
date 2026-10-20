@@ -112,11 +112,25 @@ pub(crate) async fn dispatch(
         }
         "get_chats" => {
             let chats = handle.storage.list_chats().await?;
-            Ok(Value::Array(chats.iter().map(json::chat).collect()))
+            let previews = chat_previews(handle, &chats).await?;
+            Ok(Value::Array(
+                chats
+                    .iter()
+                    .zip(previews.iter())
+                    .map(|(chat, preview)| json::chat(chat, preview.as_ref()))
+                    .collect(),
+            ))
         }
         "refresh_chats" => {
             let chats = handle.client.list_chats().await?;
-            Ok(Value::Array(chats.iter().map(json::chat).collect()))
+            let previews = chat_previews(handle, &chats).await?;
+            Ok(Value::Array(
+                chats
+                    .iter()
+                    .zip(previews.iter())
+                    .map(|(chat, preview)| json::chat(chat, preview.as_ref()))
+                    .collect(),
+            ))
         }
         "get_chat_members" => {
             let chat_id = string_field(request, "chat_id")?;
@@ -127,7 +141,7 @@ pub(crate) async fn dispatch(
             let peer = string_field(request, "peer_username")?;
             let mode = chat_mode_field(request, handle.client.default_chat_mode())?;
             let chat = handle.client.create_direct_chat(&peer, mode).await?;
-            Ok(json::chat(&chat))
+            Ok(json::chat(&chat, None))
         }
         "create_group_chat" => {
             let name = string_field(request, "name")?;
@@ -137,13 +151,13 @@ pub(crate) async fn dispatch(
                 .client
                 .create_group_chat(&name, &members, mode)
                 .await?;
-            Ok(json::chat(&chat))
+            Ok(json::chat(&chat, None))
         }
         "invite_to_chat" => {
             let chat_id = string_field(request, "chat_id")?;
             let usernames = string_list(request, "usernames", true)?;
             let chat = handle.client.invite_to_chat(&chat_id, &usernames).await?;
-            Ok(json::chat(&chat))
+            Ok(json::chat(&chat, None))
         }
         "leave_chat" => {
             let chat_id = string_field(request, "chat_id")?;
@@ -154,13 +168,13 @@ pub(crate) async fn dispatch(
             let chat_id = string_field(request, "chat_id")?;
             let user_id = string_field(request, "user_id")?;
             let chat = handle.client.remove_chat_member(&chat_id, &user_id).await?;
-            Ok(json::chat(&chat))
+            Ok(json::chat(&chat, None))
         }
         "rename_chat" => {
             let chat_id = string_field(request, "chat_id")?;
             let name = string_field(request, "name")?;
             let chat = handle.client.rename_chat(&chat_id, &name).await?;
-            Ok(json::chat(&chat))
+            Ok(json::chat(&chat, None))
         }
         "send_message" => {
             let chat_id = string_field(request, "chat_id")?;
@@ -420,6 +434,15 @@ fn text_field(request: &Value, name: &str) -> Result<String, FfiError> {
 }
 
 /// Разбор поля `attachment`: {kind, name, mime, size, data_base64}.
+/// Превью последнего сообщения для каждого чата (в том же порядке).
+async fn chat_previews(
+    handle: &RchatHandle,
+    chats: &[rchat_core::types::ChatRecord],
+) -> Result<Vec<Option<rchat_core::types::MessageRecord>>, FfiError> {
+    let ids: Vec<String> = chats.iter().map(|chat| chat.chat_id.clone()).collect();
+    Ok(handle.storage.last_messages(&ids).await?)
+}
+
 fn parse_attachment(item: &Value) -> Result<Attachment, FfiError> {
     let kind_raw = item
         .get("kind")

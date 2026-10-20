@@ -231,6 +231,59 @@ async fn messages_are_listed_newest_first_with_pagination() {
     assert_eq!(by_server.local_id, "s:2");
 }
 
+/// Последнее сообщение чата — превью в списке чатов (заполняется сразу,
+/// без открытия чата).
+#[tokio::test]
+async fn last_messages_returns_preview_per_chat() {
+    let store = storage();
+    store
+        .upsert_chat(&chat("c1", 5), &[member("u_alice")])
+        .await
+        .expect("chat");
+    store
+        .upsert_chat(&chat("c2", 6), &[member("u_alice")])
+        .await
+        .expect("chat");
+
+    let mut first = outgoing_message("m1", "c1");
+    first.body = Some("первое".into());
+    first.server_id = Some(1);
+    store
+        .insert_outgoing(&first, &outbox_record("m1", "c1"))
+        .await
+        .expect("message");
+    let mut second = outgoing_message("m2", "c1");
+    second.body = Some("второе".into());
+    second.server_id = Some(2);
+    store
+        .insert_outgoing(&second, &outbox_record("m2", "c1"))
+        .await
+        .expect("message");
+    let mut other = outgoing_message("m3", "c2");
+    other.body = Some("в другом чате".into());
+    other.server_id = Some(3);
+    store
+        .insert_outgoing(&other, &outbox_record("m3", "c2"))
+        .await
+        .expect("message");
+
+    let previews = store
+        .last_messages(&["c1".to_string(), "c2".to_string(), "c3".to_string()])
+        .await
+        .expect("previews");
+    assert_eq!(previews.len(), 3);
+    assert_eq!(
+        previews[0].as_ref().and_then(|m| m.body.clone()),
+        Some("второе".to_string())
+    );
+    assert_eq!(
+        previews[1].as_ref().and_then(|m| m.body.clone()),
+        Some("в другом чате".to_string())
+    );
+    // Чата без сообщений — превью нет.
+    assert!(previews[2].is_none());
+}
+
 #[tokio::test]
 async fn outbox_lifecycle_ack_and_failure() {
     let store = storage();

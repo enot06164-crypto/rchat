@@ -81,6 +81,13 @@ pub trait Storage: Send + Sync {
         &self,
         server_id: u64,
     ) -> Result<Option<MessageRecord>, StorageError>;
+    /// Последнее сообщение каждого из указанных чатов (для превью в списке
+    /// чатов).  Сообщения без `server_id` (ещё не подтверждённые сервером)
+    /// считаются самыми новыми.  Порядок — как у `chat_ids`.
+    async fn last_messages(
+        &self,
+        chat_ids: &[String],
+    ) -> Result<Vec<Option<MessageRecord>>, StorageError>;
     /// Сообщения чата, новые первыми. `before_server_id` — пагинация вниз.
     async fn list_messages(
         &self,

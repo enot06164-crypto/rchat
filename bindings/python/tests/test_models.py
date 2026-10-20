@@ -23,6 +23,7 @@ CHAT = {
     "kind": "group",
     "e2e_mode": "olm_v1",
     "privacy": "private",
+    "last_message": None,
     "title": "Алиса Иванова",
     "peer_user_id": None,
     "created_at_ms": 1,

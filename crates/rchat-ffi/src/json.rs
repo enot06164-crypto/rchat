@@ -105,7 +105,21 @@ pub(crate) fn avatar(id: &str, display_name: &str, fallback: &str) -> Value {
     })
 }
 
-pub(crate) fn chat(chat: &ChatRecord) -> Value {
+/// Превью последнего сообщения чата (для списка чатов).
+pub(crate) fn chat_preview(message: Option<&MessageRecord>) -> Value {
+    let Some(message) = message else {
+        return Value::Null;
+    };
+    json!({
+        "body": message.body,
+        "sender_user_id": message.sender_user_id,
+        "content_kind": message.content_kind,
+        "attachment_kind": message.attachment.as_ref().map(|a| a.kind.as_str()),
+        "created_at_ms": message.created_at_ms,
+    })
+}
+
+pub(crate) fn chat(chat: &ChatRecord, preview: Option<&MessageRecord>) -> Value {
     json!({
         "chat_id": chat.chat_id,
         "kind": chat_kind(chat.kind),
@@ -117,6 +131,9 @@ pub(crate) fn chat(chat: &ChatRecord) -> Value {
         "created_at_ms": chat.created_at_ms,
         "updated_at_ms": chat.updated_at_ms,
         "last_server_id": chat.last_server_id,
+        // Превью последнего сообщения: список чатов заполнен сразу, без
+        // открытия чата.
+        "last_message": chat_preview(preview),
         "avatar": avatar(&chat.chat_id, &chat.title, &chat.title),
     })
 }
@@ -258,7 +275,7 @@ pub(crate) fn event(event: &UiEvent) -> Value {
                 "error_code": error_code,
             }),
         ),
-        UiEvent::ChatUpserted(chat) => ("chat_upserted", self::chat(chat)),
+        UiEvent::ChatUpserted(chat) => ("chat_upserted", self::chat(chat, None)),
         UiEvent::ReceiptUpdated(receipt) => ("receipt_updated", self::receipt(receipt)),
         UiEvent::PresenceChanged { user_id, online } => (
             "presence_changed",

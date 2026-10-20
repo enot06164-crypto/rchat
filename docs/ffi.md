@@ -264,9 +264,21 @@ rchat_destroy(handle);
   "created_at_ms": 1700000000000,
   "updated_at_ms": 1700000000000,
   "last_server_id": 7,
+  "last_message": {
+    "body": "привет",
+    "sender_user_id": "<user_id>",
+    "content_kind": "text",
+    "attachment_kind": null,
+    "created_at_ms": 1700000000000
+  },
   "avatar": {"initials": "BO", "color_index": 1, "color_hex": "#FAA774"}
 }
 ```
+
+`last_message` — превью последнего сообщения чата (из локального кеша ядра):
+список чатов заполнен сразу, без открытия чата. Для сообщения с вложением
+`body` пуст, а `attachment_kind` содержит вид вложения (`photo`, `video`,
+`file`, `voice`).
 
 `kind`: `direct`, `group`, `unspecified`; `e2e_mode`: `cloud`, `olm_v1`,
 `none_dev`, `unspecified`; `privacy`: `cloud` (сервер знает ключ чата) или
