@@ -12,6 +12,8 @@
 mod common;
 
 use common::*;
+use rchat_core::payload::{Attachment, AttachmentKind, BlobRef};
+use rchat_core::traits::Storage;
 use rchat_core::types::ChatMode;
 use rchat_proto::proto;
 
@@ -196,6 +198,173 @@ async fn cloud_group_chat_is_shared_between_members() {
     assert_eq!(hits[0].chat_title, "Проект");
 }
 
+/// Вложения в облачном чате: фото, видео с постером и альбом едут так же,
+/// как в приватном, — файлы лежат отдельными блобами (сервер видит только
+/// шифротекст файла), а метаданные и ключ файла — внутри зашифрованного
+/// конверта сообщения.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cloud_attachments_travel_as_encrypted_blobs() {
+    let harness = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+
+    let (alice, alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
+    alice.start().await.expect("start alice");
+    register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
+
+    let (bob, bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
+    bob.start().await.expect("start bob");
+    register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
+
+    let chat = alice
+        .create_direct_chat("bob", ChatMode::Cloud)
+        .await
+        .expect("create cloud chat");
+
+    // Фото с подписью.
+    let photo_bytes: Vec<u8> = (0u8..=255).cycle().take(4096).collect();
+    let local_id = alice
+        .send_attachment(
+            &chat.chat_id,
+            "фото из облака",
+            attachment(AttachmentKind::Photo, "pic.png", "image/png", &photo_bytes),
+            None,
+        )
+        .await
+        .expect("send photo");
+    wait_sent(&alice_storage, &local_id).await;
+
+    // Видео с постером (постер — отдельный блоб, как thumbnail в Telegram).
+    let video_bytes: Vec<u8> = (1u8..=255).cycle().take(2048).collect();
+    let poster_bytes: Vec<u8> = (9u8..=255).cycle().take(512).collect();
+    let mut video = attachment(AttachmentKind::Video, "clip.mp4", "video/mp4", &video_bytes);
+    video.thumb = Some(BlobRef {
+        reference: String::new(),
+        key: Vec::new(),
+        nonce: Vec::new(),
+        size: poster_bytes.len() as u64,
+        mime: "image/jpeg".to_string(),
+        data: poster_bytes.clone(),
+    });
+    let video_id = alice
+        .send_attachment(&chat.chat_id, "", video, None)
+        .await
+        .expect("send video");
+    wait_sent(&alice_storage, &video_id).await;
+
+    // Альбом: несколько вложений с общим grouped_id (подпись — на последнем).
+    let album_bytes_a: Vec<u8> = vec![11u8; 700];
+    let album_bytes_b: Vec<u8> = vec![22u8; 900];
+    let album_ids = alice
+        .send_album(
+            &chat.chat_id,
+            "альбом из облака",
+            vec![
+                attachment(AttachmentKind::Photo, "a.png", "image/png", &album_bytes_a),
+                attachment(AttachmentKind::Photo, "b.png", "image/png", &album_bytes_b),
+            ],
+            None,
+        )
+        .await
+        .expect("send album");
+    assert_eq!(album_ids.len(), 2, "альбом — два сообщения");
+    for id in &album_ids {
+        wait_sent(&alice_storage, id).await;
+    }
+
+    // Ни текст, ни байты файла сервер не хранит открытыми.
+    assert_server_has_no_bytes(harness.db_path(), &photo_bytes);
+    assert_server_has_no_bytes(harness.db_path(), &video_bytes);
+    assert_server_has_no_bytes(harness.db_path(), &poster_bytes);
+
+    // Получатель читает оба вложения целиком.
+    wait_for_message(&bob_storage, &chat.chat_id, 2).await;
+    let received = bob_storage
+        .list_messages(&chat.chat_id, None, 10)
+        .await
+        .expect("list messages");
+    let photos = received
+        .iter()
+        .find(|message| message.body.as_deref() == Some("фото из облака"))
+        .expect("photo received");
+    assert_eq!(photos.body.as_deref(), Some("фото из облака"));
+    let photo = photos.attachment.clone().expect("photo attachment");
+    assert_eq!(photo.kind, AttachmentKind::Photo);
+    assert!(photo.blob_ref.is_some(), "должна быть ссылка на блоб");
+    let content = bob
+        .attachment_content(photos.server_id.expect("server id"))
+        .await
+        .expect("photo content")
+        .expect("photo");
+    assert_eq!(content.data, photo_bytes, "фото должно совпасть побитово");
+
+    let videos = received
+        .iter()
+        .find(|message| message.content_kind == "video")
+        .expect("video received");
+    let video = videos.attachment.clone().expect("video attachment");
+    assert_eq!(video.kind, AttachmentKind::Video);
+    let thumb = video.thumb.expect("постер");
+    assert!(!thumb.reference.is_empty(), "постер — отдельный блоб");
+    let video_content = bob
+        .attachment_content(videos.server_id.expect("server id"))
+        .await
+        .expect("video content")
+        .expect("video");
+    assert_eq!(
+        video_content.data, video_bytes,
+        "видео должно совпасть побитово"
+    );
+
+    // Альбом: у получателя четыре сообщения, два последних — с общим
+    // grouped_id и подписью на последнем элементе.
+    wait_for_message(&bob_storage, &chat.chat_id, 4).await;
+    let received = bob_storage
+        .list_messages(&chat.chat_id, None, 10)
+        .await
+        .expect("list messages");
+    let album: Vec<_> = received
+        .iter()
+        .filter(|message| {
+            message
+                .grouped_id
+                .as_ref()
+                .is_some_and(|value| !value.is_empty())
+        })
+        .collect();
+    assert_eq!(album.len(), 2, "альбом — два сообщения с grouped_id");
+    assert_eq!(album[0].grouped_id, album[1].grouped_id);
+    assert!(album[0].grouped_id.is_some(), "у альбома общий grouped_id");
+    // Подпись альбома — на последнем элементе (порядок в выдаче не важен).
+    let captions: Vec<&str> = album
+        .iter()
+        .map(|message| message.body.as_deref().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        captions
+            .iter()
+            .filter(|text| **text == "альбом из облака")
+            .count(),
+        1
+    );
+    assert_eq!(captions.iter().filter(|text| text.is_empty()).count(), 1);
+    let mut contents: Vec<Vec<u8>> = Vec::new();
+    for message in &album {
+        let content = bob
+            .attachment_content(message.server_id.expect("server id"))
+            .await
+            .expect("album content")
+            .expect("album attachment");
+        contents.push(content.data);
+    }
+    // Порядок элементов альбома в выдаче не важен — важно, что файлы целые.
+    assert!(
+        contents.contains(&album_bytes_a) && contents.contains(&album_bytes_b),
+        "оба файла альбома должны дойти целыми"
+    );
+}
+
 /// Режим по умолчанию меняется в настройках клиента и применяется к новым
 /// чатам; уже созданные чаты сохраняют свой режим.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -219,6 +388,23 @@ async fn default_mode_is_configurable() {
         .await
         .expect("set default mode back");
     assert_eq!(alice.default_chat_mode(), ChatMode::Cloud);
+}
+
+/// Вложение для тестов: файл уедет отдельным блобом, ключ — внутрь
+/// зашифрованного конверта сообщения.
+fn attachment(kind: AttachmentKind, name: &str, mime: &str, data: &[u8]) -> Attachment {
+    Attachment {
+        kind,
+        name: name.to_string(),
+        mime: mime.to_string(),
+        size: data.len() as u64,
+        blob_ref: None,
+        key: None,
+        nonce: None,
+        thumb: None,
+        waveform: Vec::new(),
+        data: data.to_vec(),
+    }
 }
 
 /// Открытые тексты всех сообщений сервера (для проверок приватности).
