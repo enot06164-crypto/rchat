@@ -206,9 +206,18 @@ export function MessageBubble(props: {
           if (!deleted()) setReplyTo(props.profile, props.message);
         }}
       >
-        {/* Хвостик — у последнего сообщения серии (как в Telegram). */}
+        {/* Хвостик — у последнего сообщения серии (как в Telegram): гладкий
+            «язычок», выходящий из угла пузыря.  Для исходящих зеркалится. */}
         <Show when={lastInGroup() && !isPrivateModeRequest()}>
-          <span class="bubble__tail" aria-hidden="true" />
+          <svg
+            class="bubble__tail"
+            width="12"
+            height="14"
+            viewBox="0 0 12 14"
+            aria-hidden="true"
+          >
+            <path d="M12 0 C12 6 8 11 0 14 L12 14 Z" />
+          </svg>
         </Show>
 
         <Show when={isPrivateModeRequest() && !deleted()}>

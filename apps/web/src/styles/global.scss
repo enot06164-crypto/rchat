@@ -1028,38 +1028,36 @@ textarea {
     }
   }
 
-  // Хвостик у последнего сообщения серии (WebK .bubble-tail): маленький
-  // скруглённый угол, который «дорисовывает» пузырь и торчит наружу.  Цвет
-  // совпадает с пузырём — шва не видно.
+  // Хвостик у последнего сообщения серии (WebK .bubble-tail): гладкий
+  // «язычок», выходящий из угла пузыря.  Он же закрывает прямой угол пузыря
+  // на стороне хвостика — поэтому шва не видно.  Для исходящих зеркалится.
   &__tail {
     position: absolute;
-    bottom: -5px;
-    width: 13px;
-    height: 13px;
+    bottom: -6px;
+    left: -10px;
     z-index: 0;
     pointer-events: none;
+
+    path {
+      fill: $bubble-in;
+    }
   }
 }
 
-// Хвостик (слой ПОД пузырём: скруглённый угол «дорисовывается» хвостиком).
-// Форма наша — по мотивам Telegram WebK, где угол на стороне хвостика
-// прямой, а кривую даёт сам хвостик.
 .bubble-row--own .bubble__tail {
-  right: -6px;
-  background: $bubble-out-end;
-  border-bottom-right-radius: 13px;
-}
+  right: -10px;
+  left: auto;
+  transform: scaleX(-1);
 
-.bubble-row--in .bubble__tail {
-  left: -6px;
-  background: $bubble-in;
-  border-bottom-left-radius: 13px;
+  path {
+    fill: $bubble-out-end;
+  }
 }
 
 // В групповом чате слева от пузыря стоит аватар (34px + зазор 8px) —
-// хвостик смещаем относительно него.
+// хвостик уходит в зазор, чтобы не наезжать на аватар.
 .bubble-row--with-avatar .bubble__tail {
-  left: 33.6px;
+  left: -6px;
 }
 
 // Вложение внутри пузыря (фото/видео/файл/голос)
