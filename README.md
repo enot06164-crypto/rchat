@@ -327,6 +327,7 @@ cargo build --bin rchat-server --bin rchat-cli
 cargo build -p rchat-ffi
 cargo run -p rchat-ffi --bin export_schema -- --check
 python3 -m unittest discover -s bindings/python/tests
+cd apps/web && npm test          # vitest: тесты стора (дедуп сообщений и др.)
 ```
 
 Те же команды выполняет CI (`.github/workflows/ci.yml`, GitHub Actions без

@@ -74,6 +74,7 @@ cd apps/web && npm run dev          # http://localhost:5173
 ```bash
 cd apps/web
 npm run build            # tsc --noEmit + vite build → dist/
+npm test                 # vitest: тесты стора (дедуп своих сообщений и др.)
 npm run preview          # http://localhost:4173, /ws проксируется на шлюз
 ```
 

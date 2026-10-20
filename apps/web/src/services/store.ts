@@ -131,15 +131,34 @@ function mergeMessages(chatId: string, fetched: Message[]): void {
 
 function mergeSingleMessage(message: Message): void {
   const existing = state.messages[message.chat_id] ?? [];
-  if (
-    message.body === null &&
-    message.server_id !== null &&
-    existing.some((m) => m.server_id === message.server_id)
-  ) {
-    // Ядро зеркалит отправителю его сообщение (для других устройств)
-    // с неизвестным local_id ("s:<server_id>") и body null; у нас уже есть
-    // полная копия этого сообщения — не создаём пустой пузырь.
-    return;
+  // Ядро зеркалит отправителю его сообщение (для других устройств) с
+  // local_id вида "s:<server_id>".  У нас уже есть копия этого сообщения —
+  // обновляем её на месте, а не добавляем вторую.
+  //
+  // Сверяемся по server_id, а не по пустому тексту: в приватном чате ядро
+  // присылает эхо без текста (у отправителя нет своей копии ciphertext),
+  // а в облачном — уже с текстом (сервер его расшифровал).
+  if (message.server_id !== null) {
+    const same = existing.find((m) => m.server_id === message.server_id);
+    if (same !== undefined && same.local_id !== message.local_id) {
+      setState("messages", message.chat_id, (prev = []) =>
+        prev.map((m) =>
+          m.local_id === same.local_id
+            ? {
+                ...message,
+                // local_id сохраняем: по нему приходит статус отправки.
+                local_id: m.local_id,
+                // В приватном чате эхо приходит без текста (у отправителя
+                // нет своей копии ciphertext) — свой текст не теряем.
+                body: message.body ?? m.body,
+                attachment: message.attachment ?? m.attachment,
+                status: m.status ?? "sent",
+              }
+            : m
+        )
+      );
+      return;
+    }
   }
   setState("messages", message.chat_id, (prev = []) =>
     upsertSorted(prev, message)
