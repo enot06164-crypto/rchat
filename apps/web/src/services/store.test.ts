@@ -56,6 +56,7 @@ describe("своё отправленное сообщение", () => {
       searchHits: [],
       searchBusy: false,
       presence: {},
+      privateModeRequests: {},
     });
   });
 
@@ -137,5 +138,116 @@ describe("своё отправленное сообщение", () => {
     expect(state.accounts["alice"]?.messages[CHAT_ID]?.[0].body).toBe("у Алисы");
     expect(state.accounts["bob"]?.messages[CHAT_ID]).toHaveLength(1);
     expect(state.accounts["bob"]?.messages[CHAT_ID]?.[0].body).toBe("у Боба");
+  });
+});
+
+/**
+ * Запрос смены режима чата: предложение включить приватный режим и обратное
+ * предложение — вернуть обычный. Карточка в чате должна понимать, что именно
+ * предлагают.
+ */
+describe("запрос смены режима чата", () => {
+  beforeEach(() => {
+    setState("accounts", PROFILE, {
+      session: null,
+      chats: [],
+      messages: {},
+      receipts: {},
+      members: {},
+      activeChatId: null,
+      unread: {},
+      replyTo: null,
+      booted: true,
+      busy: false,
+      authError: null,
+      sendError: null,
+      newChatError: null,
+      defaultChatMode: "cloud",
+      searchHits: [],
+      searchBusy: false,
+      presence: {},
+      privateModeRequests: {},
+    });
+  });
+
+  it("предложение включить приватный режим", () => {
+    applyEvent(PROFILE, {
+      event: "private_mode_requested",
+      data: {
+        chat_id: CHAT_ID,
+        requester_user_id: "u-other",
+        requester_username: "bob",
+        requester_display_name: "Bob",
+        target_mode: 2,
+      },
+    });
+    const request = state.accounts[PROFILE]?.privateModeRequests[CHAT_ID];
+    expect(request?.enable).toBe(true);
+    expect(request?.status).toBe("pending");
+    expect(request?.requester_user_id).toBe("u-other");
+  });
+
+  it("обратное предложение — вернуть обычный режим", () => {
+    applyEvent(PROFILE, {
+      event: "private_mode_requested",
+      data: {
+        chat_id: CHAT_ID,
+        requester_user_id: "u-other",
+        requester_username: "bob",
+        requester_display_name: "Bob",
+        target_mode: 3,
+      },
+    });
+    const request = state.accounts[PROFILE]?.privateModeRequests[CHAT_ID];
+    expect(request?.enable).toBe(false);
+    expect(request?.status).toBe("pending");
+  });
+
+  it("ответ на запрос: принято или отклонено", () => {
+    applyEvent(PROFILE, {
+      event: "private_mode_requested",
+      data: {
+        chat_id: CHAT_ID,
+        requester_user_id: "u-other",
+        requester_username: "bob",
+        requester_display_name: "Bob",
+        target_mode: 2,
+      },
+    });
+    applyEvent(PROFILE, {
+      event: "private_mode_resolved",
+      data: { chat_id: CHAT_ID, accepted: true },
+    });
+    expect(state.accounts[PROFILE]?.privateModeRequests[CHAT_ID]?.status).toBe(
+      "accepted"
+    );
+
+    applyEvent(PROFILE, {
+      event: "private_mode_resolved",
+      data: { chat_id: CHAT_ID, accepted: false },
+    });
+    expect(state.accounts[PROFILE]?.privateModeRequests[CHAT_ID]?.status).toBe(
+      "declined"
+    );
+  });
+
+  it("отзыв запроса", () => {
+    applyEvent(PROFILE, {
+      event: "private_mode_requested",
+      data: {
+        chat_id: CHAT_ID,
+        requester_user_id: "u-other",
+        requester_username: "bob",
+        requester_display_name: "Bob",
+        target_mode: 2,
+      },
+    });
+    applyEvent(PROFILE, {
+      event: "private_mode_cancelled",
+      data: { chat_id: CHAT_ID },
+    });
+    expect(state.accounts[PROFILE]?.privateModeRequests[CHAT_ID]?.status).toBe(
+      "cancelled"
+    );
   });
 });

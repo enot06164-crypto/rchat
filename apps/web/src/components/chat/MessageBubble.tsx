@@ -152,8 +152,11 @@ export function MessageBubble(props: {
     setMenuPos(null);
   };
 
-  // Служебное сообщение «Запрос на приватный режим» — карточка в чате.
+  // Служебное сообщение о режиме чата — карточка по центру ленты.
   const isPrivateModeRequest = () =>
+    props.message.content_kind === "private_mode_request" ||
+    props.message.content_kind === "private_mode_disable";
+  const privateModeEnable = () =>
     props.message.content_kind === "private_mode_request";
 
   return (
@@ -165,11 +168,12 @@ export function MessageBubble(props: {
         "bubble-row--group-first": firstInGroup(),
         "bubble-row--group-last": lastInGroup(),
         "bubble-row--with-avatar": !own() && props.isGroup,
+        "bubble-row--service": isPrivateModeRequest(),
       }}
       onMouseEnter={showReply}
       onMouseLeave={hideReply}
     >
-      <Show when={!own() && props.isGroup}>
+      <Show when={!own() && props.isGroup && !isPrivateModeRequest()}>
         <div class="bubble-row__avatar-slot">
           <Show when={lastInGroup()}>
             <Avatar info={senderAvatar()} size={34} class="bubble-row__avatar" />
@@ -198,6 +202,7 @@ export function MessageBubble(props: {
             profile={props.profile}
             chatId={props.message.chat_id}
             requesterUserId={props.message.sender_user_id}
+            enable={privateModeEnable()}
           />
         </Show>
         <Show when={!deleted()}>

@@ -376,19 +376,37 @@ class RChatClient:
             raise RChatError("internal", f"invalid retry payload: {data!r}")
         return data
 
-    def request_private_mode(self, chat_id: str) -> Dict[str, Any]:
-        """Просит собеседника перевести личный чат в приватный режим (E2E)."""
+    def request_private_mode(self, chat_id: str, enable: bool = True) -> Dict[str, Any]:
+        """Просит собеседника сменить режим личного чата.
+
+        `enable=True` — перевести чат в приватный режим (E2E),
+        `enable=False` — предложить вернуть его в обычный (облачный).
+        """
         data = self._command(
-            {"@type": "request_private_mode", "chat_id": str(chat_id)}
+            {
+                "@type": "request_private_mode",
+                "chat_id": str(chat_id),
+                "enable": bool(enable),
+            }
         )
         if not isinstance(data, dict):
             raise RChatError("internal", f"invalid request payload: {data!r}")
         return data
 
-    def send_private_mode_request(self, chat_id: str) -> Dict[str, Any]:
-        """Отправляет в чат карточку «Запрос на приватный режим» (E2E)."""
+    def send_private_mode_request(
+        self, chat_id: str, enable: bool = True
+    ) -> Dict[str, Any]:
+        """Отправляет в чат карточку с предложением сменить режим чата.
+
+        `enable=True` — «Запрос на приватный режим» (E2E),
+        `enable=False` — «Предложение отключить приватный режим».
+        """
         data = self._command(
-            {"@type": "send_private_mode_request", "chat_id": str(chat_id)}
+            {
+                "@type": "send_private_mode_request",
+                "chat_id": str(chat_id),
+                "enable": bool(enable),
+            }
         )
         if not isinstance(data, dict):
             raise RChatError("internal", f"invalid request payload: {data!r}")

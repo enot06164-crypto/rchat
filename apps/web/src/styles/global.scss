@@ -2017,12 +2017,21 @@ textarea {
   }
 }
 
-/* Служебное сообщение (карточка запроса) — без обычного оформления пузыря */
+/* Служебное сообщение (карточка запроса) — по центру ленты, без пузыря */
+.bubble-row--service {
+  align-self: center;
+  justify-content: center;
+  max-width: 92%;
+  padding: 8px 0;
+}
+
 .bubble--service {
-  background: transparent;
-  border: none;
+  background: $bg-surface;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: $radius-bubble;
   padding: 4px;
   box-shadow: none;
+  max-width: 380px;
 
   .bubble__body,
   .bubble__meta {

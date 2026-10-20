@@ -5,6 +5,7 @@ import {
   PanelRight,
   Phone,
   Search,
+  ShieldOff,
 } from "lucide-solid";
 import {
   accountState,
@@ -34,10 +35,15 @@ export function ChatView(props: { profile: string }) {
   );
   const [infoOpen, setInfoOpen] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
-  // Приватный режим предлагаем только в личном чате, который ещё не в E2E.
+  // Режим чата предлагаем менять только в личном чате: включить приватный
+  // или вернуть обычный.
   const canRequestPrivateMode = (): boolean => {
     const current = chat();
     return current !== null && current.kind === "direct" && current.e2e_mode !== "olm_v1";
+  };
+  const canDisablePrivateMode = (): boolean => {
+    const current = chat();
+    return current !== null && current.kind === "direct" && current.e2e_mode === "olm_v1";
   };
 
   const isOnline = () => {
@@ -145,24 +151,30 @@ export function ChatView(props: { profile: string }) {
                     </button>
                     <Show when={menuOpen()}>
                       <div class="chat-menu__popover" role="menu">
-                        <Show
-                          when={canRequestPrivateMode()}
-                          fallback={
-                            <div class="chat-menu__item chat-menu__item--muted">
-                              Чат уже в приватном режиме
-                            </div>
-                          }
-                        >
+                        <Show when={canRequestPrivateMode()}>
                           <button
                             role="menuitem"
                             class="chat-menu__item"
                             onClick={() => {
                               setMenuOpen(false);
-                              void requestPrivateMode(props.profile, current.chat_id);
+                              void requestPrivateMode(props.profile, current.chat_id, true);
                             }}
                           >
                             <Lock size={16} />
                             <span>Запросить приватный режим</span>
+                          </button>
+                        </Show>
+                        <Show when={canDisablePrivateMode()}>
+                          <button
+                            role="menuitem"
+                            class="chat-menu__item"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              void requestPrivateMode(props.profile, current.chat_id, false);
+                            }}
+                          >
+                            <ShieldOff size={16} />
+                            <span>Предложить отключить приватный режим</span>
                           </button>
                         </Show>
                       </div>

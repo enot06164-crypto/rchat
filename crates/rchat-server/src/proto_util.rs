@@ -176,12 +176,14 @@ pub fn private_mode_requested_event(
     requester_user_id: &str,
     requester_username: &str,
     requester_display_name: &str,
+    target_mode: i32,
 ) -> sync_event::Payload {
     sync_event::Payload::PrivateModeRequested(proto::PrivateModeRequestedEvent {
         chat_id: chat_id.to_string(),
         requester_user_id: requester_user_id.to_string(),
         requester_username: requester_username.to_string(),
         requester_display_name: requester_display_name.to_string(),
+        target_mode,
     })
 }
 

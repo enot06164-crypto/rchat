@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import { Lock, ShieldCheck } from "lucide-solid";
+import { Lock, ShieldCheck, ShieldOff } from "lucide-solid";
 import {
   accountState,
   cancelPrivateMode,
@@ -7,14 +7,18 @@ import {
 } from "../../services/store";
 
 /**
- * Карточка «Запрос на приватный режим» — обычное сообщение в чате со
- * служебным видом.  Запросившему показываем ожидание подтверждения и кнопку
- * отмены, собеседнику — выбор «Принять» / «Отклонить».
+ * Карточка «Запрос на приватный режим» — служебное сообщение в чате.
+ *
+ * Запросившему показываем ожидание подтверждения и кнопку отмены,
+ * собеседнику — выбор «Принять» / «Отклонить».  Отдельный запрос бывает и
+ * обратным: предложить вернуть чат в обычный режим.
  */
 export function PrivateModeCard(props: {
   profile: string;
   chatId: string;
   requesterUserId: string;
+  /** `true` — предложение включить приватный режим, `false` — выключить. */
+  enable: boolean;
 }) {
   const request = () =>
     accountState(props.profile).privateModeRequests[props.chatId];
@@ -22,40 +26,34 @@ export function PrivateModeCard(props: {
   const isRequester = () => me() === props.requesterUserId;
   const status = () => request()?.status ?? "pending";
   const pending = () => status() === "pending";
+  const enable = () => props.enable;
 
   return (
     <div class="private-mode-card">
       <div class="private-mode-card__icon">
         <Show when={pending()} fallback={<ShieldCheck size={30} />}>
-          <Lock size={30} />
+          <Show when={enable()} fallback={<ShieldOff size={30} />}>
+            <Lock size={30} />
+          </Show>
         </Show>
       </div>
 
       <Show when={pending()}>
         <div class="private-mode-card__title">
-          <Show when={isRequester()} fallback="Запрос на приватный режим">
-            Запрос на приватный режим
-          </Show>
+          {enable()
+            ? "Запрос на приватный режим"
+            : "Предложение отключить приватный режим"}
         </div>
         <div class="private-mode-card__hint">
-          Защита от копирования и скриншотов. Собеседнику уйдёт предложение
-          включить сквозное шифрование в этом чате.
+          {enable()
+            ? "Защита от копирования и скриншотов. Собеседнику уйдёт предложение включить сквозное шифрование в этом чате."
+            : "Чат вернётся в обычный режим: новые сообщения сможет прочитать сервер, старая переписка останется зашифрованной."}
         </div>
 
-        <Show
-          when={isRequester()}
-          fallback={
-            <div class="private-mode-card__status">
-              <span class="private-mode-card__spinner" />
-              Ожидание подтверждения от пользователя…
-            </div>
-          }
-        >
-          <div class="private-mode-card__status">
-            <span class="private-mode-card__spinner" />
-            Ожидание подтверждения от пользователя…
-          </div>
-        </Show>
+        <div class="private-mode-card__status">
+          <span class="private-mode-card__spinner" />
+          Ожидание подтверждения от пользователя…
+        </div>
 
         <Show
           when={isRequester()}
@@ -92,16 +90,20 @@ export function PrivateModeCard(props: {
       </Show>
 
       <Show when={status() === "accepted"}>
-        <div class="private-mode-card__title">Чат переведён в приватный режим</div>
+        <div class="private-mode-card__title">
+          {enable()
+            ? "Чат переведён в приватный режим"
+            : "Чат возвращён в обычный режим"}
+        </div>
         <div class="private-mode-card__hint">
-          Новые сообщения защищены сквозным шифрованием.
+          {enable()
+            ? "Новые сообщения защищены сквозным шифрованием."
+            : "Новые сообщения видны серверу, старая переписка осталась зашифрованной."}
         </div>
       </Show>
       <Show when={status() === "declined"}>
         <div class="private-mode-card__title">Запрос отклонён</div>
-        <div class="private-mode-card__hint">
-          Чат остался в обычном режиме.
-        </div>
+        <div class="private-mode-card__hint">Режим чата не изменился.</div>
       </Show>
       <Show when={status() === "cancelled"}>
         <div class="private-mode-card__title">Запрос отозван</div>

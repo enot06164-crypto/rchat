@@ -539,6 +539,7 @@ impl Ctx<'_> {
                     requester_user_id: inner.requester_user_id.clone(),
                     requester_username: inner.requester_username.clone(),
                     requester_display_name: inner.requester_display_name.clone(),
+                    target_mode: inner.target_mode,
                 });
                 Ok(SyncApply::Skip {
                     seq: event.seq,

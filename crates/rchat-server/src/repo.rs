@@ -236,6 +236,7 @@ pub trait Repo: Send + Sync {
         &self,
         chat_id: &str,
         requester_user_id: &str,
+        target_mode: i32,
         now_ms: u64,
     ) -> Result<bool, RepoError>;
 
@@ -254,6 +255,7 @@ pub trait Repo: Send + Sync {
         &self,
         chat_id: &str,
         e2e_mode: i32,
+        cloud_key: &[u8],
         events: &[NewSyncEvent],
         now_ms: u64,
     ) -> Result<Vec<(String, u64)>, RepoError>;
@@ -462,6 +464,8 @@ pub struct StoredBlob {
 pub struct PrivateModeRequest {
     pub chat_id: String,
     pub requester_user_id: String,
+    /// К какому режиму просят перевести чат (значение `proto::E2eMode`).
+    pub target_mode: i32,
     pub created_at_ms: u64,
 }
 

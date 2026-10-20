@@ -597,32 +597,45 @@ impl Client {
         }
     }
 
-    /// Просит собеседника перевести личный чат в приватный режим (E2E).
+    /// Просит собеседника сменить режим личного чата.
     ///
-    /// В чат уходит служебное сообщение-карточка («Запрос на приватный
-    /// режим»): у отправителя оно ждёт подтверждения, у получателя — с
-    /// кнопками «Принять» и «Отклонить».
-    pub async fn send_private_mode_request(&self, chat_id: &str) -> Result<String, CoreError> {
+    /// В чат уходит служебное сообщение-карточка: при `enable = true` —
+    /// «Запрос на приватный режим», при `enable = false` — «Предложение
+    /// отключить приватный режим».  У отправителя карточка ждёт
+    /// подтверждения, у получателя — с кнопками «Принять» и «Отклонить».
+    pub async fn send_private_mode_request(
+        &self,
+        chat_id: &str,
+        enable: bool,
+    ) -> Result<String, CoreError> {
         // Сначала сервер регистрирует запрос (собеседнику уйдёт событие),
         // затем в чат кладётся карточка запроса.
-        self.request_private_mode(chat_id).await?;
-        self.send_payload(
-            chat_id,
-            Payload::service("private_mode_request"),
-            None,
-            None,
-        )
-        .await
+        self.request_private_mode(chat_id, enable).await?;
+        let kind = if enable {
+            "private_mode_request"
+        } else {
+            "private_mode_disable"
+        };
+        self.send_payload(chat_id, Payload::service(kind), None, None)
+            .await
     }
 
-    /// Просит собеседника перевести личный чат в приватный режим (E2E).
+    /// Просит собеседника сменить режим личного чата.
+    ///
+    /// `enable = true` — перевести чат в приватный режим (E2E),
+    /// `enable = false` — вернуть его в обычный (облачный).
     /// Возвращает `true`, если запрос отправлен и ждёт подтверждения.
-    pub async fn request_private_mode(&self, chat_id: &str) -> Result<bool, CoreError> {
+    pub async fn request_private_mode(
+        &self,
+        chat_id: &str,
+        enable: bool,
+    ) -> Result<bool, CoreError> {
         self.start().await?;
         let resp = self
             .request(proto::request::Method::RequestPrivateMode(
                 proto::RequestPrivateModeRequest {
                     chat_id: chat_id.to_string(),
+                    enable,
                 },
             ))
             .await?;
@@ -648,8 +661,8 @@ impl Client {
         }
     }
 
-    /// Отвечает на запрос: принять (чат переводится в приватный режим) или
-    /// отклонить.  Возвращает `true`, если чат переведён в E2E.
+    /// Отвечает на запрос: принять (чат переводится в выбранный режим) или
+    /// отклонить.  Возвращает `true`, если режим чата изменён.
     pub async fn resolve_private_mode(
         &self,
         chat_id: &str,

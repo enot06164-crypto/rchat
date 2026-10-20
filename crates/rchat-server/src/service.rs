@@ -649,8 +649,18 @@ impl Server {
         if !members.iter().any(|m| m.user_id == auth.user.user_id) {
             return Err(ServerError::forbidden("not a member of this chat"));
         }
-        if chat.e2e_mode == proto::E2eMode::OlmV1 as i32 {
-            return Err(ServerError::conflict("chat is already in private mode"));
+        // Куда просят перевести чат: в приватный режим или обратно в обычный.
+        let target_mode = if request.enable {
+            proto::E2eMode::OlmV1 as i32
+        } else {
+            proto::E2eMode::Cloud as i32
+        };
+        if chat.e2e_mode == target_mode {
+            return Err(ServerError::conflict(if request.enable {
+                "chat is already in private mode"
+            } else {
+                "chat is already in a regular mode"
+            }));
         }
         // Собеседник — второй участник личного чата.
         let peer = members
@@ -660,7 +670,7 @@ impl Server {
         let now = rchat_proto::now_ms();
         let created = self
             .repo
-            .create_private_mode_request(&chat.chat_id, &auth.user.user_id, now)
+            .create_private_mode_request(&chat.chat_id, &auth.user.user_id, target_mode, now)
             .await?;
         if created {
             // Событие — устройствам собеседника.
@@ -669,6 +679,7 @@ impl Server {
                 &auth.user.user_id,
                 &auth.user.username,
                 &auth.user.display_name,
+                target_mode,
             ))?;
             let devices = self
                 .repo
@@ -780,11 +791,19 @@ impl Server {
         let now = rchat_proto::now_ms();
         let mut switched = false;
         if request.accept {
-            // Для E2E у обоих должны быть ключи устройств.
-            self.require_e2e_for_users(&[auth.user.user_id.clone(), peer.clone()])
-                .await?;
+            let target_mode = existing.target_mode;
+            if target_mode == proto::E2eMode::OlmV1 as i32 {
+                // Для E2E у обоих должны быть ключи устройств.
+                self.require_e2e_for_users(&[auth.user.user_id.clone(), peer.clone()])
+                    .await?;
+            }
             let mut chat_after = Self::chat_after_update(&chat, now);
-            chat_after.e2e_mode = proto::E2eMode::OlmV1 as i32;
+            chat_after.e2e_mode = target_mode;
+            // При возврате в обычный режим нужен ключ чата: берём прежний или
+            // создаём новый (сервер знает его и прочитает новые сообщения).
+            if target_mode == proto::E2eMode::Cloud as i32 && chat.cloud_key.is_empty() {
+                chat_after.cloud_key = cloud_key_for_mode(proto::E2eMode::Cloud)?;
+            }
             let users = self
                 .member_users(&members, std::slice::from_ref(&auth.user))
                 .await?;
@@ -794,20 +813,29 @@ impl Server {
                 self.chat_updated_fanout(&chat_proto, &targets, now).await?;
             let seqs = self
                 .repo
-                .set_chat_private_mode(&chat.chat_id, proto::E2eMode::OlmV1 as i32, &events, now)
+                .set_chat_private_mode(
+                    &chat.chat_id,
+                    target_mode,
+                    &chat_after.cloud_key,
+                    &events,
+                    now,
+                )
                 .await?;
             self.push_chat_events(&devices, &payload, &seqs);
             switched = true;
         }
         self.repo.delete_private_mode_request(&chat.chat_id).await?;
 
-        // Запросившему — итог: принято или отклонено.
+        // Итог — обеим сторонам: у заявителя карточка должна показать
+        // результат, а у принявшего — подтверждение (события приходят
+        // в порядке отправки, поэтому итог не затрётся «ожиданием»).
         let payload =
             p::encode_event_payload(p::private_mode_resolved_event(&chat.chat_id, switched))?;
-        let devices = self
-            .repo
-            .devices_for_users(std::slice::from_ref(&existing.requester_user_id), false)
-            .await?;
+        let participants: Vec<String> = vec![
+            existing.requester_user_id.clone(),
+            auth.user.user_id.clone(),
+        ];
+        let devices = self.repo.devices_for_users(&participants, false).await?;
         let events: Vec<NewSyncEvent> = devices
             .iter()
             .map(|device| NewSyncEvent {

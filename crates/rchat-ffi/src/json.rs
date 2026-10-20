@@ -306,6 +306,7 @@ pub(crate) fn event(event: &UiEvent) -> Value {
             requester_user_id,
             requester_username,
             requester_display_name,
+            target_mode,
         } => (
             "private_mode_requested",
             json!({
@@ -313,6 +314,7 @@ pub(crate) fn event(event: &UiEvent) -> Value {
                 "requester_user_id": requester_user_id,
                 "requester_username": requester_username,
                 "requester_display_name": requester_display_name,
+                "target_mode": target_mode,
             }),
         ),
         UiEvent::PrivateModeCancelled { chat_id } => {

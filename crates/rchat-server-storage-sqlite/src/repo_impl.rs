@@ -754,6 +754,7 @@ impl Repo for SqliteRepo {
         &self,
         chat_id: &str,
         requester_user_id: &str,
+        target_mode: i32,
         now_ms: u64,
     ) -> Result<bool, RepoError> {
         let chat_id = chat_id.to_string();
@@ -771,9 +772,9 @@ impl Repo for SqliteRepo {
                 return Ok(existing == requester_user_id);
             }
             conn.execute(
-                "INSERT INTO private_mode_requests(chat_id, requester_user_id, created_at_ms)
-                 VALUES(?1, ?2, ?3)",
-                params![chat_id, requester_user_id, now_ms as i64],
+                "INSERT INTO private_mode_requests(chat_id, requester_user_id, target_mode, created_at_ms)
+                 VALUES(?1, ?2, ?3, ?4)",
+                params![chat_id, requester_user_id, target_mode, now_ms as i64],
             )
             .map_err(|e| map_sql("create private mode request", e))?;
             Ok(true)
@@ -789,14 +790,15 @@ impl Repo for SqliteRepo {
         self.call(move |conn| {
             let row: Option<PrivateModeRequest> = conn
                 .query_row(
-                    "SELECT chat_id, requester_user_id, created_at_ms
+                    "SELECT chat_id, requester_user_id, target_mode, created_at_ms
                      FROM private_mode_requests WHERE chat_id = ?1",
                     params![chat_id],
                     |row| {
                         Ok(PrivateModeRequest {
                             chat_id: row.get(0)?,
                             requester_user_id: row.get(1)?,
-                            created_at_ms: row.get::<_, i64>(2)? as u64,
+                            target_mode: row.get::<_, i64>(2)? as i32,
+                            created_at_ms: row.get::<_, i64>(3)? as u64,
                         })
                     },
                 )
@@ -823,10 +825,12 @@ impl Repo for SqliteRepo {
         &self,
         chat_id: &str,
         e2e_mode: i32,
+        cloud_key: &[u8],
         events: &[NewSyncEvent],
         now_ms: u64,
     ) -> Result<Vec<(String, u64)>, RepoError> {
         let chat_id = chat_id.to_string();
+        let cloud_key = cloud_key.to_vec();
         let events = events.to_vec();
         self.call(move |conn| {
             let tx = conn
@@ -834,9 +838,10 @@ impl Repo for SqliteRepo {
                 .map_err(|e| RepoError::internal(format!("begin set_chat_private_mode: {e}")))?;
             let changed = tx
                 .execute(
-                    "UPDATE chats SET e2e_mode = ?2, updated_at_ms = MAX(updated_at_ms, ?3)
+                    "UPDATE chats SET e2e_mode = ?2, cloud_key = ?3,
+                         updated_at_ms = MAX(updated_at_ms, ?4)
                      WHERE chat_id = ?1",
-                    params![chat_id, e2e_mode, now_ms as i64],
+                    params![chat_id, e2e_mode, cloud_key, now_ms as i64],
                 )
                 .map_err(|e| map_sql("set chat private mode", e))?;
             if changed == 0 {

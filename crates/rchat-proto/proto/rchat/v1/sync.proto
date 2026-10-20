@@ -85,6 +85,8 @@ message PrivateModeRequestedEvent {
   string requester_user_id = 2;
   string requester_username = 3;
   string requester_display_name = 4;
+  // К какому режиму просят перевести чат (значение E2eMode).
+  int32 target_mode = 5;
 }
 
 // Запрос отозван.

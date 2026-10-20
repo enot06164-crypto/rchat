@@ -87,6 +87,16 @@ with RChatClient(
 `invalid_request: already authenticated` — так же, как одноимённая команда
 FFI.
 
+Смена режима личного чата делается по обоюдному согласию и оформляется
+карточкой в чате:
+
+```python
+client.send_private_mode_request(chat.chat_id)                # предложить приватный режим
+client.send_private_mode_request(chat.chat_id, enable=False)  # предложить вернуть обычный
+client.resolve_private_mode(chat.chat_id, accept=True)       # принять или отклонить
+client.cancel_private_mode(chat.chat_id)                     # отозвать свой запрос
+```
+
 ### События
 
 ```python

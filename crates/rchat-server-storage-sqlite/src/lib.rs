@@ -22,7 +22,7 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 9;
+pub const SCHEMA_VERSION: u32 = 10;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
@@ -432,6 +432,14 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         r#"
     -- Содержимое блобов переносится на диск: в БД остаются метаданные.
     ALTER TABLE blobs ADD COLUMN path TEXT NOT NULL DEFAULT '';
+    "#,
+    ),
+    (
+        10,
+        r#"
+    -- Запрос на переключение режима чата: target_mode — к чему просят
+    -- перевести (2 — приватный E2E, 3 — обычный облачный).
+    ALTER TABLE private_mode_requests ADD COLUMN target_mode INTEGER NOT NULL DEFAULT 2;
     "#,
     ),
 ];

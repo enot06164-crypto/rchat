@@ -358,9 +358,10 @@ export function chatApiFor(profile: string) {
   requestPrivateMode: (chatId: string) =>
     connection.call<{ pending: boolean }>("request_private_mode", { chat_id: chatId }),
   /** Запрос-сообщение в чат: карточка «Запрос на приватный режим». */
-  sendPrivateModeRequest: (chatId: string) =>
+  sendPrivateModeRequest: (chatId: string, enable = true) =>
     connection.call<{ local_id: string }>("send_private_mode_request", {
       chat_id: chatId,
+      enable,
     }),
   /** Отзыв собственного запроса на приватный режим. */
   cancelPrivateMode: (chatId: string) =>

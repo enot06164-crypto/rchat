@@ -70,7 +70,7 @@ async fn private_mode_request_switches_chat_to_e2e() {
     // Алиса просит перевести чат в приватный режим: в чат уходит карточка
     // запроса, сервер регистрирует запрос.
     let local_id = alice
-        .send_private_mode_request(&chat.chat_id)
+        .send_private_mode_request(&chat.chat_id, true)
         .await
         .expect("request private mode");
     assert!(!local_id.is_empty(), "карточка запроса должна уйти в чат");
@@ -120,4 +120,130 @@ async fn private_mode_request_switches_chat_to_e2e() {
     // копий) и само текстовое сообщение (уже E2E).
     assert_eq!(messages, 2, "на сервере карточка запроса и текст");
     assert_eq!(recipients, 1, "шифротекст — для устройства Bob");
+}
+
+/// Обратное предложение: приватный режим можно вернуть в обычный.
+///
+/// Чат снова становится облачным — новые сообщения сервер читает, а старая
+/// переписка остаётся зашифрованной (как секретный чат в Telegram).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_mode_can_be_switched_back_to_cloud() {
+    let harness = start_server().await;
+    let root = tempfile::tempdir().expect("tempdir");
+    let alice_dir = root.path().join("alice");
+    let bob_dir = root.path().join("bob");
+
+    let (alice, alice_storage) = build_client(&alice_dir, harness.port(), "alice-dev");
+    alice.start().await.expect("start alice");
+    register_user(&alice, "alice", "Alice", PASSWORD_ALICE).await;
+
+    let (bob, _bob_storage) = build_client(&bob_dir, harness.port(), "bob-dev");
+    bob.start().await.expect("start bob");
+    register_user(&bob, "bob", "Bob", PASSWORD_BOB).await;
+
+    let chat = alice
+        .create_direct_chat("bob", ChatMode::Cloud)
+        .await
+        .expect("create chat");
+    assert_eq!(chat.e2e_mode, proto::E2eMode::Cloud);
+
+    let mut alice_events = alice.subscribe();
+    let mut bob_events = bob.subscribe();
+
+    // Сначала включаем приватный режим.
+    alice
+        .send_private_mode_request(&chat.chat_id, true)
+        .await
+        .expect("request private mode");
+    assert!(
+        wait_private_mode_event(&mut bob_events, PrivateModeEvent::Requested).await,
+        "собеседник должен получить предложение приватного режима"
+    );
+    assert!(
+        bob.resolve_private_mode(&chat.chat_id, true)
+            .await
+            .expect("resolve private mode"),
+        "чат должен перейти в приватный режим"
+    );
+    assert!(
+        wait_private_mode_event(&mut alice_events, PrivateModeEvent::Resolved).await,
+        "запросившему должно прийти разрешение"
+    );
+
+    // Секрет в приватном режиме сервер не читает и по поиску не находит.
+    let secret = "секрет приватного режима";
+    let local_id = alice
+        .send_text(&chat.chat_id, secret, None)
+        .await
+        .expect("send secret");
+    wait_sent(&alice_storage, &local_id).await;
+    wait_for_body(&bob, &chat.chat_id, secret).await;
+    let hits = alice
+        .search_messages("секрет приватного", 10)
+        .await
+        .expect("search messages");
+    assert!(
+        hits.is_empty(),
+        "сервер не должен находить содержимое приватного чата"
+    );
+
+    // Теперь предлагаем вернуть обычный режим.
+    let local_id = alice
+        .send_private_mode_request(&chat.chat_id, false)
+        .await
+        .expect("request to disable private mode");
+    assert!(
+        !local_id.is_empty(),
+        "карточка отключения должна уйти в чат"
+    );
+    assert!(
+        wait_private_mode_event(&mut bob_events, PrivateModeEvent::Requested).await,
+        "собеседник должен получить предложение отключить режим"
+    );
+    assert!(
+        bob.resolve_private_mode(&chat.chat_id, true)
+            .await
+            .expect("resolve private mode"),
+        "чат должен вернуться в обычный режим"
+    );
+    assert!(
+        wait_private_mode_event(&mut alice_events, PrivateModeEvent::Resolved).await,
+        "запросившему должно прийти разрешение"
+    );
+
+    // Чат снова облачный, ключ чата на месте.
+    bob.sync_now().await.expect("sync bob");
+    let bob_chats = bob.list_chats().await.expect("list chats");
+    let updated = bob_chats
+        .iter()
+        .find(|c| c.chat_id == chat.chat_id)
+        .expect("chat");
+    assert_eq!(updated.e2e_mode, proto::E2eMode::Cloud);
+    assert_eq!(updated.cloud_key.len(), 32, "у чата снова есть ключ");
+
+    // Новое сообщение сервер читает, а старая переписка осталась
+    // зашифрованной.
+    let open = "сообщение в обычном режиме";
+    let local_id = alice
+        .send_text(&chat.chat_id, open, None)
+        .await
+        .expect("send open message");
+    wait_sent(&alice_storage, &local_id).await;
+    wait_for_body(&bob, &chat.chat_id, open).await;
+
+    let hits = alice
+        .search_messages("сообщение в обычном", 10)
+        .await
+        .expect("search messages");
+    assert_eq!(hits.len(), 1, "сервер должен находить новое сообщение");
+    assert_eq!(hits[0].body, open);
+
+    let hits = alice
+        .search_messages("секрет приватного", 10)
+        .await
+        .expect("search messages");
+    assert!(
+        hits.is_empty(),
+        "старая переписка должна остаться зашифрованной"
+    );
 }

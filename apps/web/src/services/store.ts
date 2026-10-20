@@ -1,3 +1,6 @@
+/** Числовое значение облачного режима чата из протокола (`E2eMode`). */
+const E2E_MODE_CLOUD = 3;
+
 /**
  * Реактивное хранилище SolidJS (createStore) и все действия приложения.
  *
@@ -71,6 +74,8 @@ export interface AccountState {
     string,
     {
       requester_user_id: string;
+      /** К чему просят перевести чат: `true` — включить приватный режим. */
+      enable: boolean;
       status: "pending" | "accepted" | "declined" | "cancelled";
     }
   >;
@@ -711,9 +716,13 @@ export function applyEvent(profile: string, event: RchatEvent): void {
       return;
     }
     case "private_mode_requested": {
-      // Собеседник предлагает включить приватный режим: запоминаем запрос,
+      // Собеседник предлагает сменить режим чата: запоминаем запрос,
       // карточка в чате покажет кнопки «Принять» / «Отклонить».
-      const data = event.data as { chat_id: string; requester_user_id: string };
+      const data = event.data as {
+        chat_id: string;
+        requester_user_id: string;
+        target_mode?: number;
+      };
       setState(
         "accounts",
         profile,
@@ -721,6 +730,8 @@ export function applyEvent(profile: string, event: RchatEvent): void {
         data.chat_id,
         {
           requester_user_id: data.requester_user_id,
+          // `olm_v1` — включение приватного режима, иначе возврат в обычный.
+          enable: data.target_mode !== E2E_MODE_CLOUD,
           status: "pending",
         }
       );
@@ -1124,12 +1135,13 @@ export async function retryHistory(
  */
 export async function requestPrivateMode(
   profile: string,
-  chatId: string
+  chatId: string,
+  enable = true
 ): Promise<void> {
   try {
     // Запрос уходит в чат служебным сообщением-карточкой и регистрируется
     // на сервере (собеседнику придёт событие).
-    await chatApiFor(profile).sendPrivateModeRequest(chatId);
+    await chatApiFor(profile).sendPrivateModeRequest(chatId, enable);
     const me = accountState(profile).session?.user_id;
     setState(
       "accounts",
@@ -1137,8 +1149,8 @@ export async function requestPrivateMode(
       "privateModeRequests",
       chatId,
       me === undefined
-        ? { requester_user_id: "", status: "pending" }
-        : { requester_user_id: me, status: "pending" }
+        ? { requester_user_id: "", enable, status: "pending" }
+        : { requester_user_id: me, enable, status: "pending" }
     );
   } catch (error) {
     setNotice(

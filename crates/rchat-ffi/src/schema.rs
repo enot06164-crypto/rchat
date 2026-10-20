@@ -878,6 +878,8 @@ pub struct PrivateModeRequestedData {
     pub requester_user_id: String,
     pub requester_username: String,
     pub requester_display_name: String,
+    /// К какому режиму просят перевести чат (значение `E2eMode`).
+    pub target_mode: Option<i32>,
 }
 
 /// `data` события `private_mode_cancelled`.

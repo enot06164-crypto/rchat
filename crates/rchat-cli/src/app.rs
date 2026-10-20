@@ -774,10 +774,18 @@ fn print_event(event: &UiEvent) {
             chat_id,
             requester_username,
             requester_display_name,
+            target_mode,
             ..
-        } => println!(
-            "[приватный режим] {requester_display_name} (@{requester_username}) предлагает включить E2E в чате {chat_id}"
-        ),
+        } => {
+            let what = if *target_mode == rchat_proto::E2eMode::Cloud as i32 {
+                "отключить приватный режим"
+            } else {
+                "включить приватный режим (E2E)"
+            };
+            println!(
+                "[приватный режим] {requester_display_name} (@{requester_username}) предлагает {what} в чате {chat_id}"
+            );
+        }
         UiEvent::PrivateModeCancelled { chat_id } => {
             println!("[приватный режим] запрос в чате {chat_id} отозван")
         }

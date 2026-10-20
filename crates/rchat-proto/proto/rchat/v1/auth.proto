@@ -115,9 +115,12 @@ message SearchUsersResponse {
   repeated UserInfo users = 1;
 }
 
-// Запрос собеседнику перевести личный чат в приватный режим (E2E).
+// Запрос собеседнику перевести личный чат в приватный режим (E2E) или
+// вернуть его в обычный (облачный).
 message RequestPrivateModeRequest {
   string chat_id = 1;
+  // `true` — включить приватный режим, `false` — выключить его.
+  bool enable = 2;
 }
 
 message RequestPrivateModeResponse {

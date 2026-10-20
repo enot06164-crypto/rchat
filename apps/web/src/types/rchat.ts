@@ -216,6 +216,8 @@ export type RchatEvent =
         requester_user_id: string;
         requester_username: string;
         requester_display_name: string;
+        /** К какому режиму просят перевести чат (значение `E2eMode`). */
+        target_mode?: number;
       };
     }
   | { event: "private_mode_cancelled"; data: { chat_id: string } }

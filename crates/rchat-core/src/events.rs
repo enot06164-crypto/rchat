@@ -62,12 +62,14 @@ pub enum UiEvent {
         server_id: u64,
         device_id: String,
     },
-    /// Собеседник предлагает перевести личный чат в приватный режим (E2E).
+    /// Собеседник предлагает сменить режим личного чата: в приватный (E2E)
+    /// или обратно в обычный. `target_mode` — к чему просят перевести.
     PrivateModeRequested {
         chat_id: String,
         requester_user_id: String,
         requester_username: String,
         requester_display_name: String,
+        target_mode: i32,
     },
     /// Запрос на приватный режим отозван тем, кто его отправил.
     PrivateModeCancelled {
