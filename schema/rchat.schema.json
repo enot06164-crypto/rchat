@@ -777,6 +777,68 @@
           }
         },
         {
+          "description": "Просить собеседника перевести личный чат в приватный режим (E2E).",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "request_private_mode"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Отозвать собственный запрос на приватный режим.",
+          "type": "object",
+          "required": [
+            "@type",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "cancel_private_mode"
+              ]
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Ответить на запрос: принять (перевести чат в E2E) или отклонить.",
+          "type": "object",
+          "required": [
+            "@type",
+            "accept",
+            "chat_id"
+          ],
+          "properties": {
+            "@type": {
+              "type": "string",
+              "enum": [
+                "resolve_private_mode"
+              ]
+            },
+            "accept": {
+              "description": "`true` — принять, `false` — отклонить.",
+              "type": "boolean"
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
           "description": "Поиск пользователей по префиксу username (для выбора собеседника).",
           "type": "object",
           "required": [
@@ -2267,6 +2329,32 @@
         "receipt_updated"
       ]
     },
+    "RequestPrivateModeData": {
+      "description": "Ответ `request_private_mode`.",
+      "type": "object",
+      "required": [
+        "pending"
+      ],
+      "properties": {
+        "pending": {
+          "description": "`true` — запрос отправлен и ждёт подтверждения.",
+          "type": "boolean"
+        }
+      }
+    },
+    "ResolvePrivateModeData": {
+      "description": "Ответ `resolve_private_mode`.",
+      "type": "object",
+      "required": [
+        "switched"
+      ],
+      "properties": {
+        "switched": {
+          "description": "`true` — чат переведён в приватный режим.",
+          "type": "boolean"
+        }
+      }
+    },
     "ResponseData": {
       "description": "Общий тип `data` успешного ответа.",
       "anyOf": [
@@ -2302,6 +2390,12 @@
         },
         {
           "$ref": "#/definitions/SearchUsersData"
+        },
+        {
+          "$ref": "#/definitions/RequestPrivateModeData"
+        },
+        {
+          "$ref": "#/definitions/ResolvePrivateModeData"
         },
         {
           "$ref": "#/definitions/Chat"

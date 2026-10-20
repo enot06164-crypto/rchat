@@ -770,6 +770,25 @@ fn print_event(event: &UiEvent) {
         } => println!(
             "[E2E] не удалось расшифровать #{server_id} в {chat_id} (устройство {device_id})"
         ),
+        UiEvent::PrivateModeRequested {
+            chat_id,
+            requester_username,
+            requester_display_name,
+            ..
+        } => println!(
+            "[приватный режим] {requester_display_name} (@{requester_username}) предлагает включить E2E в чате {chat_id}"
+        ),
+        UiEvent::PrivateModeCancelled { chat_id } => {
+            println!("[приватный режим] запрос в чате {chat_id} отозван")
+        }
+        UiEvent::PrivateModeResolved { chat_id, accepted } => println!(
+            "[приватный режим] запрос в чате {chat_id} {}",
+            if *accepted {
+                "принят — чат переведён в E2E"
+            } else {
+                "отклонён"
+            }
+        ),
         UiEvent::Warning(text) => println!("[предупреждение] {text}"),
     }
 }

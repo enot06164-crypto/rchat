@@ -194,6 +194,18 @@ impl Server {
                 let auth = self.authed(state)?;
                 self.handle_search_users(&auth, request).await?
             }
+            M::RequestPrivateMode(request) => {
+                let auth = self.authed(state)?;
+                self.handle_request_private_mode(&auth, request).await?
+            }
+            M::CancelPrivateMode(request) => {
+                let auth = self.authed(state)?;
+                self.handle_cancel_private_mode(&auth, request).await?
+            }
+            M::ResolvePrivateMode(request) => {
+                let auth = self.authed(state)?;
+                self.handle_resolve_private_mode(&auth, request).await?
+            }
             M::SetCloudAccountKey(request) => {
                 let auth = self.authed(state)?;
                 self.handle_set_cloud_account_key(&auth, request).await?
@@ -609,6 +621,207 @@ impl Server {
             .await?;
         Ok(response::Result::SetCloudAccountKey(
             proto::SetCloudAccountKeyResponse { key },
+        ))
+    }
+
+    /// Запрос собеседнику перевести личный чат в приватный режим (E2E).
+    ///
+    /// Запрос может отправить только участник личного чата, и только если чат
+    /// сейчас облачный.  Дальше решает собеседник: принять (чат переводится в
+    /// E2E) или отклонить.
+    async fn handle_request_private_mode(
+        &self,
+        auth: &AuthContext,
+        request: proto::RequestPrivateModeRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if chat.kind != proto::ChatKind::Direct as i32 {
+            return Err(ServerError::invalid_request(
+                "private mode request applies to direct chats only",
+            ));
+        }
+        if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+            return Err(ServerError::forbidden("not a member of this chat"));
+        }
+        if chat.e2e_mode == proto::E2eMode::OlmV1 as i32 {
+            return Err(ServerError::conflict("chat is already in private mode"));
+        }
+        // Собеседник — второй участник личного чата.
+        let peer = members
+            .iter()
+            .find(|m| m.user_id != auth.user.user_id)
+            .ok_or_else(|| ServerError::invalid_request("chat has no peer"))?;
+        let now = rchat_proto::now_ms();
+        let created = self
+            .repo
+            .create_private_mode_request(&chat.chat_id, &auth.user.user_id, now)
+            .await?;
+        if created {
+            // Событие — устройствам собеседника.
+            let payload = p::encode_event_payload(p::private_mode_requested_event(
+                &chat.chat_id,
+                &auth.user.user_id,
+                &auth.user.username,
+                &auth.user.display_name,
+            ))?;
+            let devices = self
+                .repo
+                .devices_for_users(std::slice::from_ref(&peer.user_id), false)
+                .await?;
+            let events: Vec<NewSyncEvent> = devices
+                .iter()
+                .map(|device| NewSyncEvent {
+                    device_id: device.device_id.clone(),
+                    kind_hint: 17,
+                    payload: payload.clone(),
+                    created_at_ms: now,
+                })
+                .collect();
+            let seqs = self.repo.append_sync_events(&events).await?;
+            self.push_chat_events(&devices, &payload, &seqs);
+        }
+        Ok(response::Result::RequestPrivateMode(
+            proto::RequestPrivateModeResponse { pending: true },
+        ))
+    }
+
+    /// Отзыв собственного запроса на приватный режим.
+    async fn handle_cancel_private_mode(
+        &self,
+        auth: &AuthContext,
+        request: proto::CancelPrivateModeRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+            return Err(ServerError::forbidden("not a member of this chat"));
+        }
+        let Some(existing) = self.repo.private_mode_request(&chat.chat_id).await? else {
+            return Ok(response::Result::CancelPrivateMode(
+                proto::CancelPrivateModeResponse {},
+            ));
+        };
+        if existing.requester_user_id != auth.user.user_id {
+            return Err(ServerError::forbidden("only the requester can cancel"));
+        }
+        self.repo.delete_private_mode_request(&chat.chat_id).await?;
+        // Собеседнику — событие об отзыве.
+        let peer = members
+            .iter()
+            .find(|m| m.user_id != auth.user.user_id)
+            .map(|m| m.user_id.clone())
+            .ok_or_else(|| ServerError::invalid_request("chat has no peer"))?;
+        let now = rchat_proto::now_ms();
+        let payload = p::encode_event_payload(p::private_mode_cancelled_event(
+            &chat.chat_id,
+            &auth.user.user_id,
+        ))?;
+        let devices = self
+            .repo
+            .devices_for_users(std::slice::from_ref(&peer), false)
+            .await?;
+        let events: Vec<NewSyncEvent> = devices
+            .iter()
+            .map(|device| NewSyncEvent {
+                device_id: device.device_id.clone(),
+                kind_hint: 18,
+                payload: payload.clone(),
+                created_at_ms: now,
+            })
+            .collect();
+        let seqs = self.repo.append_sync_events(&events).await?;
+        self.push_chat_events(&devices, &payload, &seqs);
+        Ok(response::Result::CancelPrivateMode(
+            proto::CancelPrivateModeResponse {},
+        ))
+    }
+
+    /// Ответ на запрос: принять (чат переводится в E2E) или отклонить.
+    async fn handle_resolve_private_mode(
+        &self,
+        auth: &AuthContext,
+        request: proto::ResolvePrivateModeRequest,
+    ) -> Result<response::Result, ServerError> {
+        rchat_proto::validate::chat_id(&request.chat_id)
+            .map_err(|e| ServerError::invalid_request(e.to_string()))?;
+        let (chat, members) = self
+            .repo
+            .get_chat(&request.chat_id)
+            .await?
+            .ok_or_else(|| ServerError::not_found("chat not found"))?;
+        if !members.iter().any(|m| m.user_id == auth.user.user_id) {
+            return Err(ServerError::forbidden("not a member of this chat"));
+        }
+        let Some(existing) = self.repo.private_mode_request(&chat.chat_id).await? else {
+            return Err(ServerError::not_found("no pending private mode request"));
+        };
+        if existing.requester_user_id == auth.user.user_id {
+            return Err(ServerError::invalid_request(
+                "the requester cannot resolve their own request",
+            ));
+        }
+        let peer = members
+            .iter()
+            .find(|m| m.user_id != auth.user.user_id)
+            .map(|m| m.user_id.clone())
+            .ok_or_else(|| ServerError::invalid_request("chat has no peer"))?;
+
+        let now = rchat_proto::now_ms();
+        let mut switched = false;
+        if request.accept {
+            // Для E2E у обоих должны быть ключи устройств.
+            self.require_e2e_for_users(&[auth.user.user_id.clone(), peer.clone()])
+                .await?;
+            let mut chat_after = Self::chat_after_update(&chat, now);
+            chat_after.e2e_mode = proto::E2eMode::OlmV1 as i32;
+            let users = self
+                .member_users(&members, std::slice::from_ref(&auth.user))
+                .await?;
+            let chat_proto = p::chat_to_proto(&chat_after, &members, &users);
+            let targets: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+            let (events, devices, payload) =
+                self.chat_updated_fanout(&chat_proto, &targets, now).await?;
+            let seqs = self
+                .repo
+                .set_chat_private_mode(&chat.chat_id, proto::E2eMode::OlmV1 as i32, &events, now)
+                .await?;
+            self.push_chat_events(&devices, &payload, &seqs);
+            switched = true;
+        }
+        self.repo.delete_private_mode_request(&chat.chat_id).await?;
+
+        // Запросившему — итог: принято или отклонено.
+        let payload =
+            p::encode_event_payload(p::private_mode_resolved_event(&chat.chat_id, switched))?;
+        let devices = self
+            .repo
+            .devices_for_users(std::slice::from_ref(&existing.requester_user_id), false)
+            .await?;
+        let events: Vec<NewSyncEvent> = devices
+            .iter()
+            .map(|device| NewSyncEvent {
+                device_id: device.device_id.clone(),
+                kind_hint: 19,
+                payload: payload.clone(),
+                created_at_ms: now,
+            })
+            .collect();
+        let seqs = self.repo.append_sync_events(&events).await?;
+        self.push_chat_events(&devices, &payload, &seqs);
+
+        Ok(response::Result::ResolvePrivateMode(
+            proto::ResolvePrivateModeResponse { switched },
         ))
     }
 

@@ -1,11 +1,22 @@
 import { Show, createMemo, createSignal } from "solid-js";
-import { Phone, Search, EllipsisVertical, PanelRight } from "lucide-solid";
-import { accountState, retryHistory } from "../../services/store";
+import {
+  EllipsisVertical,
+  Lock,
+  PanelRight,
+  Phone,
+  Search,
+} from "lucide-solid";
+import {
+  accountState,
+  requestPrivateMode,
+  retryHistory,
+} from "../../services/store";
 import { Notice } from "../common/Notice";
 import { Avatar } from "../Avatar";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { InfoDrawer } from "./InfoDrawer";
+import { PrivateModeWaiting } from "./PrivateModeDialogs";
 
 /**
  * Центральная область (`#column-center` + `#column-right` из Telegram WebK):
@@ -23,6 +34,12 @@ export function ChatView(props: { profile: string }) {
     () => acc().chats.find((c) => c.chat_id === acc().activeChatId) ?? null
   );
   const [infoOpen, setInfoOpen] = createSignal(false);
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  // Приватный режим предлагаем только в личном чате, который ещё не в E2E.
+  const canRequestPrivateMode = (): boolean => {
+    const current = chat();
+    return current !== null && current.kind === "direct" && current.e2e_mode !== "olm_v1";
+  };
 
   const isOnline = () => {
     const current = chat();
@@ -118,13 +135,40 @@ export function ChatView(props: { profile: string }) {
                   >
                     <PanelRight size={20} />
                   </button>
-                  <button
-                    class="icon-button"
-                    title="Ещё (скоро)"
-                    aria-label="Ещё"
-                  >
-                    <EllipsisVertical size={20} />
-                  </button>
+                  <div class="chat-menu">
+                    <button
+                      class="icon-button"
+                      title="Ещё"
+                      aria-label="Ещё"
+                      onClick={() => setMenuOpen((open) => !open)}
+                    >
+                      <EllipsisVertical size={20} />
+                    </button>
+                    <Show when={menuOpen()}>
+                      <div class="chat-menu__popover" role="menu">
+                        <Show
+                          when={canRequestPrivateMode()}
+                          fallback={
+                            <div class="chat-menu__item chat-menu__item--muted">
+                              Чат уже в приватном режиме
+                            </div>
+                          }
+                        >
+                          <button
+                            role="menuitem"
+                            class="chat-menu__item"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              void requestPrivateMode(props.profile, current.chat_id);
+                            }}
+                          >
+                            <Lock size={16} />
+                            <span>Запросить приватный режим</span>
+                          </button>
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
                 </div>
               </header>
 
@@ -149,6 +193,10 @@ export function ChatView(props: { profile: string }) {
             open={infoOpen()}
             onClose={() => setInfoOpen(false)}
           />
+          <Show when={acc().privateModeRequested}>
+            <PrivateModeWaiting profile={props.profile} chatId={current.chat_id} />
+          </Show>
+
         </section>
       )}
     </Show>

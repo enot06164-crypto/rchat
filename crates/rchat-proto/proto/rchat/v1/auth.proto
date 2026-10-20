@@ -115,6 +115,34 @@ message SearchUsersResponse {
   repeated UserInfo users = 1;
 }
 
+// Запрос собеседнику перевести личный чат в приватный режим (E2E).
+message RequestPrivateModeRequest {
+  string chat_id = 1;
+}
+
+message RequestPrivateModeResponse {
+  // `true` — запрос уже отправлен и ждёт подтверждения.
+  bool pending = 1;
+}
+
+// Отзыв собственного запроса.
+message CancelPrivateModeRequest {
+  string chat_id = 1;
+}
+
+message CancelPrivateModeResponse {}
+
+// Ответ на запрос: принять (перевести чат в E2E) или отклонить.
+message ResolvePrivateModeRequest {
+  string chat_id = 1;
+  bool accept = 2;
+}
+
+message ResolvePrivateModeResponse {
+  // `true` — чат переведён в приватный режим.
+  bool switched = 1;
+}
+
 message RevokeDeviceRequest {
   string device_id = 1;
 }

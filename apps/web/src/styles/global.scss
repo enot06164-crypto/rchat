@@ -1904,6 +1904,103 @@ textarea {
   }
 }
 
+/* Меню чата (кнопка «⋮» в шапке) */
+.chat-menu {
+  position: relative;
+
+  &__popover {
+    position: absolute;
+    top: 40px;
+    right: 0;
+    z-index: 30;
+    min-width: 240px;
+    padding: 6px;
+    border-radius: $radius-panel;
+    background: $bg-menu;
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    box-shadow: $shadow-menu;
+    animation: menu-pop 0.18s $ease-standard;
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 8px;
+    color: $text-primary;
+    font-size: 14px;
+    text-align: left;
+    transition: background-color $transition-fast;
+
+    svg {
+      flex: none;
+      color: $text-secondary;
+    }
+
+    &:hover {
+      background: $bg-surface-hover;
+    }
+
+    &--muted {
+      color: $text-secondary;
+      font-size: 13px;
+      cursor: default;
+    }
+  }
+}
+
+/* Окна приватного режима: запрос и входящее предложение */
+.private-mode {
+  width: 380px;
+  text-align: center;
+
+  &__lock,
+  &__shield {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    margin: 4px auto 14px;
+    border-radius: 50%;
+    background: rgba($accent-purple, 0.16);
+    color: $accent-purple;
+    box-shadow: 0 0 24px rgba($accent-purple, 0.45);
+  }
+
+  &__hint {
+    margin: 10px 0 16px;
+    color: $text-secondary;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  &__status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px;
+    border-radius: $radius-panel;
+    background: $bg-surface-hover;
+    color: $text-primary;
+    font-size: 13px;
+  }
+
+  &__spinner {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: $accent-purple;
+    animation: spin 0.9s linear infinite;
+  }
+}
+
 /* Список найденных пользователей (поиск по username) */
 .user-list {
   max-height: 220px;

@@ -533,6 +533,37 @@ impl Ctx<'_> {
                 }
                 Ok(apply)
             }
+            Some(Payload::PrivateModeRequested(inner)) => {
+                self.inner.emit(UiEvent::PrivateModeRequested {
+                    chat_id: inner.chat_id.clone(),
+                    requester_user_id: inner.requester_user_id.clone(),
+                    requester_username: inner.requester_username.clone(),
+                    requester_display_name: inner.requester_display_name.clone(),
+                });
+                Ok(SyncApply::Skip {
+                    seq: event.seq,
+                    kind_hint: event.kind_hint,
+                })
+            }
+            Some(Payload::PrivateModeCancelled(inner)) => {
+                self.inner.emit(UiEvent::PrivateModeCancelled {
+                    chat_id: inner.chat_id.clone(),
+                });
+                Ok(SyncApply::Skip {
+                    seq: event.seq,
+                    kind_hint: event.kind_hint,
+                })
+            }
+            Some(Payload::PrivateModeResolved(inner)) => {
+                self.inner.emit(UiEvent::PrivateModeResolved {
+                    chat_id: inner.chat_id.clone(),
+                    accepted: inner.accepted,
+                });
+                Ok(SyncApply::Skip {
+                    seq: event.seq,
+                    kind_hint: event.kind_hint,
+                })
+            }
             Some(Payload::Receipt(inner)) => {
                 let delivered = inner.up_to_server_id;
                 let read = if inner.read { inner.up_to_server_id } else { 0 };

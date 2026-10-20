@@ -170,6 +170,35 @@ pub fn chat_updated_event(chat: proto::Chat) -> sync_event::Payload {
     sync_event::Payload::ChatUpdated(proto::ChatUpdatedEvent { chat: Some(chat) })
 }
 
+/// События запроса на приватный режим.
+pub fn private_mode_requested_event(
+    chat_id: &str,
+    requester_user_id: &str,
+    requester_username: &str,
+    requester_display_name: &str,
+) -> sync_event::Payload {
+    sync_event::Payload::PrivateModeRequested(proto::PrivateModeRequestedEvent {
+        chat_id: chat_id.to_string(),
+        requester_user_id: requester_user_id.to_string(),
+        requester_username: requester_username.to_string(),
+        requester_display_name: requester_display_name.to_string(),
+    })
+}
+
+pub fn private_mode_cancelled_event(chat_id: &str, requester_user_id: &str) -> sync_event::Payload {
+    sync_event::Payload::PrivateModeCancelled(proto::PrivateModeCancelledEvent {
+        chat_id: chat_id.to_string(),
+        requester_user_id: requester_user_id.to_string(),
+    })
+}
+
+pub fn private_mode_resolved_event(chat_id: &str, accepted: bool) -> sync_event::Payload {
+    sync_event::Payload::PrivateModeResolved(proto::PrivateModeResolvedEvent {
+        chat_id: chat_id.to_string(),
+        accepted,
+    })
+}
+
 pub fn message_event(message: proto::Message) -> sync_event::Payload {
     sync_event::Payload::Message(proto::MessageEvent {
         message: Some(message),
@@ -212,6 +241,9 @@ pub fn kind_hint(payload: &sync_event::Payload) -> u32 {
         sync_event::Payload::Receipt(_) => 14,
         sync_event::Payload::DeviceChanged(_) => 15,
         sync_event::Payload::ChatUpdated(_) => 16,
+        sync_event::Payload::PrivateModeRequested(_) => 17,
+        sync_event::Payload::PrivateModeCancelled(_) => 18,
+        sync_event::Payload::PrivateModeResolved(_) => 19,
     }
 }
 

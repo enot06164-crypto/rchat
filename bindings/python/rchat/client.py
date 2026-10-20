@@ -376,6 +376,37 @@ class RChatClient:
             raise RChatError("internal", f"invalid retry payload: {data!r}")
         return data
 
+    def request_private_mode(self, chat_id: str) -> Dict[str, Any]:
+        """Просит собеседника перевести личный чат в приватный режим (E2E)."""
+        data = self._command(
+            {"@type": "request_private_mode", "chat_id": str(chat_id)}
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid request payload: {data!r}")
+        return data
+
+    def cancel_private_mode(self, chat_id: str) -> Dict[str, Any]:
+        """Отзывает собственный запрос на приватный режим."""
+        data = self._command(
+            {"@type": "cancel_private_mode", "chat_id": str(chat_id)}
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid cancel payload: {data!r}")
+        return data
+
+    def resolve_private_mode(self, chat_id: str, accept: bool = True) -> Dict[str, Any]:
+        """Отвечает на предложение: принять (чат станет E2E) или отклонить."""
+        data = self._command(
+            {
+                "@type": "resolve_private_mode",
+                "chat_id": str(chat_id),
+                "accept": bool(accept),
+            }
+        )
+        if not isinstance(data, dict):
+            raise RChatError("internal", f"invalid resolve payload: {data!r}")
+        return data
+
     def search_users(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Ищет пользователей по префиксу username (для выбора собеседника)."""
         data = self._command(

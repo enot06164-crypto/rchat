@@ -240,6 +240,9 @@ rchat_destroy(handle);
 | `refresh_chats` | — | массив чатов с сервера (сеть) |
 | `get_chat_members` | `chat_id` | массив участников |
 | `search_users` | `query` (префикс username), `limit?` | `{users: [{user_id, username, display_name, avatar}]}` |
+| `request_private_mode` | `chat_id` | `{pending}` — запрос отправлен и ждёт ответа |
+| `cancel_private_mode` | `chat_id` | `{}` — запрос отозван |
+| `resolve_private_mode` | `chat_id`, `accept` | `{switched}` — чат переведён в E2E |
 | `create_direct_chat` | `peer_username`, `mode?` (`cloud`/`private`/`none`) | чат |
 | `create_group_chat` | `name`, `members?` (usernames), `mode?` | чат |
 | `invite_to_chat` | `chat_id`, `usernames` | чат |
@@ -308,6 +311,14 @@ rchat_destroy(handle);
 - Режим чата принадлежит **чату**: если личный чат уже создан, `create_direct_chat`
   возвращает его как есть, даже если вызывающий просит другой режим (иначе
   собеседники с разными настройками не смогли бы открыть чат друг другу).
+- Запрос приватного режима (`request_private_mode`) предлагает собеседнику
+  перевести **личный** чат в сквозное шифрование: сервер запоминает запрос,
+  собеседник получает событие `private_mode_requested` и решает — принять
+  (`resolve_private_mode` с `accept: true`, чат переводится в E2E) или
+  отклонить.  Запросивший может отозвать запрос
+  (`cancel_private_mode`); итог приходит событием `private_mode_resolved`.
+  Перевод в E2E требует, чтобы у обоих участников были ключи устройств, —
+  иначе сервер отклоняет принятие с `e2e_keys_missing`.
 - `search_messages` ищет по содержимому сообщений. Работает в облачном
   режиме: сервер расшифровывает сообщения ключом чата, а ядро разбирает
   конверт содержимого и отдаёт готовый текст (`body`). Приватные чаты в
@@ -678,6 +689,9 @@ rchat_destroy(handle);
 | `session_ended` | `{reason}` |
 | `message_received` | объект сообщения |
 | `message_updated` | объект сообщения |
+| `private_mode_requested` | `{chat_id, requester_user_id, requester_username, requester_display_name}` |
+| `private_mode_cancelled` | `{chat_id}` |
+| `private_mode_resolved` | `{chat_id, accepted}` |
 | `outbox_changed` | `{local_id, state, error, error_code?}`; `state` — `pending/sending/sent/failed`; `error_code` — код ошибки сервера, если она от сервера |
 | `chat_upserted` | объект чата |
 | `receipt_updated` | объект receipt |

@@ -27,6 +27,12 @@ enum SyncEventKind {
   SYNC_EVENT_KIND_DEVICE_CHANGED = 15;
   // Изменились имя чата и/или состав участников (полный снимок Chat).
   SYNC_EVENT_KIND_CHAT_UPDATED = 16;
+  // Собеседник предлагает перевести личный чат в приватный режим (E2E).
+  SYNC_EVENT_KIND_PRIVATE_MODE_REQUESTED = 17;
+  // Запрос отозван тем, кто его отправил.
+  SYNC_EVENT_KIND_PRIVATE_MODE_CANCELLED = 18;
+  // Запрос разрешён: чат переведён в приватный режим (accepted) или отклонён.
+  SYNC_EVENT_KIND_PRIVATE_MODE_RESOLVED = 19;
 }
 
 message ChatCreatedEvent {
@@ -73,6 +79,27 @@ message ChatUpdatedEvent {
   Chat chat = 1;
 }
 
+// Запрос на переход личного чата в приватный режим (E2E-шифрование).
+message PrivateModeRequestedEvent {
+  string chat_id = 1;
+  string requester_user_id = 2;
+  string requester_username = 3;
+  string requester_display_name = 4;
+}
+
+// Запрос отозван.
+message PrivateModeCancelledEvent {
+  string chat_id = 1;
+  string requester_user_id = 2;
+}
+
+// Запрос разрешён: `accepted` — чат переведён в приватный режим,
+// иначе собеседник отклонил его.
+message PrivateModeResolvedEvent {
+  string chat_id = 1;
+  bool accepted = 2;
+}
+
 message SyncEvent {
   uint64 seq = 1;
   uint32 kind_hint = 2;
@@ -84,6 +111,9 @@ message SyncEvent {
     ReceiptEvent receipt = 14;
     DeviceChangedEvent device_changed = 15;
     ChatUpdatedEvent chat_updated = 16;
+    PrivateModeRequestedEvent private_mode_requested = 17;
+    PrivateModeCancelledEvent private_mode_cancelled = 18;
+    PrivateModeResolvedEvent private_mode_resolved = 19;
   }
 }
 

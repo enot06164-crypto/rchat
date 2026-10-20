@@ -228,6 +228,36 @@ pub trait Repo: Send + Sync {
         now_ms: u64,
     ) -> Result<Vec<(String, u64)>, RepoError>;
 
+    // --- запрос приватного режима ---
+
+    /// Создаёт (или возвращает существующий) запрос на переход чата в
+    /// приватный режим.  Возвращает `true`, если запрос создан этим вызовом.
+    async fn create_private_mode_request(
+        &self,
+        chat_id: &str,
+        requester_user_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, RepoError>;
+
+    /// Кто и когда просил перевести чат в приватный режим.
+    async fn private_mode_request(
+        &self,
+        chat_id: &str,
+    ) -> Result<Option<PrivateModeRequest>, RepoError>;
+
+    /// Убирает запрос (отмена или разрешение).
+    async fn delete_private_mode_request(&self, chat_id: &str) -> Result<(), RepoError>;
+
+    /// Переводит чат в приватный режим (E2E) и пишет события — одной
+    /// транзакцией.
+    async fn set_chat_private_mode(
+        &self,
+        chat_id: &str,
+        e2e_mode: i32,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError>;
+
     // --- сообщения ---
 
     /// Вставляет сообщение, recipients, обновляет `chat.last_server_id` и
@@ -425,6 +455,14 @@ pub struct StoredBlob {
     pub name: String,
     pub kind: String,
     pub mime: String,
+}
+
+/// Запрос на переход чата в приватный режим.
+#[derive(Debug, Clone)]
+pub struct PrivateModeRequest {
+    pub chat_id: String,
+    pub requester_user_id: String,
+    pub created_at_ms: u64,
 }
 
 /// Сообщение-кандидат для поиска по истории (облачный режим).

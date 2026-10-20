@@ -62,6 +62,23 @@ pub enum UiEvent {
         server_id: u64,
         device_id: String,
     },
+    /// Собеседник предлагает перевести личный чат в приватный режим (E2E).
+    PrivateModeRequested {
+        chat_id: String,
+        requester_user_id: String,
+        requester_username: String,
+        requester_display_name: String,
+    },
+    /// Запрос на приватный режим отозван тем, кто его отправил.
+    PrivateModeCancelled {
+        chat_id: String,
+    },
+    /// Запрос разрешён: `accepted` — чат переведён в приватный режим,
+    /// иначе собеседник его отклонил.
+    PrivateModeResolved {
+        chat_id: String,
+        accepted: bool,
+    },
     /// Некритичное предупреждение (например, отозванное устройство в чате).
     Warning(String),
 }

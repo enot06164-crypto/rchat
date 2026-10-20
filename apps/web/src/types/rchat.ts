@@ -209,6 +209,17 @@ export type RchatEvent =
   | { event: "outbox_changed"; data: OutboxChange }
   | { event: "chat_upserted"; data: Chat }
   | { event: "receipt_updated"; data: Receipt }
+  | {
+      event: "private_mode_requested";
+      data: {
+        chat_id: string;
+        requester_user_id: string;
+        requester_username: string;
+        requester_display_name: string;
+      };
+    }
+  | { event: "private_mode_cancelled"; data: { chat_id: string } }
+  | { event: "private_mode_resolved"; data: { chat_id: string; accepted: boolean } }
   | { event: "presence_changed"; data: { user_id: string; online: boolean } }
   | { event: "call_invited"; data: Call }
   | { event: "call_accepted"; data: Call }

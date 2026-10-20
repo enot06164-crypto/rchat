@@ -2,6 +2,7 @@ import { onMount, Show } from "solid-js";
 import { AccountPanel } from "./components/AccountPanel";
 import { AddAccountScreen } from "./components/auth/AddAccountScreen";
 import { AuthModal } from "./components/auth/AuthModal";
+import { PrivateModeOffer } from "./components/chat/PrivateModeDialogs";
 import {
   activateProfile,
   boot,
@@ -59,6 +60,10 @@ export default function App() {
       </Show>
 
       {/* Экран «Добавить аккаунт» — поверх всего, как в Telegram Web. */}
+      {/* Предложение приватного режима показываем поверх всего: чат мог
+          быть не открыт, когда пришло событие. */}
+      <PrivateModeOffer profile={state.activeProfile} />
+
       <Show when={state.addAccountOpen}>
         <AddAccountScreen onClose={() => setAddAccountOpen(false)} />
       </Show>

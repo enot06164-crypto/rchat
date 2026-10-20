@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use rchat_server::model::*;
-use rchat_server::repo::{Repo, RepoError, SearchCandidate, StoredBlob};
+use rchat_server::repo::{PrivateModeRequest, Repo, RepoError, SearchCandidate, StoredBlob};
 use rusqlite::{params, OptionalExtension};
 
 use crate::convert::*;
@@ -745,6 +745,106 @@ impl Repo for SqliteRepo {
             let seqs = insert_events(&tx, &events)?;
             tx.commit()
                 .map_err(|e| RepoError::internal(format!("commit remove_member: {e}")))?;
+            Ok(seqs)
+        })
+        .await
+    }
+
+    async fn create_private_mode_request(
+        &self,
+        chat_id: &str,
+        requester_user_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, RepoError> {
+        let chat_id = chat_id.to_string();
+        let requester_user_id = requester_user_id.to_string();
+        self.call(move |conn| {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT requester_user_id FROM private_mode_requests WHERE chat_id = ?1",
+                    params![chat_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            if let Some(existing) = existing {
+                // Запрос от того же человека уже ждёт — повторно не создаём.
+                return Ok(existing == requester_user_id);
+            }
+            conn.execute(
+                "INSERT INTO private_mode_requests(chat_id, requester_user_id, created_at_ms)
+                 VALUES(?1, ?2, ?3)",
+                params![chat_id, requester_user_id, now_ms as i64],
+            )
+            .map_err(|e| map_sql("create private mode request", e))?;
+            Ok(true)
+        })
+        .await
+    }
+
+    async fn private_mode_request(
+        &self,
+        chat_id: &str,
+    ) -> Result<Option<PrivateModeRequest>, RepoError> {
+        let chat_id = chat_id.to_string();
+        self.call(move |conn| {
+            let row: Option<PrivateModeRequest> = conn
+                .query_row(
+                    "SELECT chat_id, requester_user_id, created_at_ms
+                     FROM private_mode_requests WHERE chat_id = ?1",
+                    params![chat_id],
+                    |row| {
+                        Ok(PrivateModeRequest {
+                            chat_id: row.get(0)?,
+                            requester_user_id: row.get(1)?,
+                            created_at_ms: row.get::<_, i64>(2)? as u64,
+                        })
+                    },
+                )
+                .ok();
+            Ok(row)
+        })
+        .await
+    }
+
+    async fn delete_private_mode_request(&self, chat_id: &str) -> Result<(), RepoError> {
+        let chat_id = chat_id.to_string();
+        self.call(move |conn| {
+            conn.execute(
+                "DELETE FROM private_mode_requests WHERE chat_id = ?1",
+                params![chat_id],
+            )
+            .map_err(|e| map_sql("delete private mode request", e))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn set_chat_private_mode(
+        &self,
+        chat_id: &str,
+        e2e_mode: i32,
+        events: &[NewSyncEvent],
+        now_ms: u64,
+    ) -> Result<Vec<(String, u64)>, RepoError> {
+        let chat_id = chat_id.to_string();
+        let events = events.to_vec();
+        self.call(move |conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|e| RepoError::internal(format!("begin set_chat_private_mode: {e}")))?;
+            let changed = tx
+                .execute(
+                    "UPDATE chats SET e2e_mode = ?2, updated_at_ms = MAX(updated_at_ms, ?3)
+                     WHERE chat_id = ?1",
+                    params![chat_id, e2e_mode, now_ms as i64],
+                )
+                .map_err(|e| map_sql("set chat private mode", e))?;
+            if changed == 0 {
+                return Err(RepoError::NotFound(format!("chat {chat_id}")));
+            }
+            let seqs = insert_events(&tx, &events)?;
+            tx.commit()
+                .map_err(|e| RepoError::internal(format!("commit set_chat_private_mode: {e}")))?;
             Ok(seqs)
         })
         .await

@@ -148,6 +148,22 @@ pub(crate) async fn dispatch(
                     .collect::<Vec<_>>(),
             }))
         }
+        "request_private_mode" => {
+            let chat_id = string_field(request, "chat_id")?;
+            let pending = handle.client.request_private_mode(&chat_id).await?;
+            Ok(json!({"pending": pending}))
+        }
+        "cancel_private_mode" => {
+            let chat_id = string_field(request, "chat_id")?;
+            handle.client.cancel_private_mode(&chat_id).await?;
+            Ok(json!({}))
+        }
+        "resolve_private_mode" => {
+            let chat_id = string_field(request, "chat_id")?;
+            let accept = bool_field(request, "accept", true)?;
+            let switched = handle.client.resolve_private_mode(&chat_id, accept).await?;
+            Ok(json!({"switched": switched}))
+        }
         "get_chat_members" => {
             let chat_id = string_field(request, "chat_id")?;
             let members = handle.client.chat_members(&chat_id).await?;

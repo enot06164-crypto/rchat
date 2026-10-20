@@ -22,7 +22,7 @@ mod repo_impl;
 pub mod net;
 
 /// Версия схемы, до которой поднимается БД при открытии.
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 
 /// SQLite-репозиторий сервера.
 pub struct SqliteRepo {
@@ -398,6 +398,17 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     ALTER TABLE chats ADD COLUMN cloud_key BLOB;
     ALTER TABLE messages ADD COLUMN cloud_ciphertext BLOB;
     ALTER TABLE messages ADD COLUMN cloud_nonce BLOB;
+    "#,
+    ),
+    (
+        9,
+        r#"
+    -- Запросы на переход личного чата в приватный режим (E2E).
+    CREATE TABLE private_mode_requests (
+        chat_id TEXT NOT NULL PRIMARY KEY,
+        requester_user_id TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL
+    );
     "#,
     ),
     (

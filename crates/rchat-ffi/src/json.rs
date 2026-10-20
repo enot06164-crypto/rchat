@@ -301,6 +301,27 @@ pub(crate) fn event(event: &UiEvent) -> Value {
                 "device_id": device_id,
             }),
         ),
+        UiEvent::PrivateModeRequested {
+            chat_id,
+            requester_user_id,
+            requester_username,
+            requester_display_name,
+        } => (
+            "private_mode_requested",
+            json!({
+                "chat_id": chat_id,
+                "requester_user_id": requester_user_id,
+                "requester_username": requester_username,
+                "requester_display_name": requester_display_name,
+            }),
+        ),
+        UiEvent::PrivateModeCancelled { chat_id } => {
+            ("private_mode_cancelled", json!({"chat_id": chat_id}))
+        }
+        UiEvent::PrivateModeResolved { chat_id, accepted } => (
+            "private_mode_resolved",
+            json!({"chat_id": chat_id, "accepted": accepted}),
+        ),
         UiEvent::Warning(message) => ("warning", json!({"message": message})),
     };
     json!({

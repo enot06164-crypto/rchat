@@ -68,6 +68,16 @@ pub enum Command {
     RefreshChats {},
     /// Участники чата из локального кеша.
     GetChatMembers { chat_id: String },
+    /// Просить собеседника перевести личный чат в приватный режим (E2E).
+    RequestPrivateMode { chat_id: String },
+    /// Отозвать собственный запрос на приватный режим.
+    CancelPrivateMode { chat_id: String },
+    /// Ответить на запрос: принять (перевести чат в E2E) или отклонить.
+    ResolvePrivateMode {
+        chat_id: String,
+        /// `true` — принять, `false` — отклонить.
+        accept: bool,
+    },
     /// Поиск пользователей по префиксу username (для выбора собеседника).
     SearchUsers {
         /// Префикс username (регистр не важен).
@@ -271,6 +281,8 @@ pub enum ResponseData {
     Chats(Vec<Chat>),
     Members(Vec<ChatMember>),
     SearchUsers(SearchUsersData),
+    RequestPrivateMode(RequestPrivateModeData),
+    ResolvePrivateMode(ResolvePrivateModeData),
     Chat(Chat),
     SendMessage(SendMessageData),
     RetryMessage(RetryMessageData),
@@ -443,6 +455,20 @@ pub enum E2eMode {
     NoneDev,
     #[serde(rename = "unspecified")]
     Unspecified,
+}
+
+/// Ответ `request_private_mode`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RequestPrivateModeData {
+    /// `true` — запрос отправлен и ждёт подтверждения.
+    pub pending: bool,
+}
+
+/// Ответ `resolve_private_mode`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ResolvePrivateModeData {
+    /// `true` — чат переведён в приватный режим.
+    pub switched: bool,
 }
 
 /// Ответ `search_users`.
@@ -710,6 +736,27 @@ event_struct!(
     "Сессия завершена."
 );
 event_struct!(
+    PrivateModeRequestedEvent,
+    PrivateModeRequestedName,
+    "private_mode_requested",
+    PrivateModeRequestedData,
+    "Собеседник предлагает включить приватный режим (E2E)."
+);
+event_struct!(
+    PrivateModeCancelledEvent,
+    PrivateModeCancelledName,
+    "private_mode_cancelled",
+    PrivateModeCancelledData,
+    "Запрос на приватный режим отозван."
+);
+event_struct!(
+    PrivateModeResolvedEvent,
+    PrivateModeResolvedName,
+    "private_mode_resolved",
+    PrivateModeResolvedData,
+    "Запрос на приватный режим разрешён или отклонён."
+);
+event_struct!(
     MessageReceivedEvent,
     MessageReceivedName,
     "message_received",
@@ -822,6 +869,29 @@ pub struct SessionStartedData {
     pub username: String,
 }
 
+/// `data` события `private_mode_requested`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct PrivateModeRequestedData {
+    pub chat_id: String,
+    pub requester_user_id: String,
+    pub requester_username: String,
+    pub requester_display_name: String,
+}
+
+/// `data` события `private_mode_cancelled`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct PrivateModeCancelledData {
+    pub chat_id: String,
+}
+
+/// `data` события `private_mode_resolved`.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct PrivateModeResolvedData {
+    pub chat_id: String,
+    /// `true` — чат переведён в приватный режим.
+    pub accepted: bool,
+}
+
 /// `data` события `session_ended`.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SessionEndedData {
@@ -910,6 +980,9 @@ mod tests {
             "refresh_chats",
             "get_chat_members",
             "search_users",
+            "request_private_mode",
+            "cancel_private_mode",
+            "resolve_private_mode",
             "get_settings",
             "set_default_chat_mode",
             "search_messages",

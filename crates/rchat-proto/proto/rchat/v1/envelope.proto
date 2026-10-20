@@ -106,6 +106,9 @@ message Request {
 
     SearchMessagesRequest search_messages = 65;
     SearchUsersRequest search_users = 67;
+    RequestPrivateModeRequest request_private_mode = 68;
+    CancelPrivateModeRequest cancel_private_mode = 69;
+    ResolvePrivateModeRequest resolve_private_mode = 70;
     SetCloudAccountKeyRequest set_cloud_account_key = 66;
 
     UploadBlobRequest upload_blob = 60;
@@ -153,6 +156,9 @@ message Response {
 
     SearchMessagesResponse search_messages = 65;
     SearchUsersResponse search_users = 67;
+    RequestPrivateModeResponse request_private_mode = 68;
+    CancelPrivateModeResponse cancel_private_mode = 69;
+    ResolvePrivateModeResponse resolve_private_mode = 70;
     SetCloudAccountKeyResponse set_cloud_account_key = 66;
 
     UploadBlobResponse upload_blob = 60;

@@ -597,6 +597,61 @@ impl Client {
         }
     }
 
+    /// Просит собеседника перевести личный чат в приватный режим (E2E).
+    /// Возвращает `true`, если запрос отправлен и ждёт подтверждения.
+    pub async fn request_private_mode(&self, chat_id: &str) -> Result<bool, CoreError> {
+        self.start().await?;
+        let resp = self
+            .request(proto::request::Method::RequestPrivateMode(
+                proto::RequestPrivateModeRequest {
+                    chat_id: chat_id.to_string(),
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::RequestPrivateMode(result) => Ok(result.pending),
+            other => Err(unexpected(other)),
+        }
+    }
+
+    /// Отзывает собственный запрос на приватный режим.
+    pub async fn cancel_private_mode(&self, chat_id: &str) -> Result<(), CoreError> {
+        self.start().await?;
+        let resp = self
+            .request(proto::request::Method::CancelPrivateMode(
+                proto::CancelPrivateModeRequest {
+                    chat_id: chat_id.to_string(),
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::CancelPrivateMode(_) => Ok(()),
+            other => Err(unexpected(other)),
+        }
+    }
+
+    /// Отвечает на запрос: принять (чат переводится в приватный режим) или
+    /// отклонить.  Возвращает `true`, если чат переведён в E2E.
+    pub async fn resolve_private_mode(
+        &self,
+        chat_id: &str,
+        accept: bool,
+    ) -> Result<bool, CoreError> {
+        self.start().await?;
+        let resp = self
+            .request(proto::request::Method::ResolvePrivateMode(
+                proto::ResolvePrivateModeRequest {
+                    chat_id: chat_id.to_string(),
+                    accept,
+                },
+            ))
+            .await?;
+        match resp {
+            proto::response::Result::ResolvePrivateMode(result) => Ok(result.switched),
+            other => Err(unexpected(other)),
+        }
+    }
+
     /// Ищет пользователей по префиксу username (для выбора собеседника при
     /// создании чата).  Список пользователей знает только сервер, поэтому
     /// запрос уходит к нему.

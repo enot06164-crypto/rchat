@@ -354,6 +354,18 @@ export function chatApiFor(profile: string) {
   getChats: () => connection.call<unknown[]>("get_chats"),
   getChatMembers: (chatId: string) =>
     connection.call<unknown[]>("get_chat_members", { chat_id: chatId }),
+  /** Запрос собеседнику перевести чат в приватный режим (E2E). */
+  requestPrivateMode: (chatId: string) =>
+    connection.call<{ pending: boolean }>("request_private_mode", { chat_id: chatId }),
+  /** Отзыв собственного запроса на приватный режим. */
+  cancelPrivateMode: (chatId: string) =>
+    connection.call<unknown>("cancel_private_mode", { chat_id: chatId }),
+  /** Ответ на запрос: принять или отклонить. */
+  resolvePrivateMode: (chatId: string, accept: boolean) =>
+    connection.call<{ switched: boolean }>("resolve_private_mode", {
+      chat_id: chatId,
+      accept,
+    }),
   /** Поиск пользователей по префиксу username (для выбора собеседника). */
   searchUsers: (query: string, limit = 20) =>
     connection.call<{ users: UserSummary[] }>("search_users", { query, limit }),

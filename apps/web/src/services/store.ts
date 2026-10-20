@@ -66,6 +66,14 @@ export interface AccountState {
   newChatError: ErrorNotice | null;
   /** Ошибка загрузки истории (с действием «повторить»). */
   historyError: ErrorNotice | null;
+  /** Исходящий запрос на приватный режим: ждём подтверждения собеседника. */
+  privateModeRequested: boolean;
+  /** Входящее предложение включить приватный режим (от собеседника). */
+  privateModeOffer: {
+    chat_id: string;
+    requester_username: string;
+    requester_display_name: string;
+  } | null;
   /** Режим чатов по умолчанию: облачный (`cloud`) или приватный (`private`). */
   defaultChatMode: ChatPrivacy;
   /** Найденные сообщения (поиск по истории; только для облачного режима). */
@@ -108,6 +116,8 @@ function emptyAccount(): AccountState {
     sendErrorChatId: null,
     newChatError: null,
     historyError: null,
+    privateModeRequested: false,
+    privateModeOffer: null,
     defaultChatMode: "cloud",
     searchHits: [],
     searchBusy: false,
@@ -701,6 +711,36 @@ export function applyEvent(profile: string, event: RchatEvent): void {
       }
       return;
     }
+    case "private_mode_requested": {
+      // Собеседник предлагает включить приватный режим: показываем окно
+      // с выбором «Принять» / «Отклонить».
+      const data = event.data as {
+        chat_id: string;
+        requester_username: string;
+        requester_display_name: string;
+      };
+      setState(
+        "accounts",
+        profile,
+        "privateModeOffer",
+        {
+          chat_id: data.chat_id,
+          requester_username: data.requester_username,
+          requester_display_name: data.requester_display_name,
+        }
+      );
+      return;
+    }
+    case "private_mode_cancelled": {
+      // Наш запрос отозван — ожидание снимается.
+      setState("accounts", profile, "privateModeRequested", false);
+      return;
+    }
+    case "private_mode_resolved": {
+      // Запрос разрешён или отклонён — ожидание снимается.
+      setState("accounts", profile, "privateModeRequested", false);
+      return;
+    }
     case "receipt_updated": {
       const receipt = event.data as Receipt;
       setState("accounts", profile, "receipts", receipt.chat_id, (prev = []) => {
@@ -1067,6 +1107,57 @@ export async function retryHistory(
 ): Promise<void> {
   setNotice(profile, "historyError", null);
   await loadChatHistory(profile, chatId);
+}
+
+/**
+ * Просит собеседника перевести личный чат в приватный режим (E2E).
+ * Пока ждём ответа — в интерфейсе висит модалка с ожиданием.
+ */
+export async function requestPrivateMode(
+  profile: string,
+  chatId: string
+): Promise<void> {
+  try {
+    const pending = await chatApiFor(profile).requestPrivateMode(chatId);
+    setState("accounts", profile, "privateModeRequested", pending.pending);
+  } catch (error) {
+    setNotice(
+      profile,
+      "historyError",
+      classifyError(error, { operation: "chat" })
+    );
+  }
+}
+
+/** Отзывает свой запрос на приватный режим. */
+export async function cancelPrivateMode(
+  profile: string,
+  chatId: string
+): Promise<void> {
+  try {
+    await chatApiFor(profile).cancelPrivateMode(chatId);
+  } catch (error) {
+    console.warn("rchat: cancel private mode", error);
+  }
+  setState("accounts", profile, "privateModeRequested", false);
+}
+
+/** Отвечает на предложение: принять (чат переходит в E2E) или отклонить. */
+export async function resolvePrivateMode(
+  profile: string,
+  chatId: string,
+  accept: boolean
+): Promise<void> {
+  try {
+    await chatApiFor(profile).resolvePrivateMode(chatId, accept);
+  } catch (error) {
+    setNotice(
+      profile,
+      "historyError",
+      classifyError(error, { operation: "chat" })
+    );
+  }
+  setState("accounts", profile, "privateModeOffer", null);
 }
 
 /**
