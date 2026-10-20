@@ -133,10 +133,6 @@ export function AuthModal(props: { profile: string }) {
                 : "Создать аккаунт"}
           </button>
         </form>
-
-        <div class="auth__gateway">
-          Соединение с ядром: WebSocket-шлюз {window.location.host}
-        </div>
       </div>
     </div>
   );
