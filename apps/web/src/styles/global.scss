@@ -1033,7 +1033,7 @@ textarea {
   // на стороне хвостика — поэтому шва не видно.  Для исходящих зеркалится.
   &__tail {
     position: absolute;
-    bottom: -2px;
+    bottom: 0;
     left: -10px;
     z-index: 0;
     pointer-events: none;
