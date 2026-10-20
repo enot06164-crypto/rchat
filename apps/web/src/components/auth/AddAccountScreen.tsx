@@ -133,10 +133,6 @@ export function AddAccountScreen(props: { onClose: () => void }) {
                 : "Создать аккаунт"}
           </button>
         </form>
-
-        <div class="auth__gateway">
-          Новый аккаунт живёт в этом браузере: свои чаты, контакты и ключи.
-        </div>
       </div>
     </div>
   );

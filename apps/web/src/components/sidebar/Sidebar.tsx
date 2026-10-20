@@ -22,6 +22,7 @@ import {
   switchProfile,
 } from "../../services/store";
 import { Avatar } from "../Avatar";
+import { isMultiuser } from "../../services/api";
 import { ChatList } from "./ChatList";
 import { NewChatModal } from "./NewChatModal";
 import { SearchResults } from "./SearchResults";
@@ -167,50 +168,54 @@ export function Sidebar(props: { profile: string }) {
 
             {/* Аккаунты этого браузера: как в меню Telegram Web.  Показываем
                 только те, в которые действительно вошли (у остальных профилей
-                сессии нет — это ещё не аккаунты). */}
-            <div class="me-menu__accounts">
-            <For each={loggedProfiles()}>
-              {(profile) => (
-                <button
-                  role="menuitem"
-                  classList={{
-                    "me-menu__item": true,
-                    "me-menu__account-item": true,
-                    "is-active": profile === state.activeProfile,
-                  }}
-                  onClick={() => {
-                    setMeMenuOpen(false);
-                    void switchProfile(profile);
-                  }}
-                >
-                  <Avatar
-                    info={state.accounts[profile]?.session?.avatar}
-                    size={26}
-                  />
-                  <span class="me-menu__account-name">
-                    {state.accounts[profile]?.session?.display_name ??
-                      state.accounts[profile]?.session?.username ??
-                      profile}
-                  </span>
-                </button>
-              )}
-            </For>
+                сессии нет — это ещё не аккаунты).  В мультипользовательском
+                режиме у браузера ровно один профиль (по токену устройства),
+                поэтому список и «Добавить аккаунт» скрыты. */}
+            <Show when={!isMultiuser()}>
+              <div class="me-menu__accounts">
+              <For each={loggedProfiles()}>
+                {(profile) => (
+                  <button
+                    role="menuitem"
+                    classList={{
+                      "me-menu__item": true,
+                      "me-menu__account-item": true,
+                      "is-active": profile === state.activeProfile,
+                    }}
+                    onClick={() => {
+                      setMeMenuOpen(false);
+                      void switchProfile(profile);
+                    }}
+                  >
+                    <Avatar
+                      info={state.accounts[profile]?.session?.avatar}
+                      size={26}
+                    />
+                    <span class="me-menu__account-name">
+                      {state.accounts[profile]?.session?.display_name ??
+                        state.accounts[profile]?.session?.username ??
+                        profile}
+                    </span>
+                  </button>
+                )}
+              </For>
 
-            </div>
+              </div>
 
-            <button
-              role="menuitem"
-              class="me-menu__item me-menu__account-item"
-              onClick={() => {
-                setMeMenuOpen(false);
-                setAddAccountOpen(true);
-              }}
-            >
-              <span class="me-menu__plus">
-                <Plus size={16} />
-              </span>
-              <span class="me-menu__account-name">Добавить аккаунт</span>
-            </button>
+              <button
+                role="menuitem"
+                class="me-menu__item me-menu__account-item"
+                onClick={() => {
+                  setMeMenuOpen(false);
+                  setAddAccountOpen(true);
+                }}
+              >
+                <span class="me-menu__plus">
+                  <Plus size={16} />
+                </span>
+                <span class="me-menu__account-name">Добавить аккаунт</span>
+              </button>
+            </Show>
 
             <div class="me-menu__divider" />
 

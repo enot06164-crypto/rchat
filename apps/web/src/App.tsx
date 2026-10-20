@@ -11,6 +11,7 @@ import {
   setAddAccountOpen,
   state,
 } from "./services/store";
+import { connectErrorText } from "./services/errors";
 
 /**
  * Корневой компонент: splash → панель активного аккаунта.
@@ -42,10 +43,21 @@ export default function App() {
         <div class="splash">
           <div class="splash__spinner" />
           <div class="splash__hint">
-            Подключение к шлюзу…
-            <br />
-            Убедитесь, что rchat-сервер и шлюз запущены
-            (см. apps/web/README.md).
+            <Show
+              when={state.linkError !== null}
+              fallback={
+                <>
+                  Подключение к шлюзу…
+                  <br />
+                  Убедитесь, что rchat-сервер и шлюз запущены
+                  (см. apps/web/README.md).
+                </>
+              }
+            >
+              Шлюз отказал в подключении
+              <br />
+              {state.linkError !== null ? connectErrorText(state.linkError) : ""}
+            </Show>
           </div>
         </div>
       }

@@ -58,6 +58,20 @@ export interface ErrorAction {
   label: string;
 }
 
+/**
+ * Понятное объяснение отказа шлюза в соединении: его служебное сообщение
+ * переводится на человеческий язык (остальное показываем как есть).
+ */
+export function connectErrorText(message: string): string {
+  if (message.includes("multiuser mode requires")) {
+    return "Шлюз работает в мультипользовательском режиме — откройте страницу с параметром ?multiuser=1, тогда браузер получит свой профиль.";
+  }
+  if (message.includes("profile") && message.includes("not")) {
+    return "Шлюз не знает такого профиля (аккаунта) — проверьте имя в адресе или войдите заново.";
+  }
+  return message;
+}
+
 /** Готовое к показу уведомление об ошибке. */
 export interface ErrorNotice {
   kind: ErrorKind;

@@ -5,9 +5,14 @@ import solid from "vite-plugin-solid";
 // Python gateway from bindings/python (stage H, `python3 -m rchat.gateway`).
 // The same proxy is configured for `vite preview` so a production bundle can
 // be exercised against a locally running gateway without extra tooling.
+//
+// Порт шлюза можно переопределить: RCHAT_GATEWAY=ws://127.0.0.1:8090 npm run dev
+// (например, публичный шлюз в режиме --multiuser рядом с личным на 8080).
+const gatewayTarget = process.env.RCHAT_GATEWAY || "ws://127.0.0.1:8080";
+
 const wsProxy = {
   "/ws": {
-    target: "ws://127.0.0.1:8080",
+    target: gatewayTarget,
     ws: true,
   },
 };
@@ -24,11 +29,18 @@ const allowedHosts = [".cloudpub.ru"];
 export default defineConfig({
   plugins: [solid()],
   server: {
+    // Явно IPv4+IPv6: иначе Node резолвит "localhost" в ::1, Vite слушает только
+    // IPv6, и http://127.0.0.1:5173 не открывается (Firefox: «не удалось
+    // подключиться»).  host: true — слушает все интерфейсы, нужно и туннелю
+    // (cloudpub), который ходит на localhost:5173.  Только loopback:
+    // `npm run dev -- --host 127.0.0.1`.
+    host: true,
     port: 5173,
     allowedHosts,
     proxy: wsProxy,
   },
   preview: {
+    host: "127.0.0.1",
     port: 4173,
     allowedHosts,
     proxy: wsProxy,

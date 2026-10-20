@@ -7,6 +7,16 @@ E2E-состояние), профиль выбирается при подклю
 профиль ``default`` — сам корень, остальные — ``<корень>/accounts/<имя>``.
 Список профилей шлюз отдаёт по ``GET /profiles``.
 
+**Мультипользовательский режим** (``--multiuser``) — для публикации через
+туннель (cloudpub и подобные): профиль привязывается не к имени из
+адреса, а к **устройству браузера**.  Веб генерирует случайный токен
+устройства (хранится в ``localStorage``) и передаёт его в
+``/ws?device=<токен>``; шлюз отображает токен в профиль
+``web-<префикс sha256>``.  У каждого браузера — собственное ядро со
+входом/регистрацией (как в Telegram Web); ``profile=`` из адреса
+игнорируется, профиль ``default`` недоступен, а ``list=profiles``
+возвращает только профиль запрашивающего устройства.
+
 Браузер говорит на протоколе FFI без изменений
 (``docs/ffi.md``):
 
@@ -42,9 +52,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import re
 from typing import Any, Optional
 
 _LOG = logging.getLogger("rchat.gateway")
@@ -166,7 +178,17 @@ class ProfileRegistry:
     своё состояние ядра.  Раскладка каталогов — как у CLI: профиль
     ``default`` — сам корень ``data_root``, остальные — в
     ``<data_root>/accounts/<имя>``.
+
+    В мультипользовательском режиме (``multiuser=True``) имя профиля не
+    выбирается клиентом, а выводится из токена устройства браузера
+    (``?device=``): каждому устройству — свой профиль ``web-<hash>`` со
+    входом/регистрацией, профиль ``default`` недоступен.
     """
+
+    #: Префикс имён профилей, созданных в мультипользовательском режиме.
+    MULTIUSER_PREFIX = "web-"
+    #: Токен устройства: 64 hex-символа (32 байта), только безопасные знаки.
+    _DEVICE_RE = re.compile(r"^[0-9a-f]{64}$")
 
     def __init__(
         self,
@@ -176,8 +198,10 @@ class ProfileRegistry:
         tls_fingerprint: Optional[str] = None,
         tls_insecure: bool = False,
         auto_start: bool = True,
+        multiuser: bool = False,
     ) -> None:
         self.data_root = os.path.abspath(data_root)
+        self.multiuser = multiuser
         self._server = server
         self._e2e = e2e
         self._tls_fingerprint = tls_fingerprint
@@ -196,6 +220,9 @@ class ProfileRegistry:
 
     def list_profiles(self) -> list[str]:
         """Известные профили: ``default`` и каталоги в ``accounts/``."""
+        if self.multiuser:
+            # Мультипользовательский режим: имена профилей не раскрываются.
+            return [self.MULTIUSER_PREFIX + "hidden"]
         profiles: list[str] = [DEFAULT_PROFILE]
         accounts_dir = os.path.join(self.data_root, "accounts")
         try:
@@ -208,6 +235,22 @@ class ProfileRegistry:
             if os.path.isdir(os.path.join(accounts_dir, name)):
                 profiles.append(name)
         return profiles
+
+    # -- мультипользовательский режим ---------------------------------------
+
+    def profile_for_device(self, device_token: str) -> Optional[str]:
+        """Профиль устройства браузера (мультипользовательский режим).
+
+        Токен генерирует веб (32 случайных байта, hex) и хранит в
+        ``localStorage``; профиль — детерминированная функция токена, поэтому
+        устройство при возвращении попадает в тот же профиль (сеанс
+        постоянный).  Подделать чужой сеанс, не зная его токена, нельзя.
+        """
+        token = (device_token or "").strip().lower()
+        if not self._DEVICE_RE.fullmatch(token):
+            return None
+        digest = hashlib.sha256(token.encode("ascii")).hexdigest()[:16]
+        return f"{self.MULTIUSER_PREFIX}{digest}"
 
     # -- мосты --------------------------------------------------------------
 
@@ -302,6 +345,15 @@ def _profile_from_path(path: str) -> Optional[str]:
     return name
 
 
+def _device_token_from_path(path: str) -> str:
+    """Токен устройства из пути соединения (``/ws?device=<hex>``)."""
+    from urllib.parse import parse_qs, urlsplit
+
+    query = parse_qs(urlsplit(path).query)
+    values = query.get("device") or []
+    return values[0] if values else ""
+
+
 def _make_process_request() -> Any:
     """Ответ на обычный HTTP-запрос: 404 (статику отдаёт Vite)."""
 
@@ -321,31 +373,57 @@ def _make_process_request() -> Any:
 async def _handler(registry: ProfileRegistry, connection: Any) -> None:
     from websockets.exceptions import ConnectionClosed  # type: ignore[import-not-found]
 
+    path = connection.request.path
+
     # Список профилей — короткое подключение без профиля: `/ws?list=profiles`.
-    if _wants_profile_list(connection.request.path):
+    if _wants_profile_list(path):
+        if registry.multiuser:
+            # Мультипользовательский режим: список одного устройства.
+            device_token = _device_token_from_path(path)
+            profile = registry.profile_for_device(device_token)
+            profiles = [profile] if profile is not None else []
+        else:
+            profiles = registry.list_profiles()
         await connection.send(
             json.dumps(
                 {
                     "@type": "ok",
                     "request": "list_profiles",
-                    "data": {"profiles": registry.list_profiles()},
+                    "data": {"profiles": profiles},
                 }
             )
         )
         await connection.close()
         return
-    profile = _profile_from_path(connection.request.path)
-    if profile is None:
-        await connection.send(
-            json.dumps(
-                _error_response(
-                    "invalid_request",
-                    "invalid profile name (letters, digits, - and _ up to 32 chars)",
+
+    if registry.multiuser:
+        # Мультипользовательский режим: профиль — функция токена устройства;
+        # `profile=` из адреса игнорируется, `default` недоступен.
+        profile = registry.profile_for_device(_device_token_from_path(path))
+        if profile is None:
+            await connection.send(
+                json.dumps(
+                    _error_response(
+                        "invalid_request",
+                        "multiuser mode requires ?device=<32-byte hex token>",
+                    )
                 )
             )
-        )
-        await connection.close()
-        return
+            await connection.close()
+            return
+    else:
+        profile = _profile_from_path(path)
+        if profile is None:
+            await connection.send(
+                json.dumps(
+                    _error_response(
+                        "invalid_request",
+                        "invalid profile name (letters, digits, - and _ up to 32 chars)",
+                    )
+                )
+            )
+            await connection.close()
+            return
     bridge = registry.bridge(profile)
     _LOG.info(
         "client %s connected (profile %s)", connection.remote_address, profile
@@ -399,10 +477,10 @@ async def _serve(registry: ProfileRegistry, host: str, port: int) -> None:
         max_size=1 << 20,
     ) as server:
         _LOG.info(
-            "rchat websocket gateway on ws://%s:%d/ws (profiles: %s)",
+            "rchat websocket gateway on ws://%s:%d/ws (mode: %s)",
             host,
             port,
-            ", ".join(registry.list_profiles()),
+            "multiuser" if registry.multiuser else "profiles",
         )
         try:
             await server.serve_forever()
@@ -452,6 +530,17 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="enable E2E chats for the profile (default on)",
     )
     parser.add_argument(
+        "--multiuser",
+        default=False,
+        action="store_true",
+        help=(
+            "public mode: the profile is derived from the browser device "
+            "token (?device=<32-byte hex>) instead of ?profile= — every "
+            "browser gets its own isolated core with login/registration "
+            "(for publishing through a tunnel; 'default' is not exposed)"
+        ),
+    )
+    parser.add_argument(
         "--tls-fingerprint",
         default=None,
         metavar="SHA256",
@@ -487,6 +576,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         e2e=args.e2e,
         tls_fingerprint=args.tls_fingerprint,
         tls_insecure=args.tls_insecure,
+        multiuser=args.multiuser,
     )
     try:
         asyncio.run(_serve(registry, args.host, args.port))

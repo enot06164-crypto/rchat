@@ -55,6 +55,38 @@ export type DisconnectListener = () => void;
 const INITIAL_BACKOFF_MS = 800;
 const MAX_BACKOFF_MS = 5000;
 
+/**
+ * Токен устройства браузера (мультипользовательский режим шлюза,
+ * `--multiuser`): 32 случайных байта, hex.  Генерируется один раз и живёт в
+ * `localStorage`, как сессия в Telegram Web — после перезагрузки страницы и
+ * повторного захода по ссылке аккаунт сохраняется.  Шлюз выводит из токена
+ * профиль устройства, поэтому произвольный `?profile=` не нужен: каждый
+ * браузер получает собственное изолированное ядро со входом/регистрацией.
+ */
+const DEVICE_STORAGE_KEY = "rchat.device";
+
+function deviceToken(): string {
+  try {
+    const existing = window.localStorage.getItem(DEVICE_STORAGE_KEY);
+    if (existing !== null && /^[0-9a-f]{64}$/.test(existing)) return existing;
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    window.localStorage.setItem(DEVICE_STORAGE_KEY, token);
+    return token;
+  } catch {
+    // localStorage недоступен — временный токен на жизнь страницы.
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+}
+
+/** Включён ли мультипользовательский режим (адрес страницы `?multiuser=1`). */
+export function isMultiuser(): boolean {
+  return new URLSearchParams(window.location.search).get("multiuser") === "1";
+}
+
 export class GatewayApi {
   /** Профиль (аккаунт) шлюза: выбирается при подключении (`?profile=`). */
   private profile = "default";
@@ -161,10 +193,27 @@ export class GatewayApi {
 
   // -------------------------------------------------------------------------
 
+  /**
+   * Причина последнего отказа шлюза (например, мультипользовательский режим
+   * требует токен устройства).  Показывается на экране ожидания, чтобы не
+   * бесконечно крутился спиннер.
+   */
+  private connectError: string | null = null;
+
+  /** Причина последнего отказа шлюза (или `null`). */
+  get lastConnectError(): string | null {
+    return this.connectError;
+  }
+
   private attemptConnect(): void {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const profile = encodeURIComponent(this.profile);
-    const url = `${proto}//${window.location.host}/ws?profile=${profile}`;
+    const query = new URLSearchParams({ profile: this.profile });
+    if (isMultiuser()) {
+      // Мультипользовательский режим шлюза: профиль на его стороне
+      // выводится из токена устройства, `profile` игнорируется.
+      query.set("device", deviceToken());
+    }
+    const url = `${proto}//${window.location.host}/ws?${query}`;
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
@@ -173,6 +222,7 @@ export class GatewayApi {
         return;
       }
       this.ws = ws;
+      this.connectError = null;
       this.backoffMs = INITIAL_BACKOFF_MS;
       for (const listener of [...this.connectListeners]) listener();
     };
@@ -188,6 +238,10 @@ export class GatewayApi {
         this.failPending(
           new RchatApiError("transport", "соединение с шлюзом закрыто", true)
         );
+      }
+      // О разрыве сообщаем и при отказе шлюза (соединение не открылось): так
+      // интерфейс покажет причину, а не бесконечный спиннер.
+      if (wasOpen || this.connectError !== null) {
         for (const listener of [...this.disconnectListeners]) listener();
       }
       this.scheduleReconnect();
@@ -209,9 +263,9 @@ export class GatewayApi {
   }
 
   private handleMessage(raw: string): void {
-    let parsed: { "@type"?: unknown } | null = null;
+    let parsed: { "@type"?: unknown; request?: unknown } | null = null;
     try {
-      parsed = JSON.parse(raw) as { "@type"?: unknown };
+      parsed = JSON.parse(raw) as { "@type"?: unknown; request?: unknown };
     } catch (error) {
       console.warn("rchat: кадр не разобран как JSON", error);
       return;
@@ -228,6 +282,19 @@ export class GatewayApi {
     }
 
     if (kind === "ok" || kind === "error") {
+      if (kind === "error" && typeof parsed["request"] !== "string") {
+        // Отказ шлюза в самом соединении (например, мультипользовательский
+        // режим требует токен устройства): в конверте нет имени запроса.
+        // Запоминаем причину — интерфейс покажет её вместо бесконечного
+        // ожидания — и обрываем запросы, которые уже висели.
+        const error = parsed as ErrorEnvelope;
+        this.connectError = error.message;
+        this.failPending(
+          new RchatApiError(error.code, error.message, false)
+        );
+        console.warn("rchat: шлюз отказал в соединении", error.message);
+        return;
+      }
       const pending = this.pending.shift();
       if (pending === undefined) {
         console.warn("rchat: ответ без ожидающего запроса", raw);
@@ -267,7 +334,9 @@ export class GatewayApi {
  */
 export async function listProfiles(): Promise<string[]> {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${proto}//${window.location.host}/ws?list=profiles`;
+  const query = new URLSearchParams({ list: "profiles" });
+  if (isMultiuser()) query.set("device", deviceToken());
+  const url = `${proto}//${window.location.host}/ws?${query}`;
   return new Promise<string[]>((resolve) => {
     let settled = false;
     const finish = (profiles: string[]): void => {

@@ -19,6 +19,7 @@ import {
   apiFor,
   chatApiFor,
   closeProfile,
+  isMultiuser,
   listProfiles,
 } from "./api";
 import {
@@ -92,6 +93,8 @@ export interface AccountState {
 export interface AppState {
   /** Связь браузера с шлюзом (UI-уровень, к состояниям FFI отношения не имеет). */
   linkUp: boolean;
+  /** Причина, по которой шлюз отказал в соединении (пусто — связи нет). */
+  linkError: string | null;
   /** Состояние соединения ядра с сервером (§5.1). */
   connection: ConnectionState;
   /** Профили (аккаунты), известные шлюзу. */
@@ -131,6 +134,7 @@ function emptyAccount(): AccountState {
 
 const INITIAL_STATE: AppState = {
   linkUp: false,
+  linkError: null,
   connection: "disconnected",
   profiles: ["default"],
   activeProfile: "default",
@@ -416,6 +420,12 @@ function rememberProfile(profile: string): void {
 
 /** Читает список аккаунтов (профилей) шлюза. */
 export async function loadProfiles(): Promise<void> {
+  if (isMultiuser()) {
+    // Мультипользовательский режим: у устройства один профиль (выводится
+    // шлюзом из токена), чипы других аккаунтов не показываются.
+    setState("profiles", ["default"]);
+    return;
+  }
   const profiles = await listProfiles();
   if (profiles.length > 0) {
     setState("profiles", profiles);
@@ -502,7 +512,9 @@ export async function addAccount(
   displayName: string,
   create: boolean
 ): Promise<string | null> {
-  const name = profileNameFor(username);
+  // Мультипользовательский режим: «добавить аккаунт» = вход/регистрация в
+  // единственном профиле этого устройства (новое ядро создаст шлюз).
+  const name = isMultiuser() ? "default" : profileNameFor(username);
   if (!state.profiles.includes(name)) {
     setState("profiles", [...state.profiles, name]);
   }
@@ -1434,11 +1446,18 @@ export function connectProfile(profile: string): void {
   if (!connected.has(profile)) {
     connected.add(profile);
     connection.onConnect(() => {
-      setState("linkUp", true);
+      setState({ linkUp: true, linkError: null });
       void boot(profile);
       void loadProfiles();
     });
-    connection.onDisconnect(() => setState("linkUp", false));
+    connection.onDisconnect(() => {
+      // Причина отказа шлюза (если он её назвал) — показываем её на экране
+      // ожидания, а не бесконечный спиннер.
+      setState({
+        linkUp: false,
+        linkError: connection.lastConnectError,
+      });
+    });
     connection.onEvent((event) => applyEvent(profile, event));
   }
   connection.connect();

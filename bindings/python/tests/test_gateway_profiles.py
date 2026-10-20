@@ -150,3 +150,108 @@ class GatewayProfilesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def _start_gateway(root: Path, port: int, *extra: str) -> subprocess.Popen[bytes]:
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "rchat.gateway",
+            "--data-dir",
+            str(root),
+            "--server",
+            "ws://127.0.0.1:1",  # сервер не нужен: вход не выполняется
+            "--port",
+            str(port),
+            *extra,
+        ],
+        cwd=ROOT,
+        env={
+            **dict(__import__("os").environ),
+            "PYTHONPATH": str(ROOT / "bindings/python"),
+        },
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _wait_until_listening(process, port)
+    return process
+
+
+def _stop(process: subprocess.Popen[bytes]) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+class GatewayMultiuserTests(unittest.TestCase):
+    """``--multiuser``: профиль по токену устройства, а не по имени."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        try:
+            ffi.get_library()
+        except Exception as error:  # noqa: BLE001 - test bootstrap
+            raise RuntimeError(
+                "rchat FFI library is not available; run "
+                "'cargo build -p rchat-ffi' first"
+            ) from error
+
+    def test_device_token_isolates_profiles(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rchat-gateway-multiuser-") as root:
+            root_path = Path(root)
+            port = _free_port()
+            process = _start_gateway(root_path, port, "--multiuser")
+            url = f"ws://127.0.0.1:{port}/ws"
+            device_a = "a" * 64
+            device_b = "b" * 64
+            try:
+                # Без токена или с чужим `profile=` подключение отвергается:
+                # профиль `default` наружу не отдаётся.
+                for path in (url, f"{url}?profile=default", f"{url}?device=short"):
+                    with connect(path) as ws:
+                        answer = json.loads(ws.recv(timeout=5))
+                    self.assertEqual(answer["@type"], "error")
+                    self.assertIn("device", answer["message"])
+
+                # Каждому устройству — свой профиль; список профилей —
+                # только свой (чужие не раскрываются).
+                with connect(f"{url}?list=profiles&device={device_a}") as ws:
+                    listed = json.loads(ws.recv(timeout=5))
+                with connect(f"{url}?list=profiles&device={device_b}") as ws:
+                    listed_b = json.loads(ws.recv(timeout=5))
+                profile_a = listed["data"]["profiles"][0]
+                profile_b = listed_b["data"]["profiles"][0]
+                self.assertNotEqual(profile_a, profile_b)
+                self.assertTrue(profile_a.startswith("web-"))
+                self.assertNotIn("default", listed["data"]["profiles"])
+
+                # Устройства получают изолированные ядра: разные БД на диске,
+                # ни у одного нет сессии.
+                with connect(f"{url}?device={device_a}") as ws:
+                    a_session = _call(ws, {"@type": "get_session"})
+                with connect(f"{url}?device={device_b}") as ws:
+                    b_session = _call(ws, {"@type": "get_session"})
+                self.assertIsNone(a_session["data"])
+                self.assertIsNone(b_session["data"])
+                self.assertTrue(
+                    (root_path / "accounts" / profile_a / "client.sqlite3").is_file()
+                )
+                self.assertTrue(
+                    (root_path / "accounts" / profile_b / "client.sqlite3").is_file()
+                )
+                # Корень данных (`default`) в этом режиме не используется.
+                self.assertFalse((root_path / "client.sqlite3").exists())
+
+                # Тот же токен — тот же профиль (сеанс постоянный).
+                with connect(f"{url}?device={device_a}") as ws:
+                    again = _call(ws, {"@type": "get_connection_state"})
+                self.assertEqual(again["@type"], "ok")
+            finally:
+                _stop(process)
+
+
+if __name__ == "__main__":
+    unittest.main()
