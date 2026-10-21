@@ -87,6 +87,8 @@ export function MessageBubble(props: {
   onQuoteClick?: (serverId: number) => void;
   /** Сообщение подсвечено (только что на него перешли). */
   highlighted?: boolean;
+  /** Только что появилось — проиграть анимацию появления. */
+  entering?: boolean;
 }) {
   /** Состояние текущего аккаунта (профиля). */
   const acc = () => accountState(props.profile);
@@ -177,6 +179,7 @@ export function MessageBubble(props: {
         "bubble-row--with-avatar": !own() && props.isGroup,
         "bubble-row--service": isPrivateModeRequest(),
         "bubble-row--highlighted": props.highlighted === true,
+        "bubble-row--enter": props.entering === true,
       }}
       data-server-id={props.message.server_id ?? undefined}
       onMouseEnter={showReply}

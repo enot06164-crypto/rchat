@@ -13,20 +13,30 @@
  */
 export const GROUP_GAP_MS = 5 * 60 * 1000;
 
+/** Сообщение ещё в очереди отправки (иконка часов). */
+export function isPendingStatus(status: string | undefined): boolean {
+  return status === "pending" || status === "sending";
+}
+
 /**
  * Продолжение ли `next` серии сообщения `current`: тот же автор, тот же
  * день, пауза меньше `GROUP_GAP_MS` (и не альбом).
+ *
+ * Сообщения в очереди отправки (часы) не соединяются с уже отправленными —
+ * у них своя серия, как в Telegram.
  */
 export function isSameGroup(
   current: {
     sender_user_id: string;
     grouped_id?: string | null;
     created_at_ms: number;
+    status?: string;
   },
   next: {
     sender_user_id: string;
     grouped_id?: string | null;
     created_at_ms: number;
+    status?: string;
   }
 ): boolean {
   if (current.sender_user_id !== next.sender_user_id) return false;
@@ -35,6 +45,10 @@ export function isSameGroup(
   if (grouped(current.grouped_id) || grouped(next.grouped_id)) return false;
   const day = (ms: number): number => new Date(ms).setHours(0, 0, 0, 0);
   if (day(current.created_at_ms) !== day(next.created_at_ms)) return false;
+  // «В очереди» и «отправлено» — разные серии.
+  if (isPendingStatus(current.status) !== isPendingStatus(next.status)) {
+    return false;
+  }
   return next.created_at_ms - current.created_at_ms <= GROUP_GAP_MS;
 }
 

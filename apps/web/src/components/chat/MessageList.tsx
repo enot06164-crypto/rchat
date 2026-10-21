@@ -1,5 +1,5 @@
 import {
-  Index,
+  For,
   Show,
   createEffect,
   createMemo,
@@ -21,8 +21,8 @@ import { isSameGroup } from "../../utils/messages";
 
 /** Единица ленты: обычное сообщение или альбом (медиагруппа). */
 type FeedUnit =
-  | { kind: "message"; key: string; date: string | null; message: Message; showAuthor: boolean; isFirstInGroup: boolean; isLastInGroup: boolean }
-  | { kind: "album"; key: string; date: string | null; messages: Message[] };
+  | { kind: "message"; key: string; date: string | null; message: Message; showAuthor: boolean; isFirstInGroup: boolean; isLastInGroup: boolean; entering: boolean }
+  | { kind: "album"; key: string; date: string | null; messages: Message[]; entering: boolean };
 
 /** Капсула-разделитель дат (WebK `.is-date`): «Сегодня», «Вчера», «16 сентября». */
 function DateChip(props: { label: string }) {
@@ -42,6 +42,9 @@ export function MessageList(props: { chatId: string, profile: string }) {
       acc().chats.find((c) => c.chat_id === props.chatId)?.kind === "group"
   );
 
+  // Ключи уже показанных сообщений (см. ниже).
+  const shownKeys = new Set<string>();
+
   const units = createMemo<FeedUnit[]>(() => {
     // Удалённые сообщения выпадают из ленты полностью — никаких «призрачных»
     // пузырей (как в Telegram при «удалить у себя»).
@@ -49,6 +52,10 @@ export function MessageList(props: { chatId: string, profile: string }) {
       (message) => message.deleted_at_ms === null
     );
     const result: FeedUnit[] = [];
+    // Ключи уже показанных сообщений: по ним помечаем новое сообщение, чтобы
+    // анимация появления играла только у него (иначе при любом обновлении
+    // ленты все пузыри мигали заново).
+    const shown = shownKeys;
     let lastDay = Number.NaN;
     let prevSender: string | null = null;
     // Продолжение ли это серии (предыдущее сообщение — тот же автор, тот же
@@ -80,6 +87,7 @@ export function MessageList(props: { chatId: string, profile: string }) {
           key: `a-${groupedId}`,
           date,
           messages: album,
+          entering: false,
         });
         prevSender = album[album.length - 1].sender_user_id;
         prevInGroup = false;
@@ -101,11 +109,16 @@ export function MessageList(props: { chatId: string, profile: string }) {
         showAuthor: isGroup() && message.sender_user_id !== prevSender,
         isFirstInGroup: !prevInGroup,
         isLastInGroup: !sameNextSender,
+        entering: !shown.has(message.local_id),
       });
       prevSender = sameNextSender ? message.sender_user_id : null;
       prevInGroup = sameNextSender;
       index += 1;
     }
+    // Запоминаем показанные ключи: в следующий раз это сообщение уже не
+    // «новое».
+    shown.clear();
+    for (const unit of result) shown.add(unit.key);
     return result;
   });
 
@@ -227,57 +240,46 @@ export function MessageList(props: { chatId: string, profile: string }) {
             </div>
           }
         >
-          {/* Index, а не For: строки переиспользуются по индексу, поэтому
-              при новом сообщении не пересоздаются — иначе все видимые
-              пузыри заново проигрывали бы анимацию появления (мерцание). */}
-          <Index each={units()}>
-            {(unit) => {
-              const current = unit();
-              return (
-                <>
-                  <Show when={current.date !== null}>
-                    <DateChip label={current.date ?? ""} />
-                  </Show>
-                  <Show
-                    when={current.kind === "album"}
-                    fallback={
-                      <MessageBubble
-                        profile={props.profile}
-                        message={
-                          current.kind === "message"
-                            ? current.message
-                            : current.messages[0]
-                        }
-                        showAuthor={
-                          current.kind === "message" ? current.showAuthor : false
-                        }
-                        isGroup={isGroup()}
-                        isFirstInGroup={
-                          current.kind === "message" ? current.isFirstInGroup : true
-                        }
-                        isLastInGroup={
-                          current.kind === "message" ? current.isLastInGroup : true
-                        }
-                        onQuoteClick={(serverId) => {
-                          void scrollToMessage(serverId);
-                        }}
-                        highlighted={
-                          current.kind === "message" &&
-                          highlightedId() !== null &&
-                          highlightedId() === current.message.server_id
-                        }
-                      />
-                    }
-                  >
-                    <AlbumBubble
+          <For each={units()}>
+            {(unit) => (
+              <>
+                <Show when={unit.date !== null}>
+                  <DateChip label={unit.date ?? ""} />
+                </Show>
+                <Show
+                  when={unit.kind === "album"}
+                  fallback={
+                    <MessageBubble
                       profile={props.profile}
-                      messages={current.kind === "album" ? current.messages : []}
+                      message={unit.kind === "message" ? unit.message : unit.messages[0]}
+                      showAuthor={unit.kind === "message" ? unit.showAuthor : false}
+                      isGroup={isGroup()}
+                      isFirstInGroup={
+                        unit.kind === "message" ? unit.isFirstInGroup : true
+                      }
+                      isLastInGroup={
+                        unit.kind === "message" ? unit.isLastInGroup : true
+                      }
+                      entering={unit.entering}
+                      onQuoteClick={(serverId) => {
+                        void scrollToMessage(serverId);
+                      }}
+                      highlighted={
+                        unit.kind === "message" &&
+                        highlightedId() !== null &&
+                        highlightedId() === unit.message.server_id
+                      }
                     />
-                  </Show>
-                </>
-              );
-            }}
-          </Index>
+                  }
+                >
+                  <AlbumBubble
+                    profile={props.profile}
+                    messages={unit.kind === "album" ? unit.messages : []}
+                  />
+                </Show>
+              </>
+            )}
+          </For>
         </Show>
       </div>
 

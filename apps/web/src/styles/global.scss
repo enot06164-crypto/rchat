@@ -894,7 +894,6 @@ textarea {
   gap: 8px;
   max-width: 84%;
   margin-bottom: 2px;
-  animation: bubble-in 0.16s $ease-standard;
 
   &--own {
     align-self: flex-end;
@@ -906,6 +905,12 @@ textarea {
   }
 
   // Между группами разных авторов — увеличенный отступ
+  // Анимация появления — только у нового сообщения (иначе при обновлении
+  // ленты мигали бы все видимые пузыри).
+  &--enter {
+    animation: bubble-in 0.16s $ease-standard;
+  }
+
   &--group-first:not(:first-child) {
     margin-top: 6px;
   }

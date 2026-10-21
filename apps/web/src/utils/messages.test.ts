@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GROUP_GAP_MS,
+  isPendingStatus,
   isSameGroup,
   isServiceMessage,
   messageText,
@@ -114,5 +115,56 @@ describe("серия сообщений", () => {
         created_at_ms: base.created_at_ms + 1000,
       })
     ).toBe(false);
+  });
+});
+
+/**
+ * Сообщения в очереди отправки (иконка часов) — своя серия: между собой они
+ * соединяются, но с уже отправленными — нет.
+ */
+describe("серия сообщений в очереди отправки", () => {
+  const base = {
+    sender_user_id: "u1",
+    grouped_id: null,
+    created_at_ms: new Date("2026-01-10T12:00:00").getTime(),
+    status: "pending",
+  };
+
+  it("сообщения в очереди соединяются между собой", () => {
+    expect(
+      isSameGroup(base, { ...base, created_at_ms: base.created_at_ms + 1000 })
+    ).toBe(true);
+  });
+
+  it("в очереди не соединяются с отправленными", () => {
+    expect(
+      isSameGroup(
+        { ...base, status: "pending" },
+        { ...base, status: "sent", created_at_ms: base.created_at_ms + 1000 }
+      )
+    ).toBe(false);
+    expect(
+      isSameGroup(
+        { ...base, status: "sent" },
+        { ...base, status: "sending", created_at_ms: base.created_at_ms + 1000 }
+      )
+    ).toBe(false);
+  });
+
+  it("отправленные соединяются, как раньше", () => {
+    expect(
+      isSameGroup(
+        { ...base, status: "sent" },
+        { ...base, status: "sent", created_at_ms: base.created_at_ms + 1000 }
+      )
+    ).toBe(true);
+  });
+
+  it("статус «в очереди» опознаётся", () => {
+    expect(isPendingStatus("pending")).toBe(true);
+    expect(isPendingStatus("sending")).toBe(true);
+    expect(isPendingStatus("sent")).toBe(false);
+    expect(isPendingStatus("failed")).toBe(false);
+    expect(isPendingStatus(undefined)).toBe(false);
   });
 });
