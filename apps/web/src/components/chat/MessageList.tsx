@@ -19,9 +19,33 @@ import { AlbumBubble, MessageBubble } from "./MessageBubble";
 import { formatDateDivider } from "../../utils/format";
 import { isSameGroup } from "../../utils/messages";
 
-/** Единица ленты: обычное сообщение или альбом (медиагруппа). */
+/**
+ * Флаги серии сообщения: имя автора, первое/последнее в серии (хвостик).
+ */
+interface FeedFlags {
+  showAuthor: boolean;
+  isFirstInGroup: boolean;
+  isLastInGroup: boolean;
+}
+
+/**
+ * Единица ленты: обычное сообщение или альбом (медиагруппа).
+ *
+ * Данные сообщения — геттеры: единица переиспользуется (объект один и тот
+ * же), а значения берутся свежими.  Иначе при любом обновлении переписки
+ * DOM пузырей пересоздаётся — и видео в ленте начинается заново.
+ */
 type FeedUnit =
-  | { kind: "message"; key: string; date: string | null; message: Message; showAuthor: boolean; isFirstInGroup: boolean; isLastInGroup: boolean; entering: boolean }
+  | {
+      kind: "message";
+      key: string;
+      date: string | null;
+      entering: boolean;
+      readonly message: Message;
+      readonly showAuthor: boolean;
+      readonly isFirstInGroup: boolean;
+      readonly isLastInGroup: boolean;
+    }
   | { kind: "album"; key: string; date: string | null; messages: Message[]; entering: boolean };
 
 /** Капсула-разделитель дат (WebK `.is-date`): «Сегодня», «Вчера», «16 сентября». */
@@ -44,14 +68,26 @@ export function MessageList(props: { chatId: string, profile: string }) {
 
   // Ключи уже показанных сообщений (см. ниже).
   const shownKeys = new Set<string>();
+  // Кэш единиц ленты: единица переиспользуется, пока не изменились её
+  // данные, — тогда строки ленты не пересоздаются.
+  const unitCache = new Map<string, FeedUnit>();
+  // Флаги серии (хвостик, скругления, имя автора) — в реактивной карте: строки
+  // ленты не пересоздаются, а флаги обновляются.
+  const [flags, setFlags] = createSignal<Record<string, FeedFlags>>({});
 
-  const units = createMemo<FeedUnit[]>(() => {
+  /** Актуальное сообщение по идентификатору (для геттеров единицы). */
+  const currentMessage = (key: string): Message | undefined =>
+    (acc().messages[props.chatId] ?? []).find((m) => m.local_id === key);
+
+  const feed = createMemo<{ units: FeedUnit[]; flags: Record<string, FeedFlags> }>(() => {
     // Удалённые сообщения выпадают из ленты полностью — никаких «призрачных»
     // пузырей (как в Telegram при «удалить у себя»).
     const list = (acc().messages[props.chatId] ?? []).filter(
       (message) => message.deleted_at_ms === null
     );
     const result: FeedUnit[] = [];
+    // Сырые флаги серии (считаются здесь, отдаются в реактивную карту).
+    const rawFlags: Record<string, FeedFlags> = {};
     // Ключи уже показанных сообщений: по ним помечаем новое сообщение, чтобы
     // анимация появления играла только у него (иначе при любом обновлении
     // ленты все пузыри мигали заново).
@@ -101,16 +137,40 @@ export function MessageList(props: { chatId: string, profile: string }) {
       const sameNextSender =
         next !== undefined && isSameGroup(message, next);
 
-      result.push({
-        kind: "message",
-        key: message.local_id,
-        date,
-        message,
+      const key = message.local_id;
+      const unitFlags: FeedFlags = {
         showAuthor: isGroup() && message.sender_user_id !== prevSender,
         isFirstInGroup: !prevInGroup,
         isLastInGroup: !sameNextSender,
-        entering: !shown.has(message.local_id),
-      });
+      };
+      rawFlags[key] = unitFlags;
+      const cached = unitCache.get(key);
+      if (cached !== undefined) {
+        // Единица уже есть — переиспользуем её, чтобы строка ленты не
+        // пересоздавалась (иначе видео начинается заново).
+        result.push(cached);
+      } else {
+        const created: FeedUnit = {
+          kind: "message",
+          key,
+          date,
+          entering: !shown.has(key),
+          get message() {
+            return currentMessage(key) ?? message;
+          },
+          get showAuthor() {
+            return flags()[key]?.showAuthor ?? unitFlags.showAuthor;
+          },
+          get isFirstInGroup() {
+            return flags()[key]?.isFirstInGroup ?? unitFlags.isFirstInGroup;
+          },
+          get isLastInGroup() {
+            return flags()[key]?.isLastInGroup ?? unitFlags.isLastInGroup;
+          },
+        };
+        unitCache.set(key, created);
+        result.push(created);
+      }
       prevSender = sameNextSender ? message.sender_user_id : null;
       prevInGroup = sameNextSender;
       index += 1;
@@ -119,7 +179,20 @@ export function MessageList(props: { chatId: string, profile: string }) {
     // «новое».
     shown.clear();
     for (const unit of result) shown.add(unit.key);
-    return result;
+    // Забываем единицы, которых больше нет в ленте.
+    for (const key of unitCache.keys()) {
+      if (!shown.has(key)) unitCache.delete(key);
+    }
+    return { units: result, flags: rawFlags };
+  });
+
+  /** Единицы ленты (строки переиспользуются — см. FeedUnit). */
+  const units = createMemo<FeedUnit[]>(() => feed().units);
+
+  // Флаги серии — в реактивной карте: строки ленты не пересоздаются, но
+  // хвостик, скругления и имя автора обновляются.
+  createEffect(() => {
+    setFlags(feed().flags);
   });
 
   let container: HTMLDivElement | undefined;

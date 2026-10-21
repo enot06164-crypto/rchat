@@ -524,6 +524,10 @@ function AlbumItem(props: { message: Message, profile: string }) {
   const [thumb, setThumb] = createSignal<string | null>(null);
 
   createEffect(() => {
+    // server_id появляется после подтверждения отправки — читаем его, чтобы
+    // эффект перезапустился и файл скачался.
+    const serverId = props.message.server_id;
+    void serverId;
     void attachmentUrl(props.profile, props.message).then(setUrl);
     void attachmentThumbUrl(props.profile, props.message).then(setThumb);
   });
@@ -587,6 +591,10 @@ function AttachmentView(props: {
   const [failed, setFailed] = createSignal(false);
 
   createEffect(() => {
+    // server_id появляется после подтверждения отправки — читаем его, чтобы
+    // эффект перезапустился и файл скачался.
+    const serverId = props.message.server_id;
+    void serverId;
     void attachmentUrl(props.profile, props.message).then((value) => {
       if (value === null) setFailed(true);
       else setUrl(value);
@@ -716,17 +724,19 @@ function StatusIcon(props: {
     props.serverId !== null && props.serverId <= props.readUpTo;
   return (
     <Switch fallback={null}>
+      {/* Все иконки одного размера: смена статуса («в очереди» → «отправлено»)
+          не должна менять высоту пузыря — иначе лента дёргается. */}
       <Match when={props.status === "pending" || props.status === "sending"}>
-        <Clock size={13} />
+        <Clock size={14} />
       </Match>
       <Match when={props.status === "failed"}>
         <CircleAlert size={14} class="status-failed" />
       </Match>
       <Match when={props.status === "sent" && read()}>
-        <CheckCheck size={15} class="status-read" />
+        <CheckCheck size={14} class="status-read" />
       </Match>
       <Match when={props.status === "sent"}>
-        <Check size={15} />
+        <Check size={14} />
       </Match>
     </Switch>
   );

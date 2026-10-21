@@ -262,6 +262,22 @@ function mergeMessages(
   });
 }
 
+/**
+ * Локальные идентификаторы ядра → идентификаторы сообщений в сторе.
+ *
+ * Оптимистичная копия сообщения сохраняет свой идентификатор, а ядро
+ * оперирует своим.  Карта нужна, чтобы события статуса (очередь отправки,
+ * подтверждение) находили сообщение.  Благодаря постоянному идентификатору
+ * строки ленты не пересоздаются — иначе видео в переписке начинается заново
+ * при каждом новом сообщении.
+ */
+const coreLocalIds = new Map<string, string>();
+
+/** Идентификатор сообщения в сторе по локальному идентификатору ядра. */
+function storeLocalId(coreLocalId: string): string {
+  return coreLocalIds.get(coreLocalId) ?? coreLocalId;
+}
+
 function mergeSingleMessage(profile: string, message: Message): void {
   const existing = accountState(profile).messages[message.chat_id] ?? [];
   // Ядро зеркалит отправителю его сообщение (для других устройств) с
@@ -708,7 +724,13 @@ export function applyEvent(profile: string, event: RchatEvent): void {
       return;
     }
     case "message_updated": {
-      mergeSingleMessage(profile, event.data as Message);
+      // Идентификатор ядра переводим в идентификатор стора — иначе
+      // подтверждение отправки добавило бы вторую копию сообщения.
+      const message = event.data as Message;
+      mergeSingleMessage(profile, {
+        ...message,
+        local_id: storeLocalId(message.local_id),
+      });
       return;
     }
     case "outbox_changed": {
@@ -718,11 +740,11 @@ export function applyEvent(profile: string, event: RchatEvent): void {
         error: string | null;
         error_code?: number | null;
       };
-      setOutboxState(profile, data.local_id, data.state, data.error);
+      setOutboxState(profile, storeLocalId(data.local_id), data.state, data.error);
       if (data.state === "failed") {
         // Сообщение осталось в очереди: предлагаем повторить (без новой
         // копии — повтор возвращает ту же запись в очередь).
-        const chatId = chatIdOfLocal(profile, data.local_id);
+        const chatId = chatIdOfLocal(profile, storeLocalId(data.local_id));
         setSendError(
           profile,
           chatId,
@@ -1151,11 +1173,14 @@ export async function sendCurrentText(
             (item) => item.local_id === m.local_id
           );
           if (index === -1) return m;
-          const localId =
+          // Идентификатор оптимистичной копии не меняем: по нему сообщение
+          // находится в ленте.  Идентификатор ядра запоминаем, чтобы события
+          // статуса находили это же сообщение.
+          const coreId =
             result.local_ids?.[index] ?? result.local_id ?? m.local_id;
+          coreLocalIds.set(coreId, m.local_id);
           return {
             ...m,
-            local_id: localId,
             status: "sending" as MessageStatus,
           };
         })
