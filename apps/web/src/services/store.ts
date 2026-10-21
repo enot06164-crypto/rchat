@@ -93,6 +93,8 @@ export interface AccountState {
 export interface AppState {
   /** Связь браузера с шлюзом (UI-уровень, к состояниям FFI отношения не имеет). */
   linkUp: boolean;
+  /** Шлюз в мультипользовательском режиме: у каждого браузера свой профиль. */
+  multiuser: boolean;
   /** Причина, по которой шлюз отказал в соединении (пусто — связи нет). */
   linkError: string | null;
   /** Состояние соединения ядра с сервером (§5.1). */
@@ -134,6 +136,7 @@ function emptyAccount(): AccountState {
 
 const INITIAL_STATE: AppState = {
   linkUp: false,
+  multiuser: false,
   linkError: null,
   connection: "disconnected",
   profiles: ["default"],
@@ -439,17 +442,21 @@ function rememberProfile(profile: string): void {
   }
 }
 
-/** Читает список аккаунтов (профилей) шлюза. */
+/** Читает список аккаунтов (профилей) шлюза и его режим. */
 export async function loadProfiles(): Promise<void> {
-  if (isMultiuser()) {
-    // Мультипользовательский режим: у устройства один профиль (выводится
-    // шлюзом из токена), чипы других аккаунтов не показываются.
+  // Режим сообщает сам шлюз: в мультипользовательском режиме у устройства
+  // один профиль (выводится шлюзом из токена), чипы других аккаунтов не
+  // показываются.
+  const list = await listProfiles();
+  // Режим шлюза важнее параметра в адресе, но и параметр учитываем: с ним
+  // переключение аккаунтов не показывается никогда.
+  setState("multiuser", list.multiuser || isMultiuser());
+  if (list.multiuser) {
     setState("profiles", ["default"]);
     return;
   }
-  const profiles = await listProfiles();
-  if (profiles.length > 0) {
-    setState("profiles", profiles);
+  if (list.profiles.length > 0) {
+    setState("profiles", list.profiles);
   }
 }
 
@@ -535,7 +542,7 @@ export async function addAccount(
 ): Promise<string | null> {
   // Мультипользовательский режим: «добавить аккаунт» = вход/регистрация в
   // единственном профиле этого устройства (новое ядро создаст шлюз).
-  const name = isMultiuser() ? "default" : profileNameFor(username);
+  const name = state.multiuser ? "default" : profileNameFor(username);
   if (!state.profiles.includes(name)) {
     setState("profiles", [...state.profiles, name]);
   }

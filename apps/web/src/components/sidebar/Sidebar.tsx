@@ -22,7 +22,6 @@ import {
   switchProfile,
 } from "../../services/store";
 import { Avatar } from "../Avatar";
-import { isMultiuser } from "../../services/api";
 import { ChatList } from "./ChatList";
 import { NewChatModal } from "./NewChatModal";
 import { SearchResults } from "./SearchResults";
@@ -171,7 +170,7 @@ export function Sidebar(props: { profile: string }) {
                 сессии нет — это ещё не аккаунты).  В мультипользовательском
                 режиме у браузера ровно один профиль (по токену устройства),
                 поэтому список и «Добавить аккаунт» скрыты. */}
-            <Show when={!isMultiuser()}>
+            <Show when={!state.multiuser}>
               <div class="me-menu__accounts">
               <For each={loggedProfiles()}>
                 {(profile) => (

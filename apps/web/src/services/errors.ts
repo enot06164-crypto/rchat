@@ -64,7 +64,7 @@ export interface ErrorAction {
  */
 export function connectErrorText(message: string): string {
   if (message.includes("multiuser mode requires")) {
-    return "Шлюз работает в мультипользовательском режиме — откройте страницу с параметром ?multiuser=1, тогда браузер получит свой профиль.";
+    return "Шлюз работает в мультипользовательском режиме и ждёт токен устройства — обновите страницу (или снимите токен в localStorage), тогда браузер получит свой профиль.";
   }
   if (message.includes("profile") && message.includes("not")) {
     return "Шлюз не знает такого профиля (аккаунта) — проверьте имя в адресе или войдите заново.";

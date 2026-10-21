@@ -198,7 +198,7 @@ class ProfileRegistry:
         tls_fingerprint: Optional[str] = None,
         tls_insecure: bool = False,
         auto_start: bool = True,
-        multiuser: bool = False,
+        multiuser: bool = True,
     ) -> None:
         self.data_root = os.path.abspath(data_root)
         self.multiuser = multiuser
@@ -389,7 +389,12 @@ async def _handler(registry: ProfileRegistry, connection: Any) -> None:
                 {
                     "@type": "ok",
                     "request": "list_profiles",
-                    "data": {"profiles": profiles},
+                    # Режим шлюза: веб по нему решает, показывать ли
+                    # переключение аккаунтов.
+                    "data": {
+                        "profiles": profiles,
+                        "multiuser": registry.multiuser,
+                    },
                 }
             )
         )
@@ -531,13 +536,22 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--multiuser",
-        default=False,
+        default=True,
         action="store_true",
         help=(
-            "public mode: the profile is derived from the browser device "
-            "token (?device=<32-byte hex>) instead of ?profile= — every "
+            "public mode (default): the profile is derived from the browser "
+            "device token (?device=<32-byte hex>) instead of ?profile= — every "
             "browser gets its own isolated core with login/registration "
             "(for publishing through a tunnel; 'default' is not exposed)"
+        ),
+    )
+    parser.add_argument(
+        "--single-user",
+        dest="multiuser",
+        action="store_false",
+        help=(
+            "personal mode: profiles are selected by name (?profile=), so the "
+            "named accounts are shared between browsers"
         ),
     )
     parser.add_argument(

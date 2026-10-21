@@ -82,7 +82,13 @@ function deviceToken(): string {
   }
 }
 
-/** Включён ли мультипользовательский режим (адрес страницы `?multiuser=1`). */
+/**
+ * Мультипользовательский режим запрошен ли адресом страницы (`?multiuser=1`).
+ *
+ * Сейчас режим определяет сам шлюз (он сообщает его в ответе со списком
+ * профилей), а параметр в адресе оставлен для совместимости: если он указан,
+ * веб не показывает переключение аккаунтов, даже если шлюз личный.
+ */
 export function isMultiuser(): boolean {
   return new URLSearchParams(window.location.search).get("multiuser") === "1";
 }
@@ -208,11 +214,9 @@ export class GatewayApi {
   private attemptConnect(): void {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const query = new URLSearchParams({ profile: this.profile });
-    if (isMultiuser()) {
-      // Мультипользовательский режим шлюза: профиль на его стороне
-      // выводится из токена устройства, `profile` игнорируется.
-      query.set("device", deviceToken());
-    }
+    // Токен устройства — всегда: в мультипользовательском режиме шлюз
+    // выводит из него профиль браузера (`profile` игнорируется).
+    query.set("device", deviceToken());
     const url = `${proto}//${window.location.host}/ws?${query}`;
     const ws = new WebSocket(url);
 
@@ -328,21 +332,30 @@ export class GatewayApi {
   }
 }
 
+/** Список профилей шлюза и его режим (мультипользовательский или личный). */
+export interface ProfileList {
+  profiles: string[];
+  /** `true` — у каждого браузера свой профиль (режим `--multiuser`). */
+  multiuser: boolean;
+}
+
 /**
  * Список профилей (аккаунтов) шлюза: короткое подключение без профиля
  * (`/ws?list=profiles`).  Ошибка не критична — показываем текущий.
  */
-export async function listProfiles(): Promise<string[]> {
+export async function listProfiles(): Promise<ProfileList> {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const query = new URLSearchParams({ list: "profiles" });
-  if (isMultiuser()) query.set("device", deviceToken());
+  // Токен устройства — всегда: в мультипользовательском режиме шлюз выводит
+  // из него профиль браузера.
+  query.set("device", deviceToken());
   const url = `${proto}//${window.location.host}/ws?${query}`;
-  return new Promise<string[]>((resolve) => {
+  return new Promise<ProfileList>((resolve) => {
     let settled = false;
-    const finish = (profiles: string[]): void => {
+    const finish = (list: ProfileList): void => {
       if (settled) return;
       settled = true;
-      resolve(profiles);
+      resolve(list);
     };
     try {
       const ws = new WebSocket(url);
@@ -352,19 +365,22 @@ export async function listProfiles(): Promise<string[]> {
         } catch {
           /* соединение уже закрыто */
         }
-        finish([]);
+        finish({ profiles: [], multiuser: false });
       }, 5000);
       ws.onmessage = (message) => {
         if (typeof message.data !== "string") return;
         try {
           const parsed = JSON.parse(message.data) as {
             "@type"?: string;
-            data?: { profiles?: string[] };
+            data?: { profiles?: string[]; multiuser?: boolean };
           };
           if (parsed["@type"] === "ok") {
             clearTimeout(timer);
             ws.close();
-            finish(parsed.data?.profiles ?? []);
+            finish({
+              profiles: parsed.data?.profiles ?? [],
+              multiuser: parsed.data?.multiuser ?? false,
+            });
           }
         } catch {
           /* не наш ответ */
@@ -372,14 +388,14 @@ export async function listProfiles(): Promise<string[]> {
       };
       ws.onerror = () => {
         clearTimeout(timer);
-        finish([]);
+        finish({ profiles: [], multiuser: false });
       };
       ws.onclose = () => {
         clearTimeout(timer);
-        finish([]);
+        finish({ profiles: [], multiuser: false });
       };
     } catch {
-      finish([]);
+      finish({ profiles: [], multiuser: false });
     }
   });
 }

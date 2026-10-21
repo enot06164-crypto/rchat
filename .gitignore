@@ -8,6 +8,7 @@
 *.sqlite3-shm
 /dev-tls/
 /rchat-data/
+/rchat-data-*/
 .nvim/
 __pycache__/
 *.py[cod]

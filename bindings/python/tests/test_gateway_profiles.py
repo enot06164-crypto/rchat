@@ -86,6 +86,8 @@ class GatewayProfilesTests(unittest.TestCase):
                     "ws://127.0.0.1:1",  # сервер не нужен: регистрация не нужна
                     "--port",
                     str(port),
+                    # Личный режим: профили выбираются по имени.
+                    "--single-user",
                 ],
                 cwd=ROOT,
                 env={
@@ -148,9 +150,6 @@ class GatewayProfilesTests(unittest.TestCase):
                     process.wait()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 def _start_gateway(root: Path, port: int, *extra: str) -> subprocess.Popen[bytes]:
     process = subprocess.Popen(
         [
@@ -203,7 +202,8 @@ class GatewayMultiuserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="rchat-gateway-multiuser-") as root:
             root_path = Path(root)
             port = _free_port()
-            process = _start_gateway(root_path, port, "--multiuser")
+            # Мультипользовательский режим — по умолчанию (без флагов).
+            process = _start_gateway(root_path, port)
             url = f"ws://127.0.0.1:{port}/ws"
             device_a = "a" * 64
             device_b = "b" * 64
@@ -222,6 +222,8 @@ class GatewayMultiuserTests(unittest.TestCase):
                     listed = json.loads(ws.recv(timeout=5))
                 with connect(f"{url}?list=profiles&device={device_b}") as ws:
                     listed_b = json.loads(ws.recv(timeout=5))
+                self.assertTrue(listed["data"]["multiuser"])
+                self.assertTrue(listed_b["data"]["multiuser"])
                 profile_a = listed["data"]["profiles"][0]
                 profile_b = listed_b["data"]["profiles"][0]
                 self.assertNotEqual(profile_a, profile_b)
