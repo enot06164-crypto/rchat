@@ -6,7 +6,6 @@ import {
   createSignal,
   on,
   onCleanup,
-  onMount,
 } from "solid-js";
 import { ChevronDown } from "lucide-solid";
 import type { Message } from "../../types/rchat";
@@ -171,20 +170,6 @@ export function MessageList(props: { chatId: string, profile: string }) {
     if (bottom) setMissed(0);
   };
 
-  // Лента может подросить, когда догрузилось фото или видео (размер медиа
-  // известен только после метаданных).  Если пользователь внизу — доезжаем
-  // вместе с ней, иначе последний пузырь упирается в поле ввода.
-  onMount(() => {
-    if (container === undefined) return;
-    const inner = container.querySelector(".message-list__inner");
-    if (inner === null) return;
-    const observer = new ResizeObserver(() => {
-      if (stick()) scrollToBottom();
-    });
-    observer.observe(inner);
-    onCleanup(() => observer.disconnect());
-  });
-
   // Переход к сообщению, на которое отвечает пузырь: прокручиваем к нему и
   // ненадолго подсвечиваем (как в Telegram).
   const [highlightedId, setHighlightedId] = createSignal<number | null>(null);
@@ -310,6 +295,12 @@ export function MessageList(props: { chatId: string, profile: string }) {
                       entering={unit.entering}
                       onQuoteClick={(serverId) => {
                         void scrollToMessage(serverId);
+                      }}
+                      onMediaLoaded={() => {
+                        // Фото или видео только что получили размер — лента
+                        // выросла.  Если пользователь внизу, доезжаем вместе
+                        // с ней, иначе пузырь упирается в поле ввода.
+                        if (stick()) scrollToBottom();
                       }}
                       highlighted={
                         unit.kind === "message" &&

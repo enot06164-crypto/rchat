@@ -89,6 +89,8 @@ export function MessageBubble(props: {
   highlighted?: boolean;
   /** Только что появилось — проиграть анимацию появления. */
   entering?: boolean;
+  /** Медиа загрузилось и получило размер (лента выросла). */
+  onMediaLoaded?: () => void;
 }) {
   /** Состояние текущего аккаунта (профиля). */
   const acc = () => accountState(props.profile);
@@ -316,7 +318,11 @@ export function MessageBubble(props: {
         </Show>
 
         <Show when={attachment() !== null && !deleted()}>
-          <AttachmentView profile={props.profile} message={props.message} />
+          <AttachmentView
+            profile={props.profile}
+            message={props.message}
+            onLoaded={props.onMediaLoaded}
+          />
         </Show>
 
         <Show when={body() !== ""}>
@@ -570,7 +576,12 @@ function AlbumItem(props: { message: Message, profile: string }) {
 }
 
 /** Содержимое вложения: фото, видео (с постером), файл или голосовое. */
-function AttachmentView(props: { message: Message, profile: string }) {
+function AttachmentView(props: {
+  message: Message;
+  profile: string;
+  /** Медиа загрузилось и получило размер. */
+  onLoaded?: () => void;
+}) {
   const [url, setUrl] = createSignal<string | null>(null);
   const [thumb, setThumb] = createSignal<string | null>(null);
   const [failed, setFailed] = createSignal(false);
@@ -598,6 +609,7 @@ function AttachmentView(props: { message: Message, profile: string }) {
               src={url() ?? ""}
               alt={props.message.attachment?.name ?? "фото"}
               onError={() => setFailed(true)}
+              onLoad={() => props.onLoaded?.()}
             />
           </Show>
         </Match>
@@ -613,6 +625,7 @@ function AttachmentView(props: { message: Message, profile: string }) {
                 poster={thumb() ?? undefined}
                 controls
                 preload="metadata"
+                onLoadedMetadata={() => props.onLoaded?.()}
               />
               <Show when={thumb() !== null}>
                 <span class="bubble__video-badge">
