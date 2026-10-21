@@ -18,6 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # protoc нужен prost-build для кодогенерации из .proto (rchat-proto).
+      - name: Установка protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: '29.3'
+          repo-token: ${{ github.token }}
+
       # Версия закреплена файлом rust-toolchain.toml (stable + rustfmt/clippy).
       - name: Установка Rust
         run: |
@@ -53,10 +60,17 @@ jobs:
             -L target/debug -lrchat_ffi -o /tmp/rchat-ffi-smoke
           LD_LIBRARY_PATH=target/debug /tmp/rchat-ffi-smoke
 
+      - name: Установка Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Run Python SDK tests
         run: |
           cargo build --locked -p rchat-ffi
           cargo build --locked --bin rchat-server
+          # Локальному шлюзу нужен websockets (опциональная зависимость пакета).
+          python3 -m pip install --quiet "websockets>=12"
           python3 -m unittest discover -s bindings/python/tests
 
       - name: Сборка веб-клиента (этап H)
@@ -71,3 +85,4 @@ jobs:
         run: |
           npm ci
           npm run build
+          npm test

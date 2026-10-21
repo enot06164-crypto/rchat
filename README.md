@@ -74,6 +74,9 @@ WebSocket-шлюз `rchat.gateway`, протокол FFI не меняется).
 ## Требования
 
 - Rust stable (версия и компоненты закреплены в `rust-toolchain.toml`);
+- `protoc` — компилятор protobuf; нужен для кодогенерации схемы протокола
+  (`rchat-proto`). На Debian/Ubuntu: `apt-get install protobuf-compiler`,
+  на Fedora: `dnf install protobuf-compiler`, на macOS: `brew install protobuf`;
 - Linux или macOS (права `0600` на файл секретов; на других ОС это
   ограничение честно отражено в `docs/threat-model.md`);
 - Python 3.9+ — только для Python SDK и его тестов; серверу и CLI не нужен.
