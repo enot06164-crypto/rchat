@@ -238,18 +238,27 @@ class ProfileRegistry:
 
     # -- мультипользовательский режим ---------------------------------------
 
-    def profile_for_device(self, device_token: str) -> Optional[str]:
+    def profile_for_device(
+        self, device_token: str, account: str = ""
+    ) -> Optional[str]:
         """Профиль устройства браузера (мультипользовательский режим).
 
         Токен генерирует веб (32 случайных байта, hex) и хранит в
         ``localStorage``; профиль — детерминированная функция токена, поэтому
         устройство при возвращении попадает в тот же профиль (сеанс
         постоянный).  Подделать чужой сеанс, не зная его токена, нельзя.
+
+        В профиль входит и имя аккаунта (``?profile=``): один браузер может
+        держать несколько аккаунтов — у каждого свои данные, как разные
+        пользователи Telegram.  Без имени — профиль устройства по умолчанию.
         """
         token = (device_token or "").strip().lower()
         if not self._DEVICE_RE.fullmatch(token):
             return None
-        digest = hashlib.sha256(token.encode("ascii")).hexdigest()[:16]
+        name = (account or "").strip().lower()
+        if not valid_profile(name) and name != "":
+            name = ""
+        digest = hashlib.sha256(f"{token}:{name}".encode("utf-8")).hexdigest()[:16]
         return f"{self.MULTIUSER_PREFIX}{digest}"
 
     # -- мосты --------------------------------------------------------------
@@ -345,6 +354,18 @@ def _profile_from_path(path: str) -> Optional[str]:
     return name
 
 
+def _device_account_from_path(path: str) -> str:
+    """Имя аккаунта устройства из ``?profile=`` (в мультирежиме это логин).
+
+    Пустая строка — профиль устройства по умолчанию (без конкретного
+    аккаунта); ``default`` трактуется так же, чтобы не плодить каталоги.
+    """
+    name = _profile_from_path(path)
+    if name is None or name == DEFAULT_PROFILE:
+        return ""
+    return name
+
+
 def _device_token_from_path(path: str) -> str:
     """Токен устройства из пути соединения (``/ws?device=<hex>``)."""
     from urllib.parse import parse_qs, urlsplit
@@ -380,7 +401,9 @@ async def _handler(registry: ProfileRegistry, connection: Any) -> None:
         if registry.multiuser:
             # Мультипользовательский режим: список одного устройства.
             device_token = _device_token_from_path(path)
-            profile = registry.profile_for_device(device_token)
+            profile = registry.profile_for_device(
+                device_token, _device_account_from_path(path)
+            )
             profiles = [profile] if profile is not None else []
         else:
             profiles = registry.list_profiles()
@@ -402,9 +425,11 @@ async def _handler(registry: ProfileRegistry, connection: Any) -> None:
         return
 
     if registry.multiuser:
-        # Мультипользовательский режим: профиль — функция токена устройства;
-        # `profile=` из адреса игнорируется, `default` недоступен.
-        profile = registry.profile_for_device(_device_token_from_path(path))
+        # Мультипользовательский режим: профиль — функция токена устройства и
+        # имени аккаунта (`profile=`); `default` недоступен.
+        profile = registry.profile_for_device(
+            _device_token_from_path(path), _device_account_from_path(path)
+        )
         if profile is None:
             await connection.send(
                 json.dumps(

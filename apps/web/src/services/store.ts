@@ -19,8 +19,10 @@ import {
   apiFor,
   chatApiFor,
   closeProfile,
+  deviceAccounts,
   isMultiuser,
   listProfiles,
+  rememberDeviceAccount,
 } from "./api";
 import {
   classifyError,
@@ -452,7 +454,9 @@ export async function loadProfiles(): Promise<void> {
   // переключение аккаунтов не показывается никогда.
   setState("multiuser", list.multiuser || isMultiuser());
   if (list.multiuser) {
-    setState("profiles", ["default"]);
+    // Мультипользовательский режим: у браузера свои аккаунты (логины), их
+    // знает только браузер — шлюз видит лишь хэши.
+    setState("profiles", deviceAccounts());
     return;
   }
   if (list.profiles.length > 0) {
@@ -540,9 +544,9 @@ export async function addAccount(
   displayName: string,
   create: boolean
 ): Promise<string | null> {
-  // Мультипользовательский режим: «добавить аккаунт» = вход/регистрация в
-  // единственном профиле этого устройства (новое ядро создаст шлюз).
-  const name = state.multiuser ? "default" : profileNameFor(username);
+  // Профиль = логин: в личном режиме это каталог accounts/<логин>, в
+  // мультипользовательском — профиль устройства и логина вместе.
+  const name = profileNameFor(username);
   if (!state.profiles.includes(name)) {
     setState("profiles", [...state.profiles, name]);
   }
@@ -558,6 +562,11 @@ export async function addAccount(
   if (!ok) {
     const notice = accountState(name).authError;
     return notice === null ? "не удалось войти" : noticeText(notice);
+  }
+  if (state.multiuser) {
+    // Логин запоминаем в браузере: в мультирежиме шлюз профили по именам не
+    // отдаёт, список аккаунтов ведём у себя.
+    rememberDeviceAccount(name);
   }
   activateProfile(name);
   await loadProfiles();

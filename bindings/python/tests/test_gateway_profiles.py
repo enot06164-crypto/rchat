@@ -251,6 +251,27 @@ class GatewayMultiuserTests(unittest.TestCase):
                 with connect(f"{url}?device={device_a}") as ws:
                     again = _call(ws, {"@type": "get_connection_state"})
                 self.assertEqual(again["@type"], "ok")
+
+                # Несколько аккаунтов в одном браузере: профиль выводится из
+                # токена устройства и имени аккаунта (`?profile=`), поэтому
+                # два аккаунта одного браузера изолированы, как разные
+                # пользователи Telegram.
+                with connect(f"{url}?device={device_a}&profile=alice") as ws:
+                    alice_profile = _call(ws, {"@type": "get_connection_state"})
+                self.assertEqual(alice_profile["@type"], "ok")
+                with connect(f"{url}?device={device_a}&profile=bob") as ws:
+                    bob_profile = _call(ws, {"@type": "get_connection_state"})
+                self.assertEqual(bob_profile["@type"], "ok")
+                self.assertTrue(
+                    (root_path / "accounts" / profile_a / "client.sqlite3").is_file()
+                )
+                # У каждого аккаунта — свой каталог: профиль устройства плюс
+                # два аккаунта (устройство A) и устройство B.
+                accounts_dir = root_path / "accounts"
+                names = sorted(
+                    item.name for item in accounts_dir.iterdir() if item.is_dir()
+                )
+                self.assertGreaterEqual(len(names), 4)
             finally:
                 _stop(process)
 

@@ -332,6 +332,43 @@ export class GatewayApi {
   }
 }
 
+/**
+ * Аккаунты этого браузера (логины), которыми вход��ли.
+ *
+ * В мультипользовательском режиме профиль на стороне шлюза выводится из токана
+ * устройства и логина: один браузер может держать несколько аккаунтов — у
+ * каждого свои данные, как разные пользователи Telegram.  Список логинов
+ * хранится в браузере (шлюз их не знает — он видит только хэши).
+ */
+const ACCOUNTS_STORAGE_KEY = "rchat.accounts";
+
+/** Логины аккаунтов этого браузера (из localStorage). */
+export function deviceAccounts(): string[] {
+  try {
+    const raw = window.localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+    if (raw === null) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** Запоминает логин аккаунта этого браузера. */
+export function rememberDeviceAccount(login: string): void {
+  try {
+    const accounts = deviceAccounts();
+    if (accounts.includes(login)) return;
+    window.localStorage.setItem(
+      ACCOUNTS_STORAGE_KEY,
+      JSON.stringify([...accounts, login])
+    );
+  } catch {
+    /* localStorage недоступен — аккаунт просто не запомнится */
+  }
+}
+
 /** Список профилей шлюза и его режим (мультипользовательский или личный). */
 export interface ProfileList {
   profiles: string[];

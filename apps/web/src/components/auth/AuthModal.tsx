@@ -1,8 +1,10 @@
 import { Show, createSignal } from "solid-js";
 import {
   accountState,
+  addAccount,
   login,
   register,
+  state,
   waitConnected,
 } from "../../services/store";
 import { Notice } from "../common/Notice";
@@ -47,6 +49,27 @@ export function AuthModal(props: { profile: string }) {
           retryable: true,
           operation: "login",
         });
+        return;
+      }
+      if (state.multiuser) {
+        // Мультипользовательский режим: у каждого аккаунта свой профиль на
+        // устройстве (как разные пользователи Telegram), поэтому вход идёт
+        // через addAccount — он заводит профиль по логину.
+        const failure = await addAccount(
+          name,
+          secret,
+          displayName().trim(),
+          mode() === "register"
+        );
+        if (failure !== null) {
+          setLocalError({
+            kind: "invalid_credentials",
+            title: "Не удалось войти",
+            message: failure,
+            retryable: true,
+            operation: "login",
+          });
+        }
         return;
       }
       if (mode() === "login") {
