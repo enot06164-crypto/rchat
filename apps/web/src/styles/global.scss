@@ -892,6 +892,167 @@ textarea {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Окно отправки медиа (фото/видео) — как в Telegram                          */
+/* ------------------------------------------------------------------------- */
+.media-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+
+  &__card {
+    width: 100%;
+    max-width: 440px;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 16px;
+    background: #212121;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  &__title {
+    flex: 1;
+    font-size: 15px;
+    font-weight: 500;
+    text-align: center;
+    color: $text-primary;
+  }
+
+  &__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    color: $text-secondary;
+    transition: background-color $transition-fast;
+
+    &:hover {
+      background: $bg-surface-hover;
+    }
+  }
+
+  &__body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  // Превью: одно фото — во всю ширину, несколько — сеткой (как альбом).
+  &__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    width: 100%;
+    max-height: 100%;
+
+    &--many {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  &__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #0e0e0e;
+
+    img {
+      display: block;
+      width: 100%;
+      max-height: 46vh;
+      object-fit: contain;
+    }
+  }
+
+  &__play {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    pointer-events: none;
+  }
+
+  &__mode {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 12px;
+  }
+
+  &__file {
+    padding: 8px;
+    color: $text-secondary;
+    font-size: 13px;
+  }
+
+  &__foot {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  &__caption {
+    flex: 1;
+    min-height: 40px;
+    max-height: 120px;
+    padding: 10px 12px;
+    border-radius: 18px;
+    background: #2b2b2b;
+    color: $text-primary;
+    font: inherit;
+    resize: none;
+    user-select: text;
+  }
+
+  &__send {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border-radius: 50%;
+    background: $accent-purple;
+    color: $text-on-accent;
+    transition: background-color $transition-fast;
+
+    &:hover {
+      background: $accent-purple-hover;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Пузыри сообщений (WebK .bubble + группировка .is-group-first/.is-group-last)*/
 /* ------------------------------------------------------------------------- */
 .bubble-row {

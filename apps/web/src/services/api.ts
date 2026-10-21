@@ -421,6 +421,8 @@ export function chatApiFor(profile: string) {
     connection.call<{ state: string }>("get_connection_state"),
   getSession: () => connection.call<unknown>("get_session"),
   getChats: () => connection.call<unknown[]>("get_chats"),
+  /** Список чатов с сервера (на новом устройстве локальный кэш пуст). */
+  refreshChats: () => connection.call<unknown[]>("refresh_chats"),
   getChatMembers: (chatId: string) =>
     connection.call<unknown[]>("get_chat_members", { chat_id: chatId }),
   /** Запрос собеседнику перевести чат в приватный режим (E2E). */

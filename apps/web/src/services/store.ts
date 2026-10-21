@@ -376,8 +376,13 @@ export async function boot(profile: string): Promise<void> {
     setState("accounts", profile, "session", session);
     await loadSettings(profile);
     if (session !== null) {
+      // Сначала локальный кэш (мгновенно), затем список с сервера — на новом
+      // устройстве локального кэша ещё нет.
       const chats = (await chatApi.getChats()) as Chat[];
       setState("accounts", profile, "chats", chats.sort(byCreatedDesc));
+      await refreshChats(profile);
+      const fresh = (await chatApi.getChats()) as Chat[];
+      setState("accounts", profile, "chats", fresh.sort(byCreatedDesc));
       // Deep-link для смоков и закладок: /?chat=<chat_id> открывает чат сразу
       const want = new URLSearchParams(window.location.search).get("chat");
       if (want !== null && chats.some((c) => c.chat_id === want)) {
@@ -621,7 +626,9 @@ export async function searchMessages(
 export async function refreshChats(profile: string): Promise<void> {
   accountState(profile);
   try {
-    const chats = (await chatApiFor(profile).getChats()) as Chat[];
+    // С сервера: на новом устройстве локальный кэш пуст, и список чатов
+    // без этого запроса остался бы пустым.
+    const chats = (await chatApiFor(profile).refreshChats()) as Chat[];
     setState("accounts", profile, "chats", chats.sort(byCreatedDesc));
   } catch {
     /* переподключение — состояние соединения придёт событием */

@@ -9,6 +9,7 @@ import {
   sendCurrentText,
 } from "../../services/store";
 import { Notice } from "../common/Notice";
+import { MediaPreview, type PreparedMedia } from "./MediaPreview";
 import { messageText } from "../../utils/messages";
 import type { ErrorNotice } from "../../services/errors";
 import {
@@ -46,6 +47,8 @@ export function MessageInput(props: { chatId: string, profile: string }) {
   const acc = () => accountState(props.profile);
   const [value, setValue] = createSignal("");
   const [prepared, setPrepared] = createSignal<Prepared[]>([]);
+  // Фото/видео — в отдельном окне отправки (как в Telegram).
+  const [media, setMedia] = createSignal<PreparedMedia[]>([]);
   const [recording, setRecording] = createSignal(false);
   const [attachError, setAttachError] = createSignal<ErrorNotice | null>(null);
   let textarea!: HTMLTextAreaElement;
@@ -84,6 +87,33 @@ export function MessageInput(props: { chatId: string, profile: string }) {
       textarea.style.height = "auto";
       textarea.focus();
     });
+  };
+
+  /** Отправляет медиа из окна превью с подписью. */
+  const sendMedia = async (caption: string): Promise<void> => {
+    const items = media();
+    if (items.length === 0) return;
+    setMedia([]);
+    const sent = await sendCurrentText(
+      props.profile,
+      caption,
+      items.map((item) => ({
+        ...item.attachment,
+        thumb_base64: item.thumb?.data_base64,
+        thumb_mime: item.thumb?.mime,
+      }))
+    );
+    // Отправка не началась — возвращаем медиа в окно, чтобы не потерять их.
+    if (!sent) setMedia(items);
+  };
+
+  /** Переключает «сжато / без сжатия» для фото в окне отправки. */
+  const toggleMediaCompress = (index: number): void => {
+    setMedia((prev) =>
+      prev.map((item, i) =>
+        i === index ? { ...item, compressible: !item.compressible } : item
+      )
+    );
   };
 
   /** Готовит выбранные файлы к отправке. */
@@ -125,7 +155,15 @@ export function MessageInput(props: { chatId: string, profile: string }) {
         });
       }
     }
-    if (next.length > 0) setPrepared((prev) => [...prev, ...next]);
+    if (next.length === 0) return;
+    // Фото и видео отправляем через окно превью (как в Telegram), остальные
+    // файлы — обычной строкой вложений.
+    const isMedia = (item: Prepared): boolean =>
+      item.attachment.kind === "photo" || item.attachment.kind === "video";
+    const mediaItems = next.filter(isMedia);
+    const fileItems = next.filter((item) => !isMedia(item));
+    if (mediaItems.length > 0) setMedia((prev) => [...prev, ...mediaItems]);
+    if (fileItems.length > 0) setPrepared((prev) => [...prev, ...fileItems]);
   };
 
   const onFileChange = async (event: Event): Promise<void> => {
@@ -284,6 +322,15 @@ export function MessageInput(props: { chatId: string, profile: string }) {
               <X size={18} />
             </button>
           </div>
+        </Show>
+
+        <Show when={media().length > 0}>
+          <MediaPreview
+            items={media()}
+            onSend={(caption) => void sendMedia(caption)}
+            onClose={() => setMedia([])}
+            onToggleCompress={toggleMediaCompress}
+          />
         </Show>
 
         <Show when={prepared().length > 0}>
