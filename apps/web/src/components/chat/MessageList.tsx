@@ -225,7 +225,10 @@ export function MessageList(props: { chatId: string, profile: string }) {
   );
 
   return (
-    <div class="message-list" ref={container} onScroll={onScroll}>
+    // Кнопка «вниз» — рядом с лентой, а не внутри неё: внутри она
+    // прокручивается вместе с сообщениями и уезжает от поля ввода.
+    <div class="message-list-wrap">
+      <div class="message-list" ref={container} onScroll={onScroll}>
       <div class="message-list__inner">
         <Show
           when={units().length > 0}
@@ -281,6 +284,7 @@ export function MessageList(props: { chatId: string, profile: string }) {
             )}
           </For>
         </Show>
+      </div>
       </div>
 
       <Show when={showDown()}>

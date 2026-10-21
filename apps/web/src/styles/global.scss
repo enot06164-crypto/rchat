@@ -755,7 +755,15 @@ textarea {
   flex-direction: column;
 }
 
-/* Лента */
+/* Лента и кнопка «вниз» (кнопка — вне ленты, чтобы не прокручивалась) */
+.message-list-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .message-list {
   flex: 1;
   min-height: 0;
@@ -837,21 +845,19 @@ textarea {
 .feed-down {
   position: absolute;
   right: 16px;
-  // У самого низа ленты, над полем ввода (как в Telegram).
-  bottom: 12px;
+  // У самого низа ленты, вплотную к полю ввода (как в Telegram).
+  bottom: 8px;
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  // Полупрозрачный круг с размытием: сквозь него видны обои чата (как в
-  // Telegram), тонкая светлая рамка и мягкая тень.
-  background: rgba(0, 0, 0, 0.32);
+  // Тёмный непрозрачный круг с тонкой рамкой (как в Telegram).
+  background: $bg-surface;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(14px);
-  color: rgba(255, 255, 255, 0.85);
+  color: $text-secondary;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
   z-index: 4;
   animation: fade-in-opacity 0.2s $ease-standard;
   transition: background-color $transition-fast, transform $transition-fast;
@@ -862,7 +868,8 @@ textarea {
   }
 
   &:hover {
-    background: rgba(0, 0, 0, 0.45);
+    background: #2b2b2b;
+    color: $text-primary;
   }
 
   &:active {
