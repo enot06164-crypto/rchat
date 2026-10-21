@@ -1,5 +1,5 @@
-import { For, Show, createSignal } from "solid-js";
-import { Play, SendHorizontal, X } from "lucide-solid";
+import { For, Show, createSignal, onCleanup } from "solid-js";
+import { SendHorizontal, X } from "lucide-solid";
 import type { AttachmentUpload } from "../../types/rchat";
 import { formatSize } from "../../services/attachments";
 
@@ -16,6 +16,66 @@ function previewUrl(item: PreparedMedia): string {
   const data = item.thumb?.data_base64 ?? item.attachment.data_base64;
   const mime = item.thumb?.mime ?? item.attachment.mime;
   return `data:${mime || "image/jpeg"};base64,${data}`;
+}
+
+/**
+ * Blob-URL для видео: байты файла уже в браузере (base64), поэтому отдаём их
+ * объектом URL — так видео играет в превью без загрузки с сервера.
+ */
+function videoObjectUrl(item: PreparedMedia): string {
+  const data = item.attachment.data_base64;
+  const mime = item.attachment.mime || "video/mp4";
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+}
+
+/** Превью одного вложения: фото — картинка, видео — играющий ролик. */
+function MediaItem(props: {
+  item: PreparedMedia;
+  index: number;
+  onToggleCompress?: (index: number) => void;
+}) {
+  const isVideo = () => props.item.attachment.kind === "video";
+  const [videoUrl, setVideoUrl] = createSignal<string | null>(null);
+  if (isVideo()) {
+    // Объект URL освобождаем, когда окно закрыли.
+    const url = videoObjectUrl(props.item);
+    setVideoUrl(url);
+    onCleanup(() => URL.revokeObjectURL(url));
+  }
+  return (
+    <div class="media-preview__item">
+      <Show
+        when={isVideo()}
+        fallback={
+          <img src={previewUrl(props.item)} alt={props.item.attachment.name} />
+        }
+      >
+        <video
+          src={videoUrl() ?? undefined}
+          controls
+          playsinline
+          preload="metadata"
+        />
+      </Show>
+      <Show when={props.item.compressible && props.onToggleCompress !== undefined}>
+        <button
+          class="media-preview__mode"
+          title="Отправить без сжатия"
+          onClick={() => props.onToggleCompress?.(props.index)}
+        >
+          Без сжатия
+        </button>
+      </Show>
+      <Show when={props.item.attachment.kind === "file"}>
+        <span class="media-preview__file">
+          {props.item.attachment.name} · {formatSize(props.item.attachment.size)}
+        </span>
+      </Show>
+    </div>
+  );
 }
 
 /** Заголовок окна: «Отправить 1 фото», «Отправить видео», … */
@@ -69,28 +129,11 @@ export function MediaPreview(props: {
           <div classList={{ "media-preview__grid": true, "media-preview__grid--many": multiple() }}>
             <For each={props.items}>
               {(item, index) => (
-                <div class="media-preview__item">
-                  <img src={previewUrl(item)} alt={item.attachment.name} />
-                  <Show when={item.attachment.kind === "video"}>
-                    <span class="media-preview__play">
-                      <Play size={22} />
-                    </span>
-                  </Show>
-                  <Show when={item.compressible && props.onToggleCompress !== undefined}>
-                    <button
-                      class="media-preview__mode"
-                      title="Отправить без сжатия"
-                      onClick={() => props.onToggleCompress?.(index())}
-                    >
-                      Без сжатия
-                    </button>
-                  </Show>
-                  <Show when={item.attachment.kind === "file"}>
-                    <span class="media-preview__file">
-                      {item.attachment.name} · {formatSize(item.attachment.size)}
-                    </span>
-                  </Show>
-                </div>
+                <MediaItem
+                  item={item}
+                  index={index()}
+                  onToggleCompress={props.onToggleCompress}
+                />
               )}
             </For>
           </div>
