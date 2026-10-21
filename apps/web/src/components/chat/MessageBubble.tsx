@@ -184,6 +184,9 @@ export function MessageBubble(props: {
       data-server-id={props.message.server_id ?? undefined}
       onMouseEnter={showReply}
       onMouseLeave={hideReply}
+      // Правая кнопка по всей полосе сообщения (как в Telegram), а не только
+      // по самому пузырю.
+      onContextMenu={openMenu}
     >
       <Show when={!own() && props.isGroup && !isPrivateModeRequest()}>
         <div class="bubble-row__avatar-slot">
@@ -204,7 +207,6 @@ export function MessageBubble(props: {
           "bubble--has-media": attachment() !== null && !deleted(),
           "bubble--service": isPrivateModeRequest(),
         }}
-        onContextMenu={openMenu}
         onDblClick={() => {
           if (!deleted()) setReplyTo(props.profile, props.message);
         }}
@@ -394,6 +396,7 @@ export function MessageBubble(props: {
             top: `${menuPos()!.y}px`,
           }}
           role="menu"
+          onClick={(event) => event.stopPropagation()}
         >
           <button
             role="menuitem"

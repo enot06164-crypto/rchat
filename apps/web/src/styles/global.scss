@@ -1494,7 +1494,8 @@ textarea {
   position: fixed;
   z-index: 60;
   min-width: 200px;
-  background: $bg-menu;
+  // Почти непрозрачный фон: подписи пунктов не должны тонуть в сообщениях.
+  background: rgba(33, 33, 33, 0.97);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
   border-radius: $radius-panel;

@@ -35,6 +35,8 @@ export function ChatView(props: { profile: string }) {
   );
   const [infoOpen, setInfoOpen] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
+  /** Центральная колонка чата (лента + шапка + ввод). */
+  let chatMain!: HTMLDivElement;
   // Режим чата предлагаем менять только в личном чате: включить приватный
   // или вернуть обычный.
   const canRequestPrivateMode = (): boolean => {
@@ -92,9 +94,18 @@ export function ChatView(props: { profile: string }) {
             "is-right-column-shown": infoOpen(),
           }}
         >
-          <div class="chat-view__center">
+          <div
+            class="chat-view__center"
+            // Колесо прокручивает ленту в любом месте чата (даже мимо
+            // сообщений, по обоям) — как в Telegram.
+            onWheel={(event) => {
+              const list = chatMain.querySelector<HTMLElement>(".message-list");
+              if (list === null) return;
+              list.scrollTop += event.deltaY;
+            }}
+          >
             {/* Лента, шапка и ввод — центральная колонка 720px (как в Telegram) */}
-            <div class="chat-main">
+            <div class="chat-main" ref={chatMain}>
               <header
                 class="chat-view__header"
                 onClick={() => setInfoOpen((open) => !open)}
