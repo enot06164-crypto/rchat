@@ -764,6 +764,13 @@ textarea {
   position: relative;
   display: flex;
   flex-direction: column;
+  // Полосы прокрутки нет (как в Telegram): прокрутка колесом и
+  // перетаскиванием работает, а тонкая полоска не режет вёрстку.
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
   &__inner {
     flex: 1;
