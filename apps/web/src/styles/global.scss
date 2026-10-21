@@ -1061,16 +1061,18 @@ textarea {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  max-width: 84%;
+  // Полоса сообщения — вся ширина ленты (как в Telegram): правая кнопка по
+  // ней открывает контекстное меню, а сам пузырь внутри прижат к краю.
+  width: 100%;
+  max-width: 100%;
   margin-bottom: 2px;
 
   &--own {
-    align-self: flex-end;
-    flex-direction: row-reverse;
+    justify-content: flex-end;
   }
 
   &--in {
-    align-self: flex-start;
+    justify-content: flex-start;
   }
 
   // Между группами разных авторов — увеличенный отступ
@@ -1101,7 +1103,8 @@ textarea {
   padding: 4px 9px 5px;
   border-radius: $radius-bubble;
   min-width: 56px;
-  max-width: 100%;
+  // Пузырь не растягивается на всю полосу сообщения (как в Telegram).
+  max-width: 85%;
   user-select: text;
 
   &--in {
@@ -1354,12 +1357,9 @@ textarea {
 }
 
 // Альбом (медиагруппа): сетка медиа + подпись
-.bubble-row--album {
-  max-width: 84%;
-}
-
 .bubble--album-body {
   padding: 4px;
+  max-width: 85%;
 }
 
 .bubble__album {
@@ -1494,8 +1494,8 @@ textarea {
   position: fixed;
   z-index: 60;
   min-width: 200px;
-  // Почти непрозрачный фон: подписи пунктов не должны тонуть в сообщениях.
-  background: rgba(33, 33, 33, 0.97);
+  // Плотный фон: подписи пунктов не должны тонуть в сообщениях.
+  background: #212121;
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
   border-radius: $radius-panel;
@@ -2237,9 +2237,11 @@ textarea {
 
 /* Служебное сообщение (карточка запроса) — по центру ленты, без пузыря */
 .bubble-row--service {
+  // Служебная карточка не тянется на всю полосу — она по центру.
+  width: auto;
+  max-width: 100%;
   align-self: center;
   justify-content: center;
-  max-width: 92%;
   padding: 8px 0;
 }
 
