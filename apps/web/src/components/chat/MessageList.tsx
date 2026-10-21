@@ -134,6 +134,15 @@ export function MessageList(props: { chatId: string, profile: string }) {
     );
   };
 
+  // «Липкий низ»: пока пользователь не ушёл вверх, новое сообщение
+  // прокручивает ленту вниз.  Проверять «близко ли к низу» в момент
+  // прихода сообщения нельзя — лента как раз выросла, и расстояние до низа
+  // увеличилось.  Поэтому держим флаг и меняем его только когда прокрутил
+  // сам пользователь.
+  const [stick, setStick] = createSignal(true);
+  let lastScrollTop = 0;
+  let lastScrollHeight = 0;
+
   const scrollToBottom = (smooth = false): void => {
     if (container === undefined) return;
     container.scrollTo({
@@ -145,6 +154,17 @@ export function MessageList(props: { chatId: string, profile: string }) {
   };
 
   const onScroll = (): void => {
+    if (container === undefined) return;
+    const top = container.scrollTop;
+    const height = container.scrollHeight;
+    // Лента выросла сама (пришло сообщение): позиция не изменилась — это
+    // не действие пользователя, «липкость» сохраняется.
+    const contentGrew = height > lastScrollHeight && top === lastScrollTop;
+    if (!contentGrew) {
+      setStick(nearBottom());
+    }
+    lastScrollTop = top;
+    lastScrollHeight = height;
     const bottom = nearBottom();
     setShowDown(!bottom);
     if (bottom) setMissed(0);
@@ -203,6 +223,11 @@ export function MessageList(props: { chatId: string, profile: string }) {
       () => props.chatId,
       () => {
         setHighlightedId(null);
+        // Новый чат открываем снизу, а лента при загрузке истории сама
+        // доедет до последнего сообщения.
+        setStick(true);
+        lastScrollTop = 0;
+        lastScrollHeight = 0;
         scrollToBottom();
       },
       { defer: true }
@@ -212,10 +237,14 @@ export function MessageList(props: { chatId: string, profile: string }) {
     on(
       () => units().length,
       () => {
-        if (nearBottom()) {
+        if (stick()) {
+          // Пользователь внизу (или ещё ни разу не прокручивал) — ведём к
+          // последнему сообщению.
           scrollToBottom();
           setShowDown(false);
+          setMissed(0);
         } else {
+          // Читает историю — не трогаем позицию, показываем кнопку «вниз».
           setMissed((m) => m + 1);
           setShowDown(true);
         }
