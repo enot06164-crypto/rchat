@@ -391,19 +391,24 @@ export async function boot(profile: string): Promise<void> {
   accountState(profile); // слот аккаунта должен существовать до setState
   const chatApi = chatApiFor(profile);
   try {
-    const connection = await chatApi.getConnectionState();
+    // Первые три запроса независимы — шлём их параллельно: через публичный
+    // туннель каждый запрос стоит сотни миллисекунд, и по отдельности
+    // загрузка втрое дольше.
+    const [connection, sessionRaw] = await Promise.all([
+      chatApi.getConnectionState(),
+      chatApi.getSession(),
+      loadSettings(profile),
+    ]);
+    const session = sessionRaw as Session | null;
     setState("connection", connection.state as ConnectionState);
-    const session = (await chatApi.getSession()) as Session | null;
     setState("accounts", profile, "session", session);
-    await loadSettings(profile);
     if (session !== null) {
       // Сначала локальный кэш (мгновенно), затем список с сервера — на новом
       // устройстве локального кэша ещё нет.
       const chats = (await chatApi.getChats()) as Chat[];
       setState("accounts", profile, "chats", chats.sort(byCreatedDesc));
+      // refreshChats возвращает список с сервера — повторный get_chats не нужен.
       await refreshChats(profile);
-      const fresh = (await chatApi.getChats()) as Chat[];
-      setState("accounts", profile, "chats", fresh.sort(byCreatedDesc));
       // Deep-link для смоков и закладок: /?chat=<chat_id> открывает чат сразу
       const want = new URLSearchParams(window.location.search).get("chat");
       if (want !== null && chats.some((c) => c.chat_id === want)) {
@@ -989,6 +994,18 @@ async function loadChatHistory(
       );
     }
 
+    // Отметка о прочтении — параллельно остальным запросам: она не должна
+    // задерживать показ истории (через туннель каждый запрос небыстрый).
+    requests.push(
+      (async () => {
+        try {
+          await chatApi.markRead(chatId);
+        } catch {
+          /* отметка о прочтении не критична для UI */
+        }
+      })()
+    );
+
     const results = await Promise.allSettled(requests);
     for (const result of results) {
       if (result.status === "rejected") {
@@ -1001,11 +1018,6 @@ async function loadChatHistory(
           classifyError(reason, { operation: "history", chatId })
         );
       }
-    }
-    try {
-      await chatApi.markRead(chatId);
-    } catch {
-      /* отметка о прочтении не критична для UI */
     }
   })();
   await job;

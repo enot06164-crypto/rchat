@@ -57,6 +57,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from typing import Any, Optional
 
 _LOG = logging.getLogger("rchat.gateway")
@@ -112,45 +114,79 @@ class WebSocketBridge:
         method = request.get("@type")
         if not isinstance(method, str) or not method:
             return _error_response("invalid_request", "missing @type")
+        started = time.perf_counter()
         try:
             data = self._client._command(request)  # noqa: SLF001 same package
         except BaseException as error:  # noqa: BLE001 - rendered as an FFI error
+            _LOG.debug("команда %s: ошибка за %.0f мс", method,
+                       (time.perf_counter() - started) * 1000)
             return _error_from_exception(error, method)
+        _LOG.debug("команда %s: %.0f мс", method,
+                   (time.perf_counter() - started) * 1000)
         return {"@type": "ok", "request": method, "data": data}
 
     # -- events ---------------------------------------------------------------
 
     async def relay_loop(self) -> None:
-        """Push native events onto all current sockets (loop-thread only)."""
+        """Push native events onto all current sockets (loop-thread only).
+
+        События читает отдельный поток, а не ``run_in_executor``: опрос
+        событий блокируется в очереди на всё время ожидания и держал бы
+        поток общего executor'а, из-за чего команды браузера (в том числе
+        отправка сообщения) вставали бы в очередь.  Отдельный поток читает
+        события независимо от event loop, поэтому команда, выполняемая ядром,
+        не задерживает доставку событий в браузер.
+        """
         loop = asyncio.get_running_loop()
-        while not self._closed:
-            try:
-                event = await loop.run_in_executor(
-                    None, self._client.poll_event, 0.25
-                )
-            except asyncio.CancelledError:
-                raise
-            except RuntimeError:
-                # The loop is shutting down (executor closed).  Leave quietly.
-                if self._closed:
+        queue: asyncio.Queue[Any] = asyncio.Queue()
+        stop = threading.Event()
+        reader = threading.Thread(
+            target=self._read_events,
+            args=(loop, queue, stop),
+            name=f"rchat-events-{self.profile}",
+            daemon=True,
+        )
+        reader.start()
+        try:
+            while not self._closed:
+                event = await queue.get()
+                if event is None:
                     return
-                _LOG.exception("event relay executor is not running; retrying")
-                await asyncio.sleep(0.5)
-            except Exception as error:  # noqa: BLE001 - stats only
+                if not self.connections:
+                    continue
+                payload = json.dumps(
+                    {"@type": "event", "event": event.event, "data": event.data}
+                )
+                from websockets.asyncio.server import broadcast
+
+                broadcast(self.connections, payload, raise_exceptions=True)
+        finally:
+            stop.set()
+            reader.join(timeout=1.0)
+
+    def _read_events(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        queue: "asyncio.Queue[Any]",
+        stop: threading.Event,
+    ) -> None:
+        """Читает события ядра (поток вне event loop).
+
+        Пауза опроса короткая (50 мс): событие попадает в браузер сразу,
+        а простаивающий шлюз почти не нагружает процессор.
+        """
+        while not stop.is_set() and not self._closed:
+            try:
+                event = self._client.poll_event(0.05)
+            except Exception as error:  # noqa: BLE001 - поток не должен умирать
                 if self._closed:
                     return
                 _LOG.exception("event poll failed: %s", error)
-                await asyncio.sleep(0.5)
+                stop.wait(0.5)
+                continue
             if event is None:
                 continue
-            if not self.connections:
-                continue
-            payload = json.dumps(
-                {"@type": "event", "event": event.event, "data": event.data}
-            )
-            from websockets.asyncio.server import broadcast
-
-            broadcast(self.connections, payload, raise_exceptions=True)
+            loop.call_soon_threadsafe(queue.put_nowait, event)
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +430,7 @@ def _make_process_request() -> Any:
 async def _handler(registry: ProfileRegistry, connection: Any) -> None:
     from websockets.exceptions import ConnectionClosed  # type: ignore[import-not-found]
 
+    loop = asyncio.get_running_loop()
     path = connection.request.path
 
     # Список профилей — короткое подключение без профиля: `/ws?list=profiles`.
@@ -470,7 +507,13 @@ async def _handler(registry: ProfileRegistry, connection: Any) -> None:
                     )
                 )
                 continue
-            response = bridge.dispatch_client_json(raw)
+            # Команда выполняется в отдельном потоке: вызов ядра занимает
+            # десятки миллисекунд (шифрование, запись в БД, сеть), а event
+            # loop не должен простаивать — иначе события о других чатах и
+            # подтверждения отправки приходят с задержкой.
+            response = await loop.run_in_executor(
+                None, bridge.dispatch_client_json, raw
+            )
             await connection.send(json.dumps(response))
     except ConnectionClosed:
         pass
@@ -591,14 +634,23 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="skip TLS certificate verification (dev only)",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help=(
+            "уровень журнала: DEBUG показывает время каждой команды "
+            "(полезно, чтобы понять, где задержка)"
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
     args = _parse_args(argv)
+    logging.basicConfig(
+        level=str(args.log_level).upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     try:
         import websockets  # noqa: F401 - fail early with a clear message
     except ModuleNotFoundError as error:
