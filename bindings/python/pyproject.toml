@@ -18,6 +18,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.urls]
+Repository = "https://github.com/enot06164-crypto/rchat"
+Documentation = "https://github.com/enot06164-crypto/rchat/blob/main/docs/ffi.md"
+
 [project.optional-dependencies]
 # Local WebSocket gateway (`python3 -m rchat.gateway`), not used by the SDK.
 gateway = ["websockets>=12"]

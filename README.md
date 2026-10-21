@@ -1,5 +1,8 @@
 # rchat
 
+[![CI](https://github.com/enot06164-crypto/rchat/actions/workflows/ci.yml/badge.svg)](https://github.com/enot06164-crypto/rchat/actions/workflows/ci.yml)
+[![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 Учебно-рабочий мессенджер на Rust: сервер + клиентское ядро + терминальный
 клиент (CLI). Два режима чатов, как в Telegram: **облачный** (по умолчанию —
 сервер знает ключ чата, умеет искать по истории и отдаёт её новому устройству)
@@ -371,4 +374,4 @@ Docker). Что именно покрывают тесты и как польз�
 
 ## Лицензия
 
-Apache-2.0.
+Apache-2.0 — полный текст в файле [LICENSE](LICENSE).

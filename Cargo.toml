@@ -19,7 +19,8 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
 license = "Apache-2.0"
-repository = "https://example.invalid/rchat"
+repository = "https://github.com/enot06164-crypto/rchat"
+homepage = "https://github.com/enot06164-crypto/rchat"
 
 [workspace.dependencies]
 # Публикация лицензий/версий — единая точка. Крейты подключают только нужное.
