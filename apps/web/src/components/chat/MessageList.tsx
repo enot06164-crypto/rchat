@@ -1,5 +1,5 @@
 import {
-  For,
+  Index,
   Show,
   createEffect,
   createMemo,
@@ -227,45 +227,57 @@ export function MessageList(props: { chatId: string, profile: string }) {
             </div>
           }
         >
-          <For each={units()}>
-            {(unit) => (
-              <>
-                <Show when={unit.date !== null}>
-                  <DateChip label={unit.date ?? ""} />
-                </Show>
-                <Show
-                  when={unit.kind === "album"}
-                  fallback={
-                    <MessageBubble
+          {/* Index, а не For: строки переиспользуются по индексу, поэтому
+              при новом сообщении не пересоздаются — иначе все видимые
+              пузыри заново проигрывали бы анимацию появления (мерцание). */}
+          <Index each={units()}>
+            {(unit) => {
+              const current = unit();
+              return (
+                <>
+                  <Show when={current.date !== null}>
+                    <DateChip label={current.date ?? ""} />
+                  </Show>
+                  <Show
+                    when={current.kind === "album"}
+                    fallback={
+                      <MessageBubble
+                        profile={props.profile}
+                        message={
+                          current.kind === "message"
+                            ? current.message
+                            : current.messages[0]
+                        }
+                        showAuthor={
+                          current.kind === "message" ? current.showAuthor : false
+                        }
+                        isGroup={isGroup()}
+                        isFirstInGroup={
+                          current.kind === "message" ? current.isFirstInGroup : true
+                        }
+                        isLastInGroup={
+                          current.kind === "message" ? current.isLastInGroup : true
+                        }
+                        onQuoteClick={(serverId) => {
+                          void scrollToMessage(serverId);
+                        }}
+                        highlighted={
+                          current.kind === "message" &&
+                          highlightedId() !== null &&
+                          highlightedId() === current.message.server_id
+                        }
+                      />
+                    }
+                  >
+                    <AlbumBubble
                       profile={props.profile}
-                      message={unit.kind === "message" ? unit.message : unit.messages[0]}
-                      showAuthor={unit.kind === "message" ? unit.showAuthor : false}
-                      isGroup={isGroup()}
-                      isFirstInGroup={
-                        unit.kind === "message" ? unit.isFirstInGroup : true
-                      }
-                      isLastInGroup={
-                        unit.kind === "message" ? unit.isLastInGroup : true
-                      }
-                      onQuoteClick={(serverId) => {
-                        void scrollToMessage(serverId);
-                      }}
-                      highlighted={
-                        unit.kind === "message" &&
-                        highlightedId() !== null &&
-                        highlightedId() === unit.message.server_id
-                      }
+                      messages={current.kind === "album" ? current.messages : []}
                     />
-                  }
-                >
-                  <AlbumBubble
-                    profile={props.profile}
-                    messages={unit.kind === "album" ? unit.messages : []}
-                  />
-                </Show>
-              </>
-            )}
-          </For>
+                  </Show>
+                </>
+              );
+            }}
+          </Index>
         </Show>
       </div>
 

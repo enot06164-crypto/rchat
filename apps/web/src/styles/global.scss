@@ -837,7 +837,8 @@ textarea {
 .feed-down {
   position: absolute;
   right: 16px;
-  bottom: 76px;
+  // У самого низа ленты, над полем ввода (как в Telegram).
+  bottom: 12px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
