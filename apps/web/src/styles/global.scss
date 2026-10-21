@@ -839,21 +839,30 @@ textarea {
   right: 16px;
   // У самого низа ленты, над полем ввода (как в Telegram).
   bottom: 12px;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  background: $bg-surface;
-  color: $text-primary;
+  // Полупрозрачный круг с размытием: сквозь него видны обои чата (как в
+  // Telegram), тонкая светлая рамка и мягкая тень.
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  color: rgba(255, 255, 255, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: $shadow-elevated;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
   z-index: 4;
   animation: fade-in-opacity 0.2s $ease-standard;
   transition: background-color $transition-fast, transform $transition-fast;
 
+  // Тонкая стрелка, как в Telegram.
+  svg {
+    stroke-width: 1.5;
+  }
+
   &:hover {
-    background: #2b2b2b;
+    background: rgba(0, 0, 0, 0.45);
   }
 
   &:active {
