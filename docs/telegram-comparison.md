@@ -1,15 +1,14 @@
-# Telegram-level comparison for rchat (autonomous target list)
-# Created by rchat-improvements automation. Do NOT skip.
+# rchat benchmark — Telegram-level comparison (auto-target)
+# Automation: read this file every run; if item missing → ADD it.
+MANDATORY TARGETS:
+- Mobile native build docs / SDK (iOS/Android)
+- Production Dockerfile + docker-compose
+- Release artifacts (.AppImage / .deb / macOS / binary)
+- CI release pipeline (not only fmt/clippy/check)
+- Bot / webhook API stub (Telegram-style integration)
+- Analytics / metrics (usage, errors, retention)
+- EN documentation (README install, protocol)
+- Full integration/e2e tests (not smoke-only)
+- Multi-device sync / server-side history search
 
-Missing / to add:
-- [ ] Mobile native app / build pipeline (iOS/Android)
-- [ ] Bot / webhook API (Telegram-style bot integration)
-- [ ] Analytics / metrics stub (usage, errors, retention)
-- [ ] Dockerfile / deploy docs (production server)
-- [ ] AppImage / .deb / macOS release workflow
-- [ ] EN language docs (README install + protocol)
-- [ ] QR login / multi-device sync doc
-- [ ] Group chat admin roles (already partial — verify completeness)
-- [ ] Search server-side + metadata export
-- [ ] Testing: integration tests for crypto + transport + storage
-- [ ] CI release artifacts (not just checks)
+RULE: If branch is missing any above → add real scaffold, never skip.
