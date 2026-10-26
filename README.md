@@ -378,3 +378,8 @@ Docker). Что именно покрывают тесты и как польз�
 ## Лицензия
 
 Apache-2.0 — полный текст в файле [LICENSE](LICENSE).
+
+## Install (English)
+
+
+Releases: check PR #1 branch .
